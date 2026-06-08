@@ -22,6 +22,7 @@ import FormasPagamento from './pages/configuracoes/FormasPagamento'
 import Planos from './pages/configuracoes/Planos'
 import ConfigNotificacoes from './pages/configuracoes/ConfigNotificacoes'
 import Integracoes from './pages/configuracoes/Integracoes'
+import ChatbotIA from './pages/ChatbotIA'
 
 function ProtectedRoute({ children, allowedRoles }: { children: React.ReactNode; allowedRoles?: string[] }) {
   const { isAuthenticated, user } = useAuthStore()
@@ -38,6 +39,8 @@ export default function App() {
       <Routes>
         <Route path="/login" element={isAuthenticated ? <Navigate to="/dashboard" replace /> : <Login />} />
         <Route path="/" element={isAuthenticated ? <Navigate to="/dashboard" replace /> : <LandingPage />} />
+
+        <Route path="/chatbot/*" element={<ProtectedRoute allowedRoles={['ADMIN', 'DOCTOR']}><ChatbotIA /></ProtectedRoute>} />
 
         <Route path="/" element={<ProtectedRoute><Layout /></ProtectedRoute>}>
           <Route index element={<Navigate to="/dashboard" replace />} />

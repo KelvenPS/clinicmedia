@@ -11,6 +11,7 @@ import {
   ClipboardList,
   Brain,
   Zap,
+  Bot,
 } from 'lucide-react'
 import { useAuthStore } from '../store/authStore'
 
@@ -91,6 +92,27 @@ export default function Sidebar() {
             )}
           </NavLink>
         ))}
+
+        {/* Chatbot IA — special section */}
+        <div className="mt-4 pt-4 border-t border-white/10">
+          <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider px-3 mb-2">
+            Automação
+          </p>
+          <NavLink
+            to="/chatbot"
+            className={({ isActive }) => `sidebar-link group ${isActive ? 'active' : ''}`}
+          >
+            {({ isActive }) => (
+              <>
+                <Bot className={`w-5 h-5 flex-shrink-0 ${isActive ? 'text-white' : 'text-slate-400 group-hover:text-white'}`} />
+                <span className="flex-1">Chatbot IA</span>
+                <span className="text-xs bg-cyan-500/20 text-cyan-400 px-1.5 py-0.5 rounded font-medium">
+                  NOVO
+                </span>
+              </>
+            )}
+          </NavLink>
+        </div>
       </nav>
 
       {/* Settings button */}

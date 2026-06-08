@@ -19,6 +19,7 @@ import notificationRoutes from './routes/notifications'
 import paymentMethodRoutes from './routes/payment-methods'
 import subscriptionRoutes from './routes/subscriptions'
 import integrationRoutes from './routes/integrations'
+import chatbotRoutes from './routes/chatbot'
 
 dotenv.config()
 
@@ -51,6 +52,7 @@ app.use('/api/notifications', notificationRoutes)
 app.use('/api/payment-methods', paymentMethodRoutes)
 app.use('/api/subscriptions', subscriptionRoutes)
 app.use('/api/integrations', integrationRoutes)
+app.use('/api/chatbot', chatbotRoutes)
 
 app.get('/api/health', (_req, res) => {
   res.json({

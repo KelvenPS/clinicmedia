@@ -96,6 +96,7 @@ model User {
   paymentMethods      PaymentMethod[]     @relation("DoctorPaymentMethods")
   subscription        DoctorSubscription? @relation("DoctorSubscription")
   integrations        Integration[]       @relation("DoctorIntegrations")
+  whatsappInstance    WhatsAppInstance?   @relation("DoctorWhatsApp")
 }
 
 model DoctorSecretary {
@@ -369,4 +370,140 @@ model DoctorSubscription {
   updatedAt          DateTime  @updatedAt
 
   doctor             User      @relation("DoctorSubscription", fields: [doctorId], references: [id])
+}
+
+// ─── WhatsApp / Chatbot Module ────────────────────────────────────────────────
+
+enum InstanceStatus {
+  CONNECTING
+  CONNECTED
+  DISCONNECTED
+}
+
+enum ConversationStatus {
+  OPEN
+  CLOSED
+  WAITING
+  BOT
+}
+
+enum ConversationCategory {
+  ATENDIMENTO
+  AGUARDANDO
+  FILA
+  GRUPOS
+}
+
+enum MessageType {
+  TEXT
+  IMAGE
+  AUDIO
+  VIDEO
+  DOCUMENT
+  STICKER
+  LOCATION
+}
+
+enum MessageStatus {
+  SENT
+  DELIVERED
+  READ
+  FAILED
+}
+
+enum FlowTrigger {
+  KEYWORD
+  ALL_MESSAGES
+  FIRST_MESSAGE
+  AFTER_HOURS
+}
+
+model WhatsAppInstance {
+  id          String         @id @default(uuid())
+  doctorId    String         @unique
+  instanceKey String         @unique @default(uuid())
+  status      InstanceStatus @default(DISCONNECTED)
+  qrCode      String?        @db.Text
+  phoneNumber String?
+  displayName String?
+  webhookUrl  String?
+  active      Boolean        @default(true)
+  createdAt   DateTime       @default(now())
+  updatedAt   DateTime       @updatedAt
+
+  doctor        User           @relation("DoctorWhatsApp", fields: [doctorId], references: [id])
+  conversations Conversation[]
+  flows         ChatbotFlow[]
+}
+
+model Conversation {
+  id            String               @id @default(uuid())
+  instanceId    String
+  contactPhone  String
+  contactName   String?
+  contactAvatar String?
+  status        ConversationStatus   @default(OPEN)
+  category      ConversationCategory @default(ATENDIMENTO)
+  isGroup       Boolean              @default(false)
+  unreadCount   Int                  @default(0)
+  lastMessage   String?
+  lastMessageAt DateTime?
+  assignedTo    String?
+  notes         String?
+  createdAt     DateTime             @default(now())
+  updatedAt     DateTime             @updatedAt
+
+  instance WhatsAppInstance @relation(fields: [instanceId], references: [id], onDelete: Cascade)
+  messages Message[]
+
+  @@index([instanceId])
+  @@index([category])
+}
+
+model Message {
+  id             String        @id @default(uuid())
+  conversationId String
+  fromMe         Boolean       @default(false)
+  content        String        @db.Text
+  type           MessageType   @default(TEXT)
+  mediaUrl       String?
+  status         MessageStatus @default(SENT)
+  isBot          Boolean       @default(false)
+  timestamp      DateTime      @default(now())
+
+  conversation Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+
+  @@index([conversationId])
+}
+
+model ChatbotFlow {
+  id           String      @id @default(uuid())
+  instanceId   String
+  name         String
+  description  String?
+  active       Boolean     @default(false)
+  trigger      FlowTrigger @default(KEYWORD)
+  triggerValue String?
+  nodes        Json        @default("[]")
+  edges        Json        @default("[]")
+  executions   Int         @default(0)
+  createdAt    DateTime    @default(now())
+  updatedAt    DateTime    @updatedAt
+
+  instance WhatsAppInstance @relation(fields: [instanceId], references: [id], onDelete: Cascade)
+
+  @@index([instanceId])
+}
+
+model ChatbotTemplate {
+  id          String   @id @default(uuid())
+  name        String
+  description String?
+  category    String
+  icon        String?
+  nodes       Json     @default("[]")
+  edges       Json     @default("[]")
+  isGlobal    Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
 }

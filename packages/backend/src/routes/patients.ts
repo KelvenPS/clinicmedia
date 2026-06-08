@@ -24,17 +24,54 @@ const patientSchema = z.object({
   })).optional(),
 })
 
-router.get('/', async (req, res) => {
+async function resolveScope(req: AuthRequest): Promise<{ doctorIds: string[] | null }> {
+  const role = req.user!.role
+  if (role === 'ADMIN') return { doctorIds: null } // null = sem filtro
+  if (role === 'DOCTOR') return { doctorIds: [req.user!.userId] }
+
+  // SECRETARY — busca todos os médicos vinculados
+  const links = await prisma.doctorSecretary.findMany({
+    where: { secretaryId: req.user!.userId, active: true },
+    select: { doctorId: true },
+  })
+  return { doctorIds: links.map(l => l.doctorId) }
+}
+
+async function resolvePrimaryDoctorId(req: AuthRequest): Promise<string | null> {
+  const role = req.user!.role
+  if (role === 'DOCTOR') return req.user!.userId
+  if (role === 'SECRETARY') {
+    const link = await prisma.doctorSecretary.findFirst({
+      where: { secretaryId: req.user!.userId, active: true },
+      select: { doctorId: true },
+    })
+    return link?.doctorId ?? null
+  }
+  return null // ADMIN não associa a um médico específico
+}
+
+router.get('/', async (req: AuthRequest, res) => {
   try {
     const { search } = req.query
+    const { doctorIds } = await resolveScope(req)
+
+    if (doctorIds !== null && doctorIds.length === 0) {
+      res.json([])
+      return
+    }
+
     const where: Record<string, unknown> = { active: true }
+
+    if (doctorIds !== null) {
+      where.doctorId = doctorIds.length === 1 ? doctorIds[0] : { in: doctorIds }
+    }
 
     if (search) {
       where.OR = [
-        { name: { contains: search as string } },
+        { name: { contains: search as string, mode: 'insensitive' } },
         { phone: { contains: search as string } },
         { cpf: { contains: search as string } },
-        { email: { contains: search as string } },
+        { email: { contains: search as string, mode: 'insensitive' } },
         { rg: { contains: search as string } },
       ]
     }
@@ -58,9 +95,11 @@ router.get('/', async (req, res) => {
   }
 })
 
-router.get('/:id', async (req, res) => {
+router.get('/:id', async (req: AuthRequest, res) => {
   try {
     const { id } = req.params
+    const { doctorIds } = await resolveScope(req)
+
     const patient = await prisma.patient.findUnique({
       where: { id },
       include: {
@@ -91,6 +130,12 @@ router.get('/:id', async (req, res) => {
       return
     }
 
+    // Verifica se o paciente pertence ao tenant do usuário autenticado
+    if (doctorIds !== null && (!patient.doctorId || !doctorIds.includes(patient.doctorId))) {
+      res.status(403).json({ message: 'Acesso negado' })
+      return
+    }
+
     res.json(patient)
   } catch {
     res.status(500).json({ message: 'Erro interno do servidor' })
@@ -109,9 +154,12 @@ router.post('/', async (req: AuthRequest, res) => {
       }
     }
 
+    const doctorId = await resolvePrimaryDoctorId(req)
+
     const patient = await prisma.patient.create({
       data: {
         ...rest,
+        doctorId,
         email: rest.email || null,
         birthDate: rest.birthDate ? new Date(rest.birthDate) : null,
         patientPlans: plans?.length
@@ -149,9 +197,22 @@ router.post('/', async (req: AuthRequest, res) => {
   }
 })
 
-router.put('/:id', async (req, res) => {
+router.put('/:id', async (req: AuthRequest, res) => {
   try {
     const { id } = req.params
+    const { doctorIds } = await resolveScope(req)
+
+    // Verifica propriedade antes de editar
+    const existing = await prisma.patient.findUnique({ where: { id }, select: { doctorId: true } })
+    if (!existing) {
+      res.status(404).json({ message: 'Paciente não encontrado' })
+      return
+    }
+    if (doctorIds !== null && (!existing.doctorId || !doctorIds.includes(existing.doctorId))) {
+      res.status(403).json({ message: 'Acesso negado' })
+      return
+    }
+
     const { plans, ...rest } = patientSchema.partial().parse(req.body)
 
     const updateData: Record<string, unknown> = { ...rest }
@@ -159,7 +220,6 @@ router.put('/:id', async (req, res) => {
     if (rest.email === '') updateData.email = null
 
     if (plans !== undefined) {
-      // Replace all plans
       await prisma.patientPlan.deleteMany({ where: { patientId: id } })
 
       if (plans.length > 0) {

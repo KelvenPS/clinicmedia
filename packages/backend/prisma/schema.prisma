@@ -81,6 +81,7 @@ model User {
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
 
+  patients            Patient[]           @relation("DoctorPatients")
   doctorAppointments  Appointment[]       @relation("DoctorAppointments")
   createdAppointments Appointment[]       @relation("CreatedByAppointments")
   transactions        Transaction[]
@@ -114,6 +115,7 @@ model DoctorSecretary {
 
 model Patient {
   id        String    @id @default(uuid())
+  doctorId  String?
   name      String
   email     String?
   phone     String
@@ -126,6 +128,7 @@ model Patient {
   createdAt DateTime  @default(now())
   updatedAt DateTime  @updatedAt
 
+  doctor         User?           @relation("DoctorPatients", fields: [doctorId], references: [id])
   appointments   Appointment[]
   patientPlans   PatientPlan[]
   medicalRecords MedicalRecord[]

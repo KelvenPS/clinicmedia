@@ -1,5 +1,6 @@
 import { Router } from 'express'
 import { z } from 'zod'
+import { Prisma } from '@prisma/client'
 import { prisma } from '../lib/prisma'
 import { authenticate, requireRole, AuthRequest } from '../middleware/auth'
 
@@ -8,7 +9,7 @@ router.use(authenticate)
 router.use(requireRole('ADMIN'))
 
 // GET /api/admin/overview
-router.get('/overview', async (_req, res) => {
+router.get('/overview', async (_req: AuthRequest, res) => {
   try {
     const [totalPatients, assignedPatients, totalDoctors, totalSecretaries] = await Promise.all([
       prisma.patient.count({ where: { active: true } }),
@@ -30,7 +31,7 @@ router.get('/overview', async (_req, res) => {
 })
 
 // GET /api/admin/doctors
-router.get('/doctors', async (_req, res) => {
+router.get('/doctors', async (_req: AuthRequest, res) => {
   try {
     const doctors = await prisma.user.findMany({
       where: { role: 'DOCTOR', active: true },
@@ -56,11 +57,20 @@ router.get('/doctors', async (_req, res) => {
 })
 
 // GET /api/admin/patients
+// TODO: Frontend currently expects a plain array. After this pagination change,
+// the frontend must be updated to consume { data, total, page, totalPages } instead.
 router.get('/patients', async (req: AuthRequest, res) => {
   try {
     const { doctorId, orphans, search } = req.query
 
-    const where: Record<string, unknown> = { active: true }
+    // --- Pagination params ---
+    const pageRaw = parseInt(req.query.page as string, 10)
+    const limitRaw = parseInt(req.query.limit as string, 10)
+    const page = !isNaN(pageRaw) && pageRaw > 0 ? pageRaw : 1
+    const limit = !isNaN(limitRaw) && limitRaw > 0 ? Math.min(limitRaw, 200) : 50
+    const skip = (page - 1) * limit
+
+    const where: Prisma.PatientWhereInput = { active: true }
 
     if (orphans === 'true') {
       where.doctorId = null
@@ -76,49 +86,83 @@ router.get('/patients', async (req: AuthRequest, res) => {
       ]
     }
 
-    const patients = await prisma.patient.findMany({
-      where,
-      select: {
-        id: true,
-        name: true,
-        phone: true,
-        email: true,
-        cpf: true,
-        doctorId: true,
-        createdAt: true,
-        doctor: { select: { id: true, name: true, specialty: true } },
-        _count: { select: { appointments: true } },
-      },
-      orderBy: { name: 'asc' },
-    })
+    const [patients, total] = await Promise.all([
+      prisma.patient.findMany({
+        where,
+        select: {
+          id: true,
+          name: true,
+          phone: true,
+          email: true,
+          cpf: true,
+          doctorId: true,
+          createdAt: true,
+          doctor: { select: { id: true, name: true, specialty: true } },
+          _count: { select: { appointments: true } },
+        },
+        orderBy: { name: 'asc' },
+        skip,
+        take: limit,
+      }),
+      prisma.patient.count({ where }),
+    ])
 
-    res.json(patients)
+    const totalPages = Math.ceil(total / limit)
+
+    res.json({ data: patients, total, page, totalPages })
   } catch {
     res.status(500).json({ message: 'Erro interno do servidor' })
   }
 })
 
 // PATCH /api/admin/patients/:id/doctor - reassign patient to doctor
-router.patch('/patients/:id/doctor', async (req, res) => {
+router.patch('/patients/:id/doctor', async (req: AuthRequest, res) => {
   try {
     const { id } = req.params
-    const { doctorId } = z.object({ doctorId: z.string().nullable() }).parse(req.body)
+    const { doctorId } = z
+      .object({ doctorId: z.string().uuid().nullable() })
+      .parse(req.body)
 
-    const patient = await prisma.patient.update({
-      where: { id },
-      data: { doctorId },
-      select: {
-        id: true,
-        name: true,
-        doctorId: true,
-        doctor: { select: { id: true, name: true } },
-      },
+    // Validate patient existence
+    const existingPatient = await prisma.patient.findUnique({ where: { id } })
+    if (!existingPatient) {
+      res.status(404).json({ message: 'Paciente não encontrado' })
+      return
+    }
+
+    // Validate doctorId belongs to a user with role DOCTOR
+    if (doctorId !== null) {
+      const doctor = await prisma.user.findUnique({
+        where: { id: doctorId },
+        select: { id: true, role: true, active: true },
+      })
+      if (!doctor || doctor.role !== 'DOCTOR') {
+        res.status(400).json({ message: 'O usuário informado não é um médico válido' })
+        return
+      }
+    }
+
+    const patient = await prisma.$transaction(async (tx) => {
+      return tx.patient.update({
+        where: { id },
+        data: { doctorId },
+        select: {
+          id: true,
+          name: true,
+          doctorId: true,
+          doctor: { select: { id: true, name: true } },
+        },
+      })
     })
 
     res.json(patient)
   } catch (error) {
     if (error instanceof z.ZodError) {
-      res.status(400).json({ message: 'Dados inválidos' })
+      res.status(400).json({ message: 'Dados inválidos', errors: error.errors })
+      return
+    }
+    if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2025') {
+      res.status(404).json({ message: 'Paciente não encontrado' })
       return
     }
     res.status(500).json({ message: 'Erro interno do servidor' })
@@ -126,7 +170,7 @@ router.patch('/patients/:id/doctor', async (req, res) => {
 })
 
 // POST /api/admin/migrate-patients - auto-assign orphan patients via appointment history
-router.post('/migrate-patients', async (_req, res) => {
+router.post('/migrate-patients', async (_req: AuthRequest, res) => {
   try {
     const orphans = await prisma.patient.findMany({
       where: { doctorId: null, active: true },
@@ -141,39 +185,64 @@ router.post('/migrate-patients', async (_req, res) => {
       },
     })
 
-    let assigned = 0
-    let unassigned = 0
-    const results: { patientId: string; name: string; doctorId: string | null }[] = []
+    // Group patient IDs by their most recent doctorId
+    const groupedByDoctor = new Map<string, string[]>()
+    const unassignedResults: { patientId: string; name: string; doctorId: null }[] = []
 
     for (const patient of orphans) {
       const doctorId = patient.appointments[0]?.doctorId ?? null
       if (doctorId) {
-        await prisma.patient.update({
-          where: { id: patient.id },
-          data: { doctorId },
-        })
-        assigned++
-        results.push({ patientId: patient.id, name: patient.name, doctorId })
+        const ids = groupedByDoctor.get(doctorId) ?? []
+        ids.push(patient.id)
+        groupedByDoctor.set(doctorId, ids)
       } else {
-        unassigned++
-        results.push({ patientId: patient.id, name: patient.name, doctorId: null })
+        unassignedResults.push({ patientId: patient.id, name: patient.name, doctorId: null })
       }
     }
+
+    // Build patient lookup for result reporting
+    const patientMap = new Map(orphans.map((p) => [p.id, p.name]))
+
+    // Execute all updateMany calls atomically inside a single transaction
+    const assignedResults: { patientId: string; name: string; doctorId: string }[] = []
+
+    await prisma.$transaction(async (tx) => {
+      for (const [doctorId, ids] of groupedByDoctor.entries()) {
+        await tx.patient.updateMany({
+          where: { id: { in: ids } },
+          data: { doctorId },
+        })
+        for (const patientId of ids) {
+          assignedResults.push({
+            patientId,
+            name: patientMap.get(patientId) ?? '',
+            doctorId,
+          })
+        }
+      }
+    })
+
+    const assigned = assignedResults.length
+    const unassigned = unassignedResults.length
 
     res.json({
       total: orphans.length,
       assigned,
       unassigned,
-      results,
+      results: [...assignedResults, ...unassignedResults],
       message: `${assigned} pacientes atribuídos automaticamente. ${unassigned} sem histórico de agendamento (atribuição manual necessária).`,
     })
-  } catch {
+  } catch (error) {
+    if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2025') {
+      res.status(404).json({ message: 'Um ou mais pacientes não foram encontrados durante a migração' })
+      return
+    }
     res.status(500).json({ message: 'Erro interno do servidor' })
   }
 })
 
 // GET /api/admin/team - doctor with their secretaries
-router.get('/team', async (_req, res) => {
+router.get('/team', async (_req: AuthRequest, res) => {
   try {
     const doctors = await prisma.user.findMany({
       where: { role: 'DOCTOR', active: true },

@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { api } from '../lib/api'
+import type { AxiosResponse } from 'axios'
+import api from '../lib/api'
 import {
   Users,
   UserCheck,
@@ -51,19 +52,19 @@ interface MigrateResult {
 
 export default function AdminGestao() {
   const qc = useQueryClient()
-  const [filter, setFilter] = useState<'all' | 'orphans' | string>('all')
+  const [filter, setFilter] = useState<string>('all')
   const [search, setSearch] = useState('')
   const [assigningId, setAssigningId] = useState<string | null>(null)
   const [migrateResult, setMigrateResult] = useState<MigrateResult | null>(null)
 
   const { data: overview } = useQuery<Overview>({
     queryKey: ['admin-overview'],
-    queryFn: () => api.get('/admin/overview').then(r => r.data),
+    queryFn: () => api.get<Overview>('/admin/overview').then((r: AxiosResponse<Overview>) => r.data),
   })
 
   const { data: doctors = [] } = useQuery<Doctor[]>({
     queryKey: ['admin-doctors'],
-    queryFn: () => api.get('/admin/doctors').then(r => r.data),
+    queryFn: () => api.get<Doctor[]>('/admin/doctors').then((r: AxiosResponse<Doctor[]>) => r.data),
   })
 
   const { data: patients = [], isLoading: loadingPatients } = useQuery<Patient[]>({
@@ -73,12 +74,12 @@ export default function AdminGestao() {
       if (filter === 'orphans') params.set('orphans', 'true')
       else if (filter !== 'all') params.set('doctorId', filter)
       if (search) params.set('search', search)
-      return api.get(`/admin/patients?${params}`).then(r => r.data)
+      return api.get<Patient[]>(`/admin/patients?${params}`).then((r: AxiosResponse<Patient[]>) => r.data)
     },
   })
 
   const migrateMutation = useMutation({
-    mutationFn: () => api.post('/admin/migrate-patients').then(r => r.data),
+    mutationFn: () => api.post<MigrateResult>('/admin/migrate-patients').then((r: AxiosResponse<MigrateResult>) => r.data),
     onSuccess: (data: MigrateResult) => {
       setMigrateResult(data)
       qc.invalidateQueries({ queryKey: ['admin-overview'] })
@@ -88,7 +89,7 @@ export default function AdminGestao() {
 
   const assignMutation = useMutation({
     mutationFn: ({ patientId, doctorId }: { patientId: string; doctorId: string | null }) =>
-      api.patch(`/admin/patients/${patientId}/doctor`, { doctorId }).then(r => r.data),
+      api.patch(`/admin/patients/${patientId}/doctor`, { doctorId }),
     onSuccess: () => {
       setAssigningId(null)
       qc.invalidateQueries({ queryKey: ['admin-patients'] })
@@ -99,15 +100,13 @@ export default function AdminGestao() {
   return (
     <div className="p-6 max-w-7xl mx-auto space-y-6">
       {/* Header */}
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-3">
-          <div className="w-10 h-10 bg-blue-600/20 rounded-xl flex items-center justify-center">
-            <Shield className="w-5 h-5 text-blue-400" />
-          </div>
-          <div>
-            <h1 className="text-xl font-bold text-white">Gestão de Dados</h1>
-            <p className="text-sm text-slate-400">Controle de isolamento entre médicos e pacientes</p>
-          </div>
+      <div className="flex items-center gap-3">
+        <div className="w-10 h-10 bg-blue-600/20 rounded-xl flex items-center justify-center">
+          <Shield className="w-5 h-5 text-blue-400" />
+        </div>
+        <div>
+          <h1 className="text-xl font-bold text-white">Gestão de Dados</h1>
+          <p className="text-sm text-slate-400">Controle de isolamento entre médicos e pacientes</p>
         </div>
       </div>
 
@@ -178,16 +177,16 @@ export default function AdminGestao() {
         </div>
         <div className="divide-y divide-white/5">
           {doctors.map(doc => (
-            <div key={doc.id} className="px-5 py-3 flex items-center justify-between hover:bg-white/2 transition-colors">
+            <div key={doc.id} className="px-5 py-3 flex items-center justify-between hover:bg-white/[0.02] transition-colors">
               <div className="flex items-center gap-3">
                 <div className="w-8 h-8 bg-blue-600/20 rounded-full flex items-center justify-center">
                   <span className="text-blue-400 text-xs font-bold">
-                    {doc.name.split(' ').slice(0, 2).map(n => n[0]).join('').toUpperCase()}
+                    {doc.name.split(' ').slice(0, 2).map((n: string) => n[0]).join('').toUpperCase()}
                   </span>
                 </div>
                 <div>
                   <p className="text-sm font-medium text-white">{doc.name}</p>
-                  <p className="text-xs text-slate-400">{doc.email} {doc.specialty ? `· ${doc.specialty}` : ''}</p>
+                  <p className="text-xs text-slate-400">{doc.email}{doc.specialty ? ` · ${doc.specialty}` : ''}</p>
                 </div>
               </div>
               <div className="flex items-center gap-6 text-xs text-slate-400">
@@ -252,7 +251,7 @@ export default function AdminGestao() {
         ) : (
           <div className="divide-y divide-white/5">
             {patients.map(p => (
-              <div key={p.id} className="px-5 py-3 flex items-center justify-between hover:bg-white/2 transition-colors">
+              <div key={p.id} className="px-5 py-3 flex items-center justify-between hover:bg-white/[0.02] transition-colors">
                 <div>
                   <p className="text-sm font-medium text-white">{p.name}</p>
                   <p className="text-xs text-slate-400">
@@ -272,7 +271,6 @@ export default function AdminGestao() {
                     </span>
                   )}
 
-                  {/* Assign dropdown */}
                   <div className="relative">
                     <button
                       onClick={() => setAssigningId(prev => (prev === p.id ? null : p.id))}
@@ -297,8 +295,7 @@ export default function AdminGestao() {
                               p.doctorId === d.id ? 'text-blue-400 font-medium' : 'text-slate-300'
                             }`}
                           >
-                            {d.name}
-                            {p.doctorId === d.id && ' ✓'}
+                            {d.name}{p.doctorId === d.id ? ' ✓' : ''}
                           </button>
                         ))}
                       </div>

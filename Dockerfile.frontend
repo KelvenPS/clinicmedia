@@ -2,9 +2,9 @@ FROM node:20-alpine AS builder
 WORKDIR /app
 COPY package*.json ./
 COPY packages/frontend/package*.json ./packages/frontend/
-RUN npm install --workspace=packages/frontend --ignore-scripts
+RUN npm install --workspace=packages/frontend
 COPY packages/frontend ./packages/frontend
-COPY package*.json ./
+COPY package.json ./
 ARG VITE_API_URL=http://2.25.185.223/api
 ENV VITE_API_URL=$VITE_API_URL
 RUN npm run build -w packages/frontend

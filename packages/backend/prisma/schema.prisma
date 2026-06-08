@@ -1,0 +1,371 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
+}
+
+enum Role {
+  ADMIN
+  DOCTOR
+  SECRETARY
+}
+
+enum AppointmentStatus {
+  SCHEDULED
+  CONFIRMED
+  COMPLETED
+  CANCELLED
+  NO_SHOW
+}
+
+enum TransactionType {
+  INCOME
+  EXPENSE
+}
+
+enum TransactionStatus {
+  PENDING
+  PAID
+  CANCELLED
+}
+
+enum PlanType {
+  PARTICULAR
+  CONVENIO
+  OUTROS
+}
+
+enum RecordType {
+  ANAMNESE
+  EVOLUCAO
+  PRESCRICAO
+  EXAME
+  ATESTADO
+  OUTROS
+}
+
+enum AssessmentType {
+  WISC_IV
+  WASI
+  WAIS_III
+  COGNITIVA
+  RAVLT
+}
+
+enum IntegrationType {
+  WEBHOOK
+  GOOGLE_CALENDAR
+  GOOGLE_GMAIL
+  WHATSAPP
+  AI_AGENT
+}
+
+model User {
+  id           String   @id @default(uuid())
+  name         String
+  email        String   @unique
+  password     String
+  role         Role     @default(SECRETARY)
+  active       Boolean  @default(true)
+  specialty    String?
+  certType     String?
+  certNumber   String?
+  crm          String?
+  phone        String?
+  bio          String?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  doctorAppointments  Appointment[]       @relation("DoctorAppointments")
+  createdAppointments Appointment[]       @relation("CreatedByAppointments")
+  transactions        Transaction[]
+  medicalRecords      MedicalRecord[]     @relation("DoctorRecords")
+  appointmentBlocks   AppointmentBlock[]  @relation("DoctorBlocks")
+  assessments         Assessment[]        @relation("DoctorAssessments")
+  doctorTeam          DoctorSecretary[]   @relation("DoctorTeam")
+  secretaryOf         DoctorSecretary[]   @relation("SecretaryOf")
+  rooms               Room[]              @relation("DoctorRooms")
+  roomAssignments     RoomSecretary[]     @relation("SecretaryRooms")
+  documentTemplates   DocumentTemplate[]  @relation("DoctorDocuments")
+  notifications       Notification[]      @relation("UserNotifications")
+  paymentMethods      PaymentMethod[]     @relation("DoctorPaymentMethods")
+  subscription        DoctorSubscription? @relation("DoctorSubscription")
+  integrations        Integration[]       @relation("DoctorIntegrations")
+}
+
+model DoctorSecretary {
+  id          String   @id @default(uuid())
+  doctorId    String
+  secretaryId String
+  active      Boolean  @default(true)
+  createdAt   DateTime @default(now())
+
+  doctor    User @relation("DoctorTeam", fields: [doctorId], references: [id])
+  secretary User @relation("SecretaryOf", fields: [secretaryId], references: [id])
+
+  @@unique([doctorId, secretaryId])
+}
+
+model Patient {
+  id        String    @id @default(uuid())
+  name      String
+  email     String?
+  phone     String
+  birthDate DateTime?
+  cpf       String?   @unique
+  rg        String?
+  address   String?
+  notes     String?
+  active    Boolean   @default(true)
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+
+  appointments   Appointment[]
+  patientPlans   PatientPlan[]
+  medicalRecords MedicalRecord[]
+  assessments    Assessment[]
+}
+
+model HealthPlan {
+  id              String   @id @default(uuid())
+  name            String
+  type            PlanType @default(PARTICULAR)
+  customTypeName  String?
+  description     String?
+  discountPercent Float?
+  defaultValue    Float?
+  active          Boolean  @default(true)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  patientPlans PatientPlan[]
+}
+
+model PatientPlan {
+  id           String    @id @default(uuid())
+  patientId    String
+  healthPlanId String
+  value        Float?
+  walletNumber String?
+  validUntil   DateTime?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  patient    Patient    @relation(fields: [patientId], references: [id], onDelete: Cascade)
+  healthPlan HealthPlan @relation(fields: [healthPlanId], references: [id])
+
+  @@unique([patientId, healthPlanId])
+}
+
+model AppointmentBlock {
+  id        String   @id @default(uuid())
+  doctorId  String
+  date      DateTime
+  endDate   DateTime
+  reason    String?
+  createdAt DateTime @default(now())
+
+  doctor User @relation("DoctorBlocks", fields: [doctorId], references: [id])
+}
+
+model MedicalRecord {
+  id        String     @id @default(uuid())
+  patientId String
+  doctorId  String
+  title     String
+  content   String
+  type      RecordType @default(EVOLUCAO)
+  date      DateTime   @default(now())
+  createdAt DateTime   @default(now())
+  updatedAt DateTime   @updatedAt
+
+  patient Patient @relation(fields: [patientId], references: [id])
+  doctor  User    @relation("DoctorRecords", fields: [doctorId], references: [id])
+}
+
+model Assessment {
+  id              String         @id @default(uuid())
+  patientId       String
+  doctorId        String
+  type            AssessmentType
+  assessDate      DateTime       @default(now())
+  patientAge      Int?
+  subtestScores   Json           @default("{}")
+  compositeScores Json           @default("{}")
+  interpretation  String?
+  notes           String?
+  status          String         @default("DRAFT")
+  createdAt       DateTime       @default(now())
+  updatedAt       DateTime       @updatedAt
+
+  patient Patient @relation(fields: [patientId], references: [id])
+  doctor  User    @relation("DoctorAssessments", fields: [doctorId], references: [id])
+}
+
+model Appointment {
+  id          String            @id @default(uuid())
+  patientId   String
+  doctorId    String
+  createdById String
+  title       String
+  date        DateTime
+  duration    Int               @default(30)
+  status      AppointmentStatus @default(SCHEDULED)
+  isBlocked   Boolean           @default(false)
+  notes       String?
+  type        String?
+  value       Float?
+  createdAt   DateTime          @default(now())
+  updatedAt   DateTime          @updatedAt
+
+  patient     Patient      @relation(fields: [patientId], references: [id])
+  doctor      User         @relation("DoctorAppointments", fields: [doctorId], references: [id])
+  createdBy   User         @relation("CreatedByAppointments", fields: [createdById], references: [id])
+  transaction Transaction?
+}
+
+model AppointmentType {
+  id        String   @id @default(uuid())
+  name      String
+  baseValue Float?
+  active    Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model Transaction {
+  id            String            @id @default(uuid())
+  doctorId      String
+  appointmentId String?           @unique
+  type          TransactionType
+  amount        Float
+  description   String
+  date          DateTime
+  status        TransactionStatus @default(PENDING)
+  category      String?
+  createdAt     DateTime          @default(now())
+  updatedAt     DateTime          @updatedAt
+
+  doctor      User         @relation(fields: [doctorId], references: [id])
+  appointment Appointment? @relation(fields: [appointmentId], references: [id])
+}
+
+model Room {
+  id         String   @id @default(uuid())
+  doctorId   String
+  name       String
+  daysOfWeek Json     @default("[]")
+  startTime  String
+  endTime    String
+  color      String?
+  active     Boolean  @default(true)
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  doctor      User            @relation("DoctorRooms", fields: [doctorId], references: [id])
+  secretaries RoomSecretary[]
+}
+
+model RoomSecretary {
+  id          String   @id @default(uuid())
+  roomId      String
+  secretaryId String
+  createdAt   DateTime @default(now())
+
+  room      Room @relation(fields: [roomId], references: [id], onDelete: Cascade)
+  secretary User @relation("SecretaryRooms", fields: [secretaryId], references: [id])
+
+  @@unique([roomId, secretaryId])
+}
+
+model DocumentTemplate {
+  id        String   @id @default(uuid())
+  doctorId  String
+  name      String
+  type      String
+  content   String
+  active    Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  doctor    User     @relation("DoctorDocuments", fields: [doctorId], references: [id])
+}
+
+model Notification {
+  id        String   @id @default(uuid())
+  userId    String
+  title     String
+  message   String
+  read      Boolean  @default(false)
+  type      String   @default("INFO")
+  link      String?
+  createdAt DateTime @default(now())
+
+  user      User     @relation("UserNotifications", fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model PaymentMethod {
+  id           String   @id @default(uuid())
+  doctorId     String
+  name         String
+  type         String
+  instructions String?
+  active       Boolean  @default(true)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  doctor       User     @relation("DoctorPaymentMethods", fields: [doctorId], references: [id])
+}
+
+model Integration {
+  id          String          @id @default(uuid())
+  doctorId    String
+  type        IntegrationType
+  name        String
+  active      Boolean         @default(false)
+  config      Json            @default("{}")
+  events      String[]        @default([])
+  createdAt   DateTime        @default(now())
+  updatedAt   DateTime        @updatedAt
+
+  doctor      User            @relation("DoctorIntegrations", fields: [doctorId], references: [id], onDelete: Cascade)
+  webhookLogs WebhookLog[]
+
+  @@index([doctorId])
+}
+
+model WebhookLog {
+  id            String      @id @default(uuid())
+  integrationId String
+  event         String
+  payload       Json
+  statusCode    Int?
+  success       Boolean
+  responseBody  String?
+  error         String?
+  duration      Int?
+  createdAt     DateTime    @default(now())
+
+  integration   Integration @relation(fields: [integrationId], references: [id], onDelete: Cascade)
+
+  @@index([integrationId])
+}
+
+model DoctorSubscription {
+  id                 String    @id @default(uuid())
+  doctorId           String    @unique
+  plan               String    @default("TRIAL")
+  billingCycle       String    @default("MONTHLY")
+  status             String    @default("ACTIVE")
+  trialEndsAt        DateTime?
+  currentPeriodStart DateTime?
+  currentPeriodEnd   DateTime?
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
+
+  doctor             User      @relation("DoctorSubscription", fields: [doctorId], references: [id])
+}

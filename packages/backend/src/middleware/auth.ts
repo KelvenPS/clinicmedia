@@ -1,5 +1,6 @@
 import { Request, Response, NextFunction } from 'express'
 import { verifyToken } from '../utils/jwt'
+import { prisma } from '../lib/prisma'
 
 export interface AuthRequest extends Request {
   user?: {
@@ -43,4 +44,40 @@ export function requireRole(...roles: string[]) {
 
     next()
   }
+}
+
+export async function checkSubscription(req: AuthRequest, res: Response, next: NextFunction) {
+  // ADMIN and non-DOCTOR roles bypass subscription check
+  if (req.user?.role === 'ADMIN') return next()
+  if (req.user?.role !== 'DOCTOR') return next()
+
+  const sub = await prisma.doctorSubscription.findUnique({
+    where: { doctorId: req.user.userId },
+  })
+
+  if (!sub) {
+    // No subscription yet — allow through (trial will be created on register)
+    return next()
+  }
+
+  const now = new Date()
+
+  if (sub.plan === 'TRIAL' && sub.trialEndsAt && now > sub.trialEndsAt) {
+    res.status(402).json({
+      message: 'Período de teste encerrado',
+      code: 'TRIAL_EXPIRED',
+      trialEndsAt: sub.trialEndsAt,
+    })
+    return
+  }
+
+  if (sub.plan !== 'TRIAL' && sub.status === 'EXPIRED') {
+    res.status(402).json({
+      message: 'Assinatura expirada',
+      code: 'SUBSCRIPTION_EXPIRED',
+    })
+    return
+  }
+
+  next()
 }

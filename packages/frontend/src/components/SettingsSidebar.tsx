@@ -16,6 +16,7 @@ import {
   Wallet,
   Zap,
   Webhook,
+  Shield,
 } from 'lucide-react'
 import { useAuthStore } from '../store/authStore'
 
@@ -37,6 +38,7 @@ export default function SettingsSidebar() {
     { to: '/configuracoes/ajuda', icon: HelpCircle, label: 'Ajuda & Suporte', roles: ['ADMIN', 'DOCTOR', 'SECRETARY'] },
     { to: '/configuracoes/documentacao', icon: BookOpen, label: 'Documentação', roles: ['ADMIN', 'DOCTOR', 'SECRETARY'] },
     { to: '/usuarios', icon: UserCog, label: 'Usuários', roles: ['ADMIN'] },
+    { to: '/admin/gestao', icon: Shield, label: 'Gestão de Dados', roles: ['ADMIN'] },
   ]
 
   const visible = settingsItems.filter(item =>

@@ -124,6 +124,23 @@ router.put('/:id', async (req: AuthRequest, res) => {
 
     if (data.date) data.date = new Date(data.date)
 
+    const existing = await prisma.appointment.findUnique({ where: { id }, select: { doctorId: true } })
+    if (!existing) {
+      res.status(404).json({ message: 'Agendamento não encontrado' })
+      return
+    }
+    if (req.user!.role !== 'ADMIN' && existing.doctorId !== req.user!.userId) {
+      if (req.user!.role === 'SECRETARY') {
+        const link = await prisma.doctorSecretary.findFirst({
+          where: { secretaryId: req.user!.userId, doctorId: existing.doctorId, active: true }
+        })
+        if (!link) { res.status(403).json({ message: 'Acesso negado' }); return }
+      } else {
+        res.status(403).json({ message: 'Acesso negado' })
+        return
+      }
+    }
+
     const current = await prisma.appointment.findUnique({
       where: { id },
       include: { transaction: true },
@@ -199,9 +216,27 @@ router.put('/:id', async (req: AuthRequest, res) => {
   }
 })
 
-router.delete('/:id', async (_req, res) => {
+router.delete('/:id', async (req: AuthRequest, res) => {
   try {
-    const { id } = _req.params
+    const { id } = req.params
+
+    const existing = await prisma.appointment.findUnique({ where: { id }, select: { doctorId: true } })
+    if (!existing) {
+      res.status(404).json({ message: 'Agendamento não encontrado' })
+      return
+    }
+    if (req.user!.role !== 'ADMIN' && existing.doctorId !== req.user!.userId) {
+      if (req.user!.role === 'SECRETARY') {
+        const link = await prisma.doctorSecretary.findFirst({
+          where: { secretaryId: req.user!.userId, doctorId: existing.doctorId, active: true }
+        })
+        if (!link) { res.status(403).json({ message: 'Acesso negado' }); return }
+      } else {
+        res.status(403).json({ message: 'Acesso negado' })
+        return
+      }
+    }
+
     await prisma.appointment.delete({ where: { id } })
     res.json({ message: 'Agendamento removido com sucesso' })
   } catch {

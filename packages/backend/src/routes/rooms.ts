@@ -20,9 +20,18 @@ router.get('/', async (req: AuthRequest, res) => {
   try {
     if (req.user!.role === 'DOCTOR') {
       const rooms = await prisma.room.findMany({
-        where: { doctorId: req.user!.userId },
+        where: { doctorId: req.user!.userId, active: true },
         include: {
-          secretaries: { include: { secretary: { select: { id: true, name: true, email: true } } } },
+          secretaries: {
+            where: {
+              secretary: {
+                secretaryOf: {
+                  some: { doctorId: req.user!.userId, active: true }
+                }
+              }
+            },
+            include: { secretary: { select: { id: true, name: true, email: true } } }
+          },
         },
         orderBy: { name: 'asc' },
       })
@@ -96,6 +105,19 @@ router.put('/:id', requireRole('ADMIN', 'DOCTOR'), async (req: AuthRequest, res)
     if (req.user!.role === 'DOCTOR' && existing.doctorId !== req.user!.userId) {
       res.status(403).json({ message: 'Acesso negado. Esta sala pertence a outro médico.' })
       return
+    }
+
+    if (secretaryIds !== undefined && req.user!.role === 'DOCTOR') {
+      const teamLinks = await prisma.doctorSecretary.findMany({
+        where: { doctorId: req.user!.userId, active: true },
+        select: { secretaryId: true }
+      })
+      const validIds = new Set(teamLinks.map(l => l.secretaryId))
+      const invalid = secretaryIds.filter(id => !validIds.has(id))
+      if (invalid.length > 0) {
+        res.status(400).json({ message: 'Secretária não pertence à sua equipe' })
+        return
+      }
     }
 
     const room = await prisma.room.update({

@@ -91,6 +91,70 @@ router.post('/execute', async (req: AuthRequest, res: Response) => {
   res.json({ rows, columns, rowCount, durationMs })
 })
 
+// ─── GET /api/admin/sql/schema ───────────────────────────────────────────────
+router.get('/schema', async (_req: AuthRequest, res: Response) => {
+  try {
+    const [tables, views, functions] = await Promise.all([
+      // Tables
+      prisma.$queryRaw<{ table_name: string }[]>`
+        SELECT table_name
+        FROM information_schema.tables
+        WHERE table_schema = 'public' AND table_type = 'BASE TABLE'
+        ORDER BY table_name
+      `,
+      // Views
+      prisma.$queryRaw<{ viewname: string }[]>`
+        SELECT viewname
+        FROM pg_views
+        WHERE schemaname = 'public'
+        ORDER BY viewname
+      `,
+      // Functions/Procedures
+      prisma.$queryRaw<{ routine_name: string; routine_type: string }[]>`
+        SELECT routine_name, routine_type
+        FROM information_schema.routines
+        WHERE routine_schema = 'public'
+        ORDER BY routine_name
+      `,
+    ])
+
+    res.json({
+      tables: tables.map(r => r.table_name),
+      views: views.map(r => r.viewname),
+      functions: functions.map(r => ({ name: r.routine_name, type: r.routine_type })),
+    })
+  } catch {
+    res.status(500).json({ message: 'Erro ao buscar schema' })
+  }
+})
+
+// ─── GET /api/admin/sql/schema/:tableName/columns ─────────────────────────────
+router.get('/schema/:tableName/columns', async (req: AuthRequest, res: Response) => {
+  try {
+    const { tableName } = req.params
+    // Whitelist: only allow actual table names to prevent injection
+    const tableList = await prisma.$queryRaw<{ table_name: string }[]>`
+      SELECT table_name FROM information_schema.tables
+      WHERE table_schema = 'public' AND table_type = 'BASE TABLE'
+    `
+    const validTables = new Set(tableList.map(r => r.table_name))
+    if (!validTables.has(tableName)) {
+      res.status(404).json({ message: 'Tabela não encontrada' })
+      return
+    }
+
+    const columns = await prisma.$queryRaw<{ column_name: string; data_type: string; is_nullable: string }[]>`
+      SELECT column_name, data_type, is_nullable
+      FROM information_schema.columns
+      WHERE table_schema = 'public' AND table_name = ${tableName}
+      ORDER BY ordinal_position
+    `
+    res.json(columns)
+  } catch {
+    res.status(500).json({ message: 'Erro ao buscar colunas' })
+  }
+})
+
 // ─── GET /api/admin/sql/history ──────────────────────────────────────────────
 router.get('/history', async (req: AuthRequest, res: Response) => {
   try {

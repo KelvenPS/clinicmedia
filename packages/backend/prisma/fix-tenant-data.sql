@@ -74,7 +74,36 @@ ORDER BY "createdAt" ASC;
 -- WHERE "doctorId" IS NULL;
 
 
--- ─── 6. Summary counts ───────────────────────────────────────────────────────
+-- ─── 6. Find stale RoomSecretary records (cross-tenant contamination) ────────
+SELECT rs.id, rs."roomId", rs."secretaryId",
+       u.name as secretary_name, r."doctorId",
+       dr.name as doctor_name
+FROM "RoomSecretary" rs
+JOIN "Room" r ON r.id = rs."roomId"
+JOIN "User" u ON u.id = rs."secretaryId"
+JOIN "User" dr ON dr.id = r."doctorId"
+WHERE NOT EXISTS (
+  SELECT 1 FROM "DoctorSecretary" ds
+  WHERE ds."doctorId" = r."doctorId"
+    AND ds."secretaryId" = rs."secretaryId"
+    AND ds.active = true
+);
+
+-- Fix: Delete those stale links
+DELETE FROM "RoomSecretary"
+WHERE id IN (
+  SELECT rs.id FROM "RoomSecretary" rs
+  JOIN "Room" r ON r.id = rs."roomId"
+  WHERE NOT EXISTS (
+    SELECT 1 FROM "DoctorSecretary" ds
+    WHERE ds."doctorId" = r."doctorId"
+      AND ds."secretaryId" = rs."secretaryId"
+      AND ds.active = true
+  )
+);
+
+
+-- ─── 7. Summary counts ───────────────────────────────────────────────────────
 SELECT
   'Patient'         AS "model",
   COUNT(*)          AS orphaned_count

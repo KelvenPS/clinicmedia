@@ -24,6 +24,7 @@ import ConfigNotificacoes from './pages/configuracoes/ConfigNotificacoes'
 import Integracoes from './pages/configuracoes/Integracoes'
 import ChatbotIA from './pages/ChatbotIA'
 import AdminGestao from './pages/AdminGestao'
+import AdminSQL from './pages/AdminSQL'
 import NotaFiscal from './pages/NotaFiscal'
 import ConsultaOnline from './pages/ConsultaOnline'
 
@@ -55,6 +56,7 @@ export default function App() {
           <Route path="financeiro" element={<ProtectedRoute allowedRoles={['ADMIN', 'DOCTOR']}><Financeiro /></ProtectedRoute>} />
           <Route path="usuarios" element={<ProtectedRoute allowedRoles={['ADMIN']}><Usuarios /></ProtectedRoute>} />
           <Route path="admin/gestao" element={<ProtectedRoute allowedRoles={['ADMIN']}><AdminGestao /></ProtectedRoute>} />
+          <Route path="admin/sql" element={<ProtectedRoute allowedRoles={['ADMIN']}><AdminSQL /></ProtectedRoute>} />
           <Route path="nota-fiscal" element={<NotaFiscal />} />
           <Route path="consulta-online" element={<ConsultaOnline />} />
 

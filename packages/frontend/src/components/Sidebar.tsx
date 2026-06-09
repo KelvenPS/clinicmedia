@@ -14,6 +14,7 @@ import {
   Bot,
   Receipt,
   Video,
+  Database,
 } from 'lucide-react'
 import { useAuthStore } from '../store/authStore'
 
@@ -157,6 +158,27 @@ export default function Sidebar() {
             )}
           </NavLink>
         </div>
+
+        {/* Admin Tools — only visible to ADMIN role */}
+        {user?.role === 'ADMIN' && (
+          <div className="mt-4 pt-4 border-t border-white/10">
+            <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider px-3 mb-2">
+              Admin
+            </p>
+            <NavLink
+              to="/admin/sql"
+              className={({ isActive }) => `sidebar-link group ${isActive ? 'active' : ''}`}
+            >
+              {({ isActive }) => (
+                <>
+                  <Database className={`w-5 h-5 flex-shrink-0 ${isActive ? 'text-white' : 'text-slate-400 group-hover:text-white'}`} />
+                  <span className="flex-1">SQL Admin</span>
+                  {isActive && <ChevronRight className="w-4 h-4 opacity-50" />}
+                </>
+              )}
+            </NavLink>
+          </div>
+        )}
       </nav>
 
       {/* Settings button */}

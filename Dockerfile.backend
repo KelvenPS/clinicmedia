@@ -9,6 +9,7 @@ WORKDIR /app
 COPY --from=deps /app/node_modules ./node_modules
 COPY packages/backend ./packages/backend
 COPY package.json ./
+RUN node_modules/.bin/prisma generate --schema=packages/backend/prisma/schema.prisma
 RUN npm run build -w packages/backend
 
 FROM node:20-alpine AS runner

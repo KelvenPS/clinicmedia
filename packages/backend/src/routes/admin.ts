@@ -1,6 +1,9 @@
 import { Router } from 'express'
 import { z } from 'zod'
 import { Prisma } from '@prisma/client'
+
+const isPrismaNotFound = (e: unknown): boolean =>
+  e instanceof Error && 'code' in e && (e as { code: string }).code === 'P2025'
 import { prisma } from '../lib/prisma'
 import { authenticate, requireRole, AuthRequest } from '../middleware/auth'
 
@@ -161,7 +164,7 @@ router.patch('/patients/:id/doctor', async (req: AuthRequest, res) => {
       res.status(400).json({ message: 'Dados inválidos', errors: error.errors })
       return
     }
-    if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2025') {
+    if (isPrismaNotFound(error)) {
       res.status(404).json({ message: 'Paciente não encontrado' })
       return
     }
@@ -233,7 +236,7 @@ router.post('/migrate-patients', async (_req: AuthRequest, res) => {
       message: `${assigned} pacientes atribuídos automaticamente. ${unassigned} sem histórico de agendamento (atribuição manual necessária).`,
     })
   } catch (error) {
-    if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2025') {
+    if (isPrismaNotFound(error)) {
       res.status(404).json({ message: 'Um ou mais pacientes não foram encontrados durante a migração' })
       return
     }

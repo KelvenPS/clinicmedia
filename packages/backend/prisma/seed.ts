@@ -20,74 +20,10 @@ async function main() {
     },
   })
 
-  // Health Plans
-  await prisma.healthPlan.upsert({
-    where: { id: 'plan-particular' },
-    update: {},
-    create: {
-      id: 'plan-particular',
-      name: 'Particular',
-      type: 'PARTICULAR',
-      description: 'Atendimento particular sem convênio',
-      defaultValue: 200,
-    },
-  })
-
-  await prisma.healthPlan.upsert({
-    where: { id: 'plan-unimed' },
-    update: {},
-    create: {
-      id: 'plan-unimed',
-      name: 'Unimed',
-      type: 'CONVENIO',
-      description: 'Plano de saúde Unimed',
-      discountPercent: 20,
-      defaultValue: 0,
-    },
-  })
-
-  await prisma.healthPlan.upsert({
-    where: { id: 'plan-amil' },
-    update: {},
-    create: {
-      id: 'plan-amil',
-      name: 'Amil',
-      type: 'CONVENIO',
-      description: 'Plano de saúde Amil',
-      discountPercent: 15,
-      defaultValue: 0,
-    },
-  })
-
-  await prisma.healthPlan.upsert({
-    where: { id: 'plan-sulamerica' },
-    update: {},
-    create: {
-      id: 'plan-sulamerica',
-      name: 'SulAmérica',
-      type: 'CONVENIO',
-      description: 'Plano SulAmérica Saúde',
-      discountPercent: 10,
-      defaultValue: 0,
-    },
-  })
-
-  await prisma.healthPlan.upsert({
-    where: { id: 'plan-bradesco' },
-    update: {},
-    create: {
-      id: 'plan-bradesco',
-      name: 'Bradesco Saúde',
-      type: 'CONVENIO',
-      description: 'Bradesco Saúde - Cobertura nacional',
-      discountPercent: 25,
-      defaultValue: 0,
-    },
-  })
-
   console.log('✅ Seed ClinIQ Pro concluído!\n')
   console.log('📋 Credenciais:')
   console.log('  Admin: admin@cliniq.com | admin123\n')
+  console.log('ℹ️  Planos de Saúde são criados por cada médico no painel de configurações.\n')
 }
 
 main()

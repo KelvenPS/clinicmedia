@@ -9,17 +9,21 @@ const schema = z.object({
   name: z.string().min(2, 'Nome muito curto'),
   email: z.string().email('Email inválido'),
   password: z.string().min(6, 'Mínimo 6 caracteres').optional().or(z.literal('')),
+  confirmPassword: z.string().optional().or(z.literal('')),
   role: z.enum(['ADMIN', 'DOCTOR', 'SECRETARY']),
   specialty: z.string().optional(),
   crm: z.string().optional(),
   phone: z.string().optional(),
-})
+}).refine(
+  data => !data.password || data.password === data.confirmPassword,
+  { message: 'As senhas não conferem', path: ['confirmPassword'] }
+)
 
 type FormData = z.infer<typeof schema>
 
 interface Props {
   user: User | null
-  onSubmit: (data: FormData) => void
+  onSubmit: (data: Omit<FormData, 'confirmPassword'>) => void
   loading: boolean
 }
 
@@ -39,10 +43,12 @@ export default function UserForm({ user, onSubmit, loading }: Props) {
       name: '',
       email: '',
       password: '',
+      confirmPassword: '',
     },
   })
 
   const watchRole = watch('role')
+  const watchPassword = watch('password')
 
   useEffect(() => {
     if (user) {
@@ -53,13 +59,14 @@ export default function UserForm({ user, onSubmit, loading }: Props) {
       setValue('crm', user.crm || '')
       setValue('phone', user.phone || '')
       setValue('password', '')
+      setValue('confirmPassword', '')
     }
   }, [user, setValue])
 
   const handleFormSubmit = (data: FormData) => {
-    const payload: Record<string, unknown> = { ...data }
+    const { confirmPassword, ...payload } = data
     if (!payload.password) delete payload.password
-    onSubmit(payload as FormData)
+    onSubmit(payload)
   }
 
   return (
@@ -76,26 +83,67 @@ export default function UserForm({ user, onSubmit, loading }: Props) {
         {errors.email && <p className="text-xs text-red-500 mt-1">{errors.email.message}</p>}
       </div>
 
-      <div>
-        <label className="label">
-          {user ? 'Nova Senha (deixe em branco para manter)' : 'Senha *'}
-        </label>
-        <div className="relative">
-          <input
-            {...register('password')}
-            type={showPass ? 'text' : 'password'}
-            className="input-field pr-10"
-            placeholder="••••••••"
-          />
-          <button
-            type="button"
-            onClick={() => setShowPass(!showPass)}
-            className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"
-          >
-            {showPass ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
-          </button>
+      {/* Password + Confirm Password */}
+      <div className="space-y-3">
+        <div>
+          <label className="label">
+            {user ? 'Nova Senha (deixe em branco para manter)' : 'Senha *'}
+          </label>
+          <div className="relative">
+            <input
+              {...register('password')}
+              type={showPass ? 'text' : 'password'}
+              className="input-field pr-10"
+              placeholder="••••••••"
+            />
+            <button
+              type="button"
+              onClick={() => setShowPass(!showPass)}
+              className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"
+              tabIndex={-1}
+            >
+              {showPass ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+            </button>
+          </div>
+          {errors.password && <p className="text-xs text-red-500 mt-1">{errors.password.message}</p>}
         </div>
-        {errors.password && <p className="text-xs text-red-500 mt-1">{errors.password.message}</p>}
+
+        {/* Confirm password — só aparece quando senha foi digitada */}
+        {(watchPassword || !user) && (
+          <div>
+            <label className="label">Confirmar Senha *</label>
+            <div className="relative">
+              <input
+                {...register('confirmPassword')}
+                type={showPass ? 'text' : 'password'}
+                className="input-field pr-10"
+                placeholder="••••••••"
+              />
+              <button
+                type="button"
+                onClick={() => setShowPass(!showPass)}
+                className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"
+                tabIndex={-1}
+              >
+                {showPass ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+              </button>
+            </div>
+            {errors.confirmPassword && (
+              <p className="text-xs text-red-500 mt-1">{errors.confirmPassword.message}</p>
+            )}
+          </div>
+        )}
+
+        {/* Checkbox exibir senha */}
+        <label className="flex items-center gap-2 cursor-pointer select-none w-fit">
+          <input
+            type="checkbox"
+            checked={showPass}
+            onChange={e => setShowPass(e.target.checked)}
+            className="w-4 h-4 rounded border-slate-300 text-blue-600 accent-blue-600"
+          />
+          <span className="text-sm text-slate-600">Exibir senha</span>
+        </label>
       </div>
 
       <div>

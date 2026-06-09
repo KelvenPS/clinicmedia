@@ -88,6 +88,14 @@ export default function AppointmentForm({
     }
   }, [appointment, defaultDate, setValue])
 
+  // Auto-fill doctorId for SECRETARY: they can only schedule for their linked doctor.
+  // If there's exactly one available doctor in the list, pre-select and lock the field.
+  useEffect(() => {
+    if (!appointment && currentUser?.role === 'SECRETARY' && doctors.length === 1) {
+      setValue('doctorId', doctors[0].id)
+    }
+  }, [doctors, currentUser, appointment, setValue])
+
   const selectedPatient = patients.find(p => p.id === watchPatient)
   const primaryPlan = selectedPatient?.patientPlans?.[0]
   const selectedAppType = appointmentTypes.find(t => t.name === watchType)
@@ -163,7 +171,10 @@ export default function AppointmentForm({
           <select
             {...register('doctorId')}
             className="input-field"
-            disabled={currentUser?.role === 'DOCTOR'}
+            disabled={
+              currentUser?.role === 'DOCTOR' ||
+              (currentUser?.role === 'SECRETARY' && doctors.length <= 1)
+            }
           >
             <option value="">Selecione</option>
             {doctors.map(d => (

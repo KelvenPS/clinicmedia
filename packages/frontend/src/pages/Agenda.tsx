@@ -529,7 +529,16 @@ export default function Agenda() {
           patients={patients}
           appointmentTypes={appointmentTypes}
           currentUser={user}
-          onSubmit={data => saveMutation.mutate(data as Record<string, unknown>)}
+          onSubmit={data => {
+            // Convert local datetime string to UTC ISO before sending to the backend.
+            // datetime-local inputs return "YYYY-MM-DDTHH:mm" with no timezone — the
+            // server is UTC so without conversion it stores the value 3h off for UTC-3.
+            const payload = {
+              ...data,
+              date: new Date(data.date as string).toISOString(),
+            }
+            saveMutation.mutate(payload as Record<string, unknown>)
+          }}
           onDelete={selectedAppt ? () => deleteMutation.mutate(selectedAppt.id) : undefined}
           loading={saveMutation.isPending}
         />
@@ -549,7 +558,14 @@ export default function Agenda() {
         <BlockForm
           doctors={doctors}
           currentUser={user}
-          onSubmit={data => blockMutation.mutate(data as Record<string, unknown>)}
+          onSubmit={d => {
+            // Same UTC conversion — "2026-06-09T13:00:00" without tz → UTC on server
+            blockMutation.mutate({
+              ...d,
+              date: new Date(d.date).toISOString(),
+              endDate: new Date(d.endDate).toISOString(),
+            } as Record<string, unknown>)
+          }}
           loading={blockMutation.isPending}
         />
       </Modal>

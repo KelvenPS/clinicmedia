@@ -80,17 +80,6 @@ function useDebounce<T>(value: T, delay: number): T {
   return debounced
 }
 
-function useClickOutside(ref: React.RefObject<HTMLElement | null>, handler: () => void) {
-  useEffect(() => {
-    function listener(e: MouseEvent) {
-      if (!ref.current || ref.current.contains(e.target as Node)) return
-      handler()
-    }
-    document.addEventListener('mousedown', listener)
-    return () => document.removeEventListener('mousedown', listener)
-  }, [ref, handler])
-}
-
 // ─── Sub-componentes ──────────────────────────────────────────────────────────
 
 function ToastList({ toasts, onDismiss }: { toasts: Toast[]; onDismiss: (id: number) => void }) {
@@ -163,14 +152,58 @@ function AssignDropdown({
   onAssign: (patientId: string, doctorId: string | null) => void
 }) {
   const [open, setOpen] = useState(false)
-  const ref = useRef<HTMLDivElement>(null)
-  const close = useCallback(() => setOpen(false), [])
-  useClickOutside(ref, close)
+  const [style, setStyle] = useState<React.CSSProperties>({})
+  const triggerRef = useRef<HTMLButtonElement>(null)
+  const panelRef = useRef<HTMLDivElement>(null)
+
+  // Close on click-outside — covers both trigger and panel
+  useEffect(() => {
+    if (!open) return
+    function handle(e: MouseEvent) {
+      const t = e.target as Node
+      if (triggerRef.current?.contains(t) || panelRef.current?.contains(t)) return
+      setOpen(false)
+    }
+    document.addEventListener('mousedown', handle)
+    return () => document.removeEventListener('mousedown', handle)
+  }, [open])
+
+  // Close on scroll so the fixed panel doesn't float detached
+  useEffect(() => {
+    if (!open) return
+    function handle() { setOpen(false) }
+    window.addEventListener('scroll', handle, true)
+    return () => window.removeEventListener('scroll', handle, true)
+  }, [open])
+
+  const handleToggle = useCallback(() => {
+    if (open) { setOpen(false); return }
+    if (!triggerRef.current) return
+    const r = triggerRef.current.getBoundingClientRect()
+    const PANEL_H = 260
+    const PANEL_W = 220
+    const spaceBelow = window.innerHeight - r.bottom
+    // Prefer opening downward; flip upward when insufficient space
+    const top = spaceBelow >= PANEL_H
+      ? r.bottom + 4
+      : Math.max(8, r.top - PANEL_H - 4)
+    // Align to right edge of trigger; don't overflow left side of viewport
+    const right = window.innerWidth - r.right
+    setStyle({
+      position: 'fixed',
+      top,
+      right: Math.max(8, right),
+      width: PANEL_W,
+      zIndex: 9999,
+    })
+    setOpen(true)
+  }, [open])
 
   return (
-    <div ref={ref} className="relative">
+    <>
       <button
-        onClick={() => setOpen(prev => !prev)}
+        ref={triggerRef}
+        onClick={handleToggle}
         disabled={isPending}
         className="flex items-center gap-1.5 text-xs bg-slate-700 hover:bg-slate-600 text-slate-300 px-2.5 py-1.5 rounded-lg transition-colors disabled:opacity-50"
       >
@@ -184,11 +217,12 @@ function AssignDropdown({
 
       {open && (
         <div
-          className="absolute right-0 mt-1 bg-slate-700 border border-white/10 rounded-xl shadow-2xl z-20 min-w-52 py-1 overflow-hidden"
-          style={{ bottom: 'auto', top: '100%' }}
+          ref={panelRef}
+          className="bg-slate-700 border border-white/10 rounded-xl shadow-2xl py-1"
+          style={style}
         >
           <div className="px-3 py-2 border-b border-white/10">
-            <p className="text-xs text-slate-400 font-medium truncate max-w-44">{patient.name}</p>
+            <p className="text-xs text-slate-400 font-medium truncate">{patient.name}</p>
           </div>
           <button
             onClick={() => { onAssign(patient.id, null); setOpen(false) }}
@@ -207,14 +241,14 @@ function AssignDropdown({
                   patient.doctorId === d.id ? 'text-blue-400 font-semibold' : 'text-slate-300'
                 }`}
               >
-                <span className="truncate max-w-36">{d.name}</span>
+                <span className="truncate">{d.name}</span>
                 {patient.doctorId === d.id && <CheckCircle className="w-3.5 h-3.5 flex-shrink-0" />}
               </button>
             ))}
           </div>
         </div>
       )}
-    </div>
+    </>
   )
 }
 

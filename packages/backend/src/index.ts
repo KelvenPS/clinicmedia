@@ -1,4 +1,4 @@
-import express from 'express'
+import express, { Request, Response, NextFunction } from 'express'
 import cors from 'cors'
 import dotenv from 'dotenv'
 import authRoutes from './routes/auth'
@@ -61,15 +61,31 @@ app.get('/api/health', (_req, res) => {
     status: 'ok',
     timestamp: new Date().toISOString(),
     env: process.env.NODE_ENV,
-    db: 'postgresql/neon',
   })
+})
+
+// Global Express error handler — catches any error passed via next(err) in routes
+app.use((err: Error, _req: Request, res: Response, _next: NextFunction) => {
+  console.error('[EXPRESS] Unhandled route error:', err?.message || err)
+  if (!res.headersSent) {
+    res.status(500).json({ message: 'Erro interno do servidor' })
+  }
+})
+
+// Keep the process alive — unhandled rejections and exceptions must never kill the server
+process.on('unhandledRejection', (reason) => {
+  console.error('[PROCESS] Unhandled Rejection:', reason)
+})
+
+process.on('uncaughtException', (error) => {
+  console.error('[PROCESS] Uncaught Exception:', error?.message || error)
 })
 
 app.listen(PORT, () => {
   console.log('')
   console.log('  ⚡  ClinIQ Pro — API')
   console.log(`  🚀  Servidor: http://localhost:${PORT}`)
-  console.log(`  🐘  Banco: PostgreSQL (Neon)`)
+  console.log(`  🐘  Banco: PostgreSQL`)
   console.log(`  📡  Ambiente: ${process.env.NODE_ENV || 'development'}`)
   console.log('')
 })

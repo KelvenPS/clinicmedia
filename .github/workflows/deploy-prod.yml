@@ -1,8 +1,12 @@
 name: Deploy — Produção
 
 on:
-  push:
-    branches: [main]
+  workflow_dispatch:
+    inputs:
+      confirm:
+        description: 'Digite "deploy" para confirmar o envio para produção'
+        required: true
+        default: ''
 
 concurrency:
   group: deploy-prod

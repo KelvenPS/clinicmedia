@@ -139,7 +139,7 @@ model Patient {
 
 model HealthPlan {
   id              String   @id @default(uuid())
-  doctorId        String
+  doctorId        String?
   name            String
   type            PlanType @default(PARTICULAR)
   customTypeName  String?
@@ -150,7 +150,7 @@ model HealthPlan {
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
 
-  doctor       User          @relation("DoctorHealthPlans", fields: [doctorId], references: [id])
+  doctor       User?         @relation("DoctorHealthPlans", fields: [doctorId], references: [id])
   patientPlans PatientPlan[]
 }
 

@@ -807,7 +807,7 @@ function Footer() {
         {/* Bottom bar */}
         <div className="pt-8 border-t border-slate-800/60 flex flex-col sm:flex-row items-center justify-between gap-4">
           <p className="text-slate-500 text-sm">
-            © 2024 ClinIQ Pro. Todos os direitos reservados.
+            © {new Date().getFullYear()} ClinIQ Pro. Todos os direitos reservados.
           </p>
           <p className="text-slate-500 text-sm">
             Desenvolvido com ❤️ para profissionais de saúde brasileiros

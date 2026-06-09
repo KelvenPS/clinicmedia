@@ -185,7 +185,7 @@ export default function Login() {
 
           <div className="mt-8 pt-6 border-t border-white/10">
             <p className="text-slate-500 text-xs">
-              © 2024 ClinIQ Pro · Todos os direitos reservados
+              © {new Date().getFullYear()} ClinIQ Pro · Todos os direitos reservados
             </p>
           </div>
         </div>

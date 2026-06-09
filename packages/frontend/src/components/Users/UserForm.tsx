@@ -124,8 +124,8 @@ export default function UserForm({ user, onSubmit, loading }: Props) {
             <input {...register('specialty')} className="input-field" placeholder="Ex: Cardiologia" />
           </div>
           <div>
-            <label className="label">CRM</label>
-            <input {...register('crm')} className="input-field" placeholder="Ex: CRM/SP 12345" />
+            <label className="label">Registro Profissional</label>
+            <input {...register('crm')} className="input-field" placeholder="Ex: CRM/SP 12345, CRP 67890" />
           </div>
         </div>
       )}

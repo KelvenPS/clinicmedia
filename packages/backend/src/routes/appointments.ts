@@ -257,33 +257,37 @@ router.get('/stats', async (req: AuthRequest, res) => {
     const tomorrow = new Date(today)
     tomorrow.setDate(tomorrow.getDate() + 1)
 
-    let doctorFilter: Record<string, unknown> = {}
+    // null = ADMIN (sem filtro), [] = secretaria sem médico (retorna 0)
+    let doctorIds: string[] | null = null
     if (req.user!.role === 'DOCTOR') {
-      doctorFilter = { doctorId: req.user!.userId }
+      doctorIds = [req.user!.userId]
     } else if (req.user!.role === 'SECRETARY') {
       const links = await prisma.doctorSecretary.findMany({
         where: { secretaryId: req.user!.userId, active: true },
         select: { doctorId: true },
       })
-      const linkedIds = links.map(l => l.doctorId)
-      doctorFilter = linkedIds.length > 0 ? { doctorId: { in: linkedIds } } : { doctorId: 'none' }
+      doctorIds = links.map(l => l.doctorId)
+    }
+
+    const apptWhere =
+      doctorIds === null ? {} :
+      doctorIds.length === 0 ? { doctorId: '__none__' } :
+      doctorIds.length === 1 ? { doctorId: doctorIds[0] } :
+      { doctorId: { in: doctorIds } }
+
+    const patientWhere: Record<string, unknown> = { active: true }
+    if (doctorIds !== null) {
+      patientWhere.doctorId =
+        doctorIds.length === 0 ? '__none__' :
+        doctorIds.length === 1 ? doctorIds[0] :
+        { in: doctorIds }
     }
 
     const [todayTotal, todayCompleted, todayScheduled, totalPatients] = await Promise.all([
-      prisma.appointment.count({
-        where: { ...doctorFilter, date: { gte: today, lt: tomorrow } },
-      }),
-      prisma.appointment.count({
-        where: { ...doctorFilter, date: { gte: today, lt: tomorrow }, status: 'COMPLETED' },
-      }),
-      prisma.appointment.count({
-        where: {
-          ...doctorFilter,
-          date: { gte: today, lt: tomorrow },
-          status: { in: ['SCHEDULED', 'CONFIRMED'] },
-        },
-      }),
-      prisma.patient.count({ where: { active: true } }),
+      prisma.appointment.count({ where: { ...apptWhere, date: { gte: today, lt: tomorrow } } }),
+      prisma.appointment.count({ where: { ...apptWhere, date: { gte: today, lt: tomorrow }, status: 'COMPLETED' } }),
+      prisma.appointment.count({ where: { ...apptWhere, date: { gte: today, lt: tomorrow }, status: { in: ['SCHEDULED', 'CONFIRMED'] } } }),
+      prisma.patient.count({ where: patientWhere }),
     ])
 
     res.json({ todayTotal, todayCompleted, todayScheduled, totalPatients })

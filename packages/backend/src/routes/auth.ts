@@ -68,6 +68,7 @@ router.post('/login', async (req, res) => {
       res.status(400).json({ message: 'Dados inválidos', errors: error.errors })
       return
     }
+    console.error('[auth/login] erro:', error)
     res.status(500).json({ message: 'Erro interno do servidor' })
   }
 })

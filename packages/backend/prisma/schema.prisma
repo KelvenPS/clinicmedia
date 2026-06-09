@@ -137,6 +137,8 @@ model Patient {
   patientPlans   PatientPlan[]
   medicalRecords MedicalRecord[]
   assessments    Assessment[]
+
+  @@index([doctorId])
 }
 
 model HealthPlan {
@@ -237,6 +239,9 @@ model Appointment {
   doctor      User         @relation("DoctorAppointments", fields: [doctorId], references: [id])
   createdBy   User         @relation("CreatedByAppointments", fields: [createdById], references: [id])
   transaction Transaction?
+
+  @@index([doctorId])
+  @@index([doctorId, date])
 }
 
 model AppointmentType {

@@ -76,6 +76,23 @@ router.post('/', async (req: AuthRequest, res) => {
   try {
     const data = appointmentSchema.parse(req.body)
 
+    // DOCTOR cannot create an appointment assigned to another professional.
+    // Override doctorId to enforce tenant isolation regardless of body payload.
+    if (req.user!.role === 'DOCTOR') {
+      data.doctorId = req.user!.userId
+    }
+
+    // SECRETARY can only create for a linked doctor.
+    if (req.user!.role === 'SECRETARY') {
+      const link = await prisma.doctorSecretary.findFirst({
+        where: { secretaryId: req.user!.userId, doctorId: data.doctorId, active: true },
+      })
+      if (!link) {
+        res.status(403).json({ message: 'Acesso negado: profissional não vinculado a esta secretária' })
+        return
+      }
+    }
+
     const appointment = await prisma.appointment.create({
       data: {
         ...data,

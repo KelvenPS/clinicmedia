@@ -9,7 +9,11 @@ router.get('/', async (req: AuthRequest, res) => {
   try {
     const where: Record<string, unknown> = { role: 'DOCTOR', active: true }
 
-    if (req.user!.role === 'SECRETARY') {
+    if (req.user!.role === 'DOCTOR') {
+      // A doctor only sees themselves — prevents cross-tenant professional listing
+      // in forms like AppointmentForm where the dropdown is populated from this endpoint.
+      where.id = req.user!.userId
+    } else if (req.user!.role === 'SECRETARY') {
       const links = await prisma.doctorSecretary.findMany({
         where: { secretaryId: req.user!.userId, active: true },
         select: { doctorId: true },

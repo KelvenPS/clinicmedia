@@ -21,4 +21,4 @@ COPY --from=builder /app/packages/backend/dist ./dist
 COPY packages/backend/package.json ./
 COPY packages/backend/prisma ./prisma
 EXPOSE 3001
-CMD ["sh", "-c", "node_modules/.bin/prisma migrate deploy && node dist/index.js"]
+CMD ["sh", "-c", "node_modules/.bin/prisma migrate resolve --applied 20260608171341_init 2>/dev/null || true && node_modules/.bin/prisma migrate resolve --applied 20260609012235_add_doctor_id_to_health_plan 2>/dev/null || true && node_modules/.bin/prisma migrate deploy && node dist/index.js"]

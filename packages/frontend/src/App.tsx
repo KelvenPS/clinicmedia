@@ -24,6 +24,8 @@ import ConfigNotificacoes from './pages/configuracoes/ConfigNotificacoes'
 import Integracoes from './pages/configuracoes/Integracoes'
 import ChatbotIA from './pages/ChatbotIA'
 import AdminGestao from './pages/AdminGestao'
+import NotaFiscal from './pages/NotaFiscal'
+import ConsultaOnline from './pages/ConsultaOnline'
 
 function ProtectedRoute({ children, allowedRoles }: { children: React.ReactNode; allowedRoles?: string[] }) {
   const { isAuthenticated, user } = useAuthStore()
@@ -53,6 +55,8 @@ export default function App() {
           <Route path="financeiro" element={<ProtectedRoute allowedRoles={['ADMIN', 'DOCTOR']}><Financeiro /></ProtectedRoute>} />
           <Route path="usuarios" element={<ProtectedRoute allowedRoles={['ADMIN']}><Usuarios /></ProtectedRoute>} />
           <Route path="admin/gestao" element={<ProtectedRoute allowedRoles={['ADMIN']}><AdminGestao /></ProtectedRoute>} />
+          <Route path="nota-fiscal" element={<NotaFiscal />} />
+          <Route path="consulta-online" element={<ConsultaOnline />} />
 
           <Route path="configuracoes" element={<Navigate to="/configuracoes/perfil" replace />} />
           <Route path="configuracoes/perfil" element={<Perfil />} />

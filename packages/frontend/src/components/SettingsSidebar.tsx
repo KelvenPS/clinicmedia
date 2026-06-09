@@ -48,10 +48,10 @@ export default function SettingsSidebar() {
   return (
     <aside className="w-64 bg-slate-900 flex flex-col h-screen flex-shrink-0">
       {/* Header */}
-      <div className="px-5 py-5 border-b border-white/10">
+      <div className="px-5 py-4 border-b border-white/10">
         <button
           onClick={() => navigate('/dashboard')}
-          className="flex items-center gap-2 text-slate-400 hover:text-white transition-colors mb-4 group"
+          className="flex items-center gap-2 text-slate-400 hover:text-white transition-colors mb-3 group"
         >
           <ArrowLeft className="w-4 h-4 group-hover:-translate-x-0.5 transition-transform" />
           <span className="text-sm">Voltar ao sistema</span>
@@ -68,7 +68,7 @@ export default function SettingsSidebar() {
       </div>
 
       {/* Nav */}
-      <nav className="flex-1 px-3 py-4 space-y-1">
+      <nav className="flex-1 min-h-0 overflow-y-auto px-3 py-4 space-y-1">
         <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider px-3 mb-3">
           Opções
         </p>

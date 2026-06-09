@@ -98,6 +98,7 @@ model User {
   subscription        DoctorSubscription? @relation("DoctorSubscription")
   integrations        Integration[]       @relation("DoctorIntegrations")
   whatsappInstance    WhatsAppInstance?   @relation("DoctorWhatsApp")
+  healthPlans         HealthPlan[]        @relation("DoctorHealthPlans")
 }
 
 model DoctorSecretary {
@@ -137,6 +138,7 @@ model Patient {
 
 model HealthPlan {
   id              String   @id @default(uuid())
+  doctorId        String
   name            String
   type            PlanType @default(PARTICULAR)
   customTypeName  String?
@@ -147,6 +149,7 @@ model HealthPlan {
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
 
+  doctor       User          @relation("DoctorHealthPlans", fields: [doctorId], references: [id])
   patientPlans PatientPlan[]
 }
 

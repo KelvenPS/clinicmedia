@@ -64,36 +64,43 @@ export default function Perfil() {
   const initials = user?.name?.split(' ').slice(0, 2).map(n => n[0]).join('').toUpperCase()
 
   return (
-    <div className="max-w-2xl space-y-6 animate-fade-in">
-      <div>
+    <div className="max-w-2xl space-y-6 animate-page-enter">
+      <div className="animate-stagger-1">
         <h1 className="page-title">Meu Perfil</h1>
-        <p className="page-subtitle">Gerencie suas informações pessoais</p>
+        <p className="page-subtitle">Gerencie suas informações pessoais e profissionais</p>
       </div>
 
       {/* Avatar card */}
-      <div className="card">
+      <div className="card animate-stagger-2">
         <div className="flex items-center gap-5">
-          <div className="w-20 h-20 bg-blue-600 rounded-2xl flex items-center justify-center flex-shrink-0 shadow-lg shadow-blue-600/25">
+          <div className="w-20 h-20 bg-gradient-to-br from-blue-500 to-blue-700 rounded-2xl flex items-center justify-center flex-shrink-0 shadow-xl shadow-blue-600/25">
             <span className="text-white text-2xl font-bold">{initials}</span>
           </div>
-          <div>
+          <div className="flex-1 min-w-0">
             <h2 className="text-xl font-bold text-slate-900">{user?.name}</h2>
-            <p className="text-slate-500 text-sm">{user?.email}</p>
+            <p className="text-slate-500 text-sm mt-0.5">{user?.email}</p>
             {roleInfo && (
-              <span className={`inline-flex items-center gap-1.5 mt-1.5 text-xs font-medium px-2.5 py-0.5 rounded-full ${roleInfo.bg} ${roleInfo.color}`}>
+              <span className={`inline-flex items-center gap-1.5 mt-2 text-xs font-semibold px-3 py-1 rounded-full ${roleInfo.bg} ${roleInfo.color}`}>
                 <Shield className="w-3 h-3" />
                 {roleInfo.label}
               </span>
             )}
           </div>
+          {isDirty && (
+            <span className="text-xs bg-amber-50 text-amber-700 border border-amber-200 px-2.5 py-1 rounded-full font-medium flex-shrink-0">
+              Alterado
+            </span>
+          )}
         </div>
       </div>
 
       {/* Form */}
       <form onSubmit={handleSubmit(d => saveMutation.mutate(d))} className="space-y-5">
-        <div className="card space-y-4">
+        <div className="card space-y-4 animate-stagger-3">
           <h3 className="font-semibold text-slate-900 flex items-center gap-2">
-            <User className="w-4 h-4 text-blue-600" />
+            <div className="w-7 h-7 bg-blue-100 rounded-lg flex items-center justify-center">
+              <User className="w-4 h-4 text-blue-600" />
+            </div>
             Informações Pessoais
           </h3>
 
@@ -136,8 +143,13 @@ export default function Perfil() {
           )}
         </div>
 
-        <div className="card space-y-4">
-          <h3 className="font-semibold text-slate-900">Alterar Senha</h3>
+        <div className="card space-y-4 animate-stagger-4">
+          <h3 className="font-semibold text-slate-900 flex items-center gap-2">
+            <div className="w-7 h-7 bg-slate-100 rounded-lg flex items-center justify-center">
+              <Eye className="w-4 h-4 text-slate-500" />
+            </div>
+            Alterar Senha
+          </h3>
           <p className="text-sm text-slate-500">Deixe em branco para manter a senha atual</p>
 
           <div>

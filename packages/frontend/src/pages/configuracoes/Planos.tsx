@@ -129,8 +129,8 @@ export default function Planos() {
   const currentPlan = subscription?.plan
 
   return (
-    <div className="max-w-4xl space-y-6 animate-fade-in">
-      <div>
+    <div className="max-w-4xl space-y-6 animate-page-enter">
+      <div className="animate-stagger-1">
         <h1 className="page-title">Planos ClinIQ Pro</h1>
         <p className="page-subtitle">Escolha o plano ideal para sua prática</p>
       </div>
@@ -201,8 +201,8 @@ export default function Planos() {
       </div>
 
       {/* Plan cards */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-        {PLANS.map(plan => {
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+        {PLANS.map((plan, idx) => {
           const Icon = plan.icon
           const isActive = currentPlan === plan.key
           const monthlyPrice = price(plan)
@@ -211,7 +211,7 @@ export default function Planos() {
           return (
             <div
               key={plan.key}
-              className={`relative card border-2 transition-all ${plan.popular ? `${plan.border} shadow-lg` : 'border-slate-200'}`}
+              className={`relative card border-2 transition-all hover:-translate-y-1 hover:shadow-lg hover:border-slate-300 ${plan.popular ? `${plan.border} shadow-lg hover:shadow-xl` : 'border-slate-200'} animate-stagger-${idx+1}`}
             >
               {plan.popular && (
                 <div className="absolute -top-3 left-1/2 -translate-x-1/2">

@@ -682,9 +682,9 @@ export default function Integracoes() {
   const configured = integrations.filter(i => i.active).length
 
   return (
-    <div className="max-w-4xl space-y-6 animate-fade-in">
+    <div className="max-w-4xl space-y-6 animate-page-enter">
       {/* Header */}
-      <div>
+      <div className="animate-stagger-1">
         <h1 className="page-title flex items-center gap-2">
           <Zap className="w-6 h-6 text-blue-600" />
           Integrações
@@ -693,16 +693,16 @@ export default function Integracoes() {
       </div>
 
       {/* Stats */}
-      <div className="grid grid-cols-3 gap-3">
-        <div className="card p-4">
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+        <div className="card p-4 animate-stagger-1">
           <p className="text-xs text-slate-500 uppercase tracking-wider mb-1">Total</p>
           <p className="text-2xl font-bold text-slate-900">{integrations.length}</p>
         </div>
-        <div className="card p-4">
+        <div className="card p-4 animate-stagger-2">
           <p className="text-xs text-slate-500 uppercase tracking-wider mb-1">Ativas</p>
           <p className="text-2xl font-bold text-emerald-600">{configured}</p>
         </div>
-        <div className="card p-4">
+        <div className="card p-4 animate-stagger-3">
           <p className="text-xs text-slate-500 uppercase tracking-wider mb-1">Entregas totais</p>
           <p className="text-2xl font-bold text-blue-600">
             {integrations.reduce((s, i) => s + (i._count?.webhookLogs ?? 0), 0)}

@@ -193,21 +193,21 @@ export default function Salas() {
     DAYS.filter(d => days.includes(d.value)).map(d => d.label).join(', ')
 
   return (
-    <div className="max-w-3xl space-y-6 animate-fade-in">
+    <div className="max-w-3xl space-y-6 animate-page-enter">
       <div className="flex items-start justify-between">
-        <div>
+        <div className="animate-stagger-1">
           <h1 className="page-title">Salas de Atendimento</h1>
           <p className="page-subtitle">Configure os locais onde você atende e vincule suas secretárias</p>
         </div>
-        <button onClick={() => { setEditRoom(null); setModalOpen(true) }} className="btn-primary">
+        <button onClick={() => { setEditRoom(null); setModalOpen(true) }} className="btn-primary animate-stagger-1">
           <Plus className="w-4 h-4" />
           Nova Sala
         </button>
       </div>
 
       {rooms.length === 0 ? (
-        <div className="card text-center py-12">
-          <MapPin className="w-10 h-10 text-slate-300 mx-auto mb-3" />
+        <div className="card text-center py-12 animate-stagger-2">
+          <MapPin className="w-10 h-10 text-slate-300 mx-auto mb-3 animate-float" />
           <p className="text-slate-400">Nenhuma sala cadastrada</p>
           <button onClick={() => setModalOpen(true)} className="text-blue-600 text-sm font-medium mt-2 hover:underline">
             Criar primeira sala

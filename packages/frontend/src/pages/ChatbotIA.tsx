@@ -35,6 +35,7 @@ import {
   Target,
   Bell,
   Handshake,
+  Menu,
 } from 'lucide-react'
 import api from '../lib/api'
 import { useAuthStore } from '../store/authStore'
@@ -243,7 +244,7 @@ function AtendimentoPanel() {
   return (
     <div className="flex h-full">
       {/* ── Conversation List ── */}
-      <div className="w-80 flex-shrink-0 border-r border-slate-200 bg-white flex flex-col">
+      <div className={`w-full lg:w-80 flex-shrink-0 border-r border-slate-200 bg-white flex flex-col ${selectedConversation ? 'hidden lg:flex' : 'flex'}`}>
         {/* Search */}
         <div className="p-3 border-b border-slate-100">
           <div className="relative">
@@ -331,7 +332,7 @@ function AtendimentoPanel() {
       </div>
 
       {/* ── Chat View ── */}
-      <div className="flex-1 flex flex-col bg-slate-50">
+      <div className={`flex-1 flex flex-col bg-slate-50 ${selectedConversation ? 'flex' : 'hidden lg:flex'}`}>
         {!selectedConversation ? (
           <div className="flex-1 flex flex-col items-center justify-center gap-4">
             <div className="w-20 h-20 rounded-full bg-slate-100 flex items-center justify-center">
@@ -345,32 +346,38 @@ function AtendimentoPanel() {
         ) : (
           <>
             {/* Chat Header */}
-            <div className="flex items-center justify-between px-5 py-3 bg-white border-b border-slate-200 shadow-sm">
-              <div className="flex items-center gap-3">
+            <div className="flex items-center justify-between px-3 sm:px-5 py-3 bg-white border-b border-slate-200 shadow-sm">
+              <div className="flex items-center gap-2 sm:gap-3 min-w-0">
+                <button
+                  onClick={() => setSelectedConversation(null)}
+                  className="lg:hidden p-2 text-slate-500 hover:text-slate-700 hover:bg-slate-100 rounded-lg transition-colors flex-shrink-0"
+                >
+                  <ArrowLeft className="w-4 h-4" />
+                </button>
                 <div
-                  className={`w-9 h-9 rounded-full bg-gradient-to-br ${avatarGradient(selectedConversation.contactName)} flex items-center justify-center shadow-sm`}
+                  className={`w-9 h-9 rounded-full bg-gradient-to-br ${avatarGradient(selectedConversation.contactName)} flex items-center justify-center flex-shrink-0 shadow-sm`}
                 >
                   <span className="text-white text-xs font-bold">{getInitials(selectedConversation.contactName)}</span>
                 </div>
-                <div>
-                  <p className="text-sm font-semibold text-slate-800">{selectedConversation.contactName}</p>
-                  <div className="flex items-center gap-2">
-                    <Phone className="w-3 h-3 text-slate-400" />
-                    <span className="text-xs text-slate-500">{selectedConversation.phone}</span>
-                    <span className={`text-xs px-1.5 py-0.5 rounded-full font-medium ${categoryColors[selectedConversation.category]}`}>
+                <div className="min-w-0">
+                  <p className="text-sm font-semibold text-slate-800 truncate">{selectedConversation.contactName}</p>
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <Phone className="w-3 h-3 text-slate-400 flex-shrink-0" />
+                    <span className="text-xs text-slate-500 truncate">{selectedConversation.phone}</span>
+                    <span className={`text-[10px] px-1.5 py-0.2 rounded-full font-medium ${categoryColors[selectedConversation.category]}`}>
                       {categoryLabels[selectedConversation.category]}
                     </span>
                   </div>
                 </div>
               </div>
-              <div className="flex items-center gap-2">
-                <button className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-amber-600 bg-amber-50 hover:bg-amber-100 border border-amber-200 rounded-lg transition-all">
-                  <Clock className="w-3.5 h-3.5" />
-                  Aguardar
+              <div className="flex items-center gap-1 sm:gap-2 flex-shrink-0">
+                <button className="flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-medium text-amber-600 bg-amber-50 hover:bg-amber-100 border border-amber-200 rounded-lg transition-all">
+                  <Clock className="w-3 h-3" />
+                  <span className="hidden sm:inline">Aguardar</span>
                 </button>
-                <button className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-slate-600 bg-slate-50 hover:bg-slate-100 border border-slate-200 rounded-lg transition-all">
-                  <CheckCircle2 className="w-3.5 h-3.5 text-emerald-500" />
-                  Fechar
+                <button className="flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-medium text-slate-600 bg-slate-50 hover:bg-slate-100 border border-slate-200 rounded-lg transition-all">
+                  <CheckCircle2 className="w-3 h-3 text-emerald-500" />
+                  <span className="hidden sm:inline">Fechar</span>
                 </button>
                 <button className="p-1.5 text-slate-400 hover:text-slate-600 hover:bg-slate-100 rounded-lg transition-all">
                   <MoreVertical className="w-4 h-4" />
@@ -1044,6 +1051,12 @@ export default function ChatbotIA() {
   const navigate = useNavigate()
   const { user } = useAuthStore()
   const [activePanel, setActivePanel] = useState<ActivePanel>('atendimento')
+  const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false)
+
+  const selectPanel = (panel: ActivePanel) => {
+    setActivePanel(panel)
+    setMobileSidebarOpen(false)
+  }
 
   const sidebarItems: {
     key: ActivePanel
@@ -1082,9 +1095,23 @@ export default function ChatbotIA() {
   }
 
   return (
-    <div className="min-h-screen flex bg-slate-50">
+    <div className="flex h-screen bg-slate-50 overflow-hidden relative">
+      {/* ── Mobile Sidebar Overlay ── */}
+      {mobileSidebarOpen && (
+        <div
+          className="fixed inset-0 bg-slate-950/60 backdrop-blur-xs z-40 lg:hidden animate-fade-in"
+          onClick={() => setMobileSidebarOpen(false)}
+        />
+      )}
+
       {/* ── Left Sidebar ── */}
-      <aside className="w-56 bg-slate-900 flex flex-col h-screen flex-shrink-0 sticky top-0">
+      <aside
+        className={`
+          fixed inset-y-0 left-0 z-50 w-56 bg-slate-900 flex flex-col h-screen flex-shrink-0
+          transition-transform duration-300 ease-spring lg:static lg:translate-x-0
+          ${mobileSidebarOpen ? 'translate-x-0' : '-translate-x-full'}
+        `}
+      >
         {/* Back + Logo */}
         <div className="px-4 py-4 border-b border-white/10">
           <button
@@ -1095,8 +1122,8 @@ export default function ChatbotIA() {
             Voltar ao sistema
           </button>
           <div className="flex items-center gap-2.5">
-            <div className="w-8 h-8 bg-gradient-to-br from-cyan-500 to-blue-600 rounded-lg flex items-center justify-center shadow-lg shadow-cyan-600/30">
-              <Zap className="w-4 h-4 text-white" fill="white" />
+            <div className="w-8 h-8 bg-gradient-to-br from-cyan-500 to-blue-600 rounded-xl flex items-center justify-center shadow-lg shadow-cyan-600/30 animate-float">
+              <Zap className="w-4 h-4 text-white animate-pulse-soft" fill="white" />
             </div>
             <div>
               <h1 className="text-white font-bold text-sm leading-tight tracking-tight">ClinIQ</h1>
@@ -1107,20 +1134,20 @@ export default function ChatbotIA() {
 
         {/* Nav */}
         <nav className="flex-1 px-3 py-4 space-y-1 overflow-y-auto">
-          <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider px-3 mb-3">
+          <p className="text-xs font-semibold text-slate-500 uppercase tracking-widest px-3 mb-3">
             Atendimento
           </p>
 
           {/* Atendimento item */}
           <button
-            onClick={() => setActivePanel('atendimento')}
-            className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-all group ${
+            onClick={() => selectPanel('atendimento')}
+            className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium transition-all duration-150 group ${
               activePanel === 'atendimento'
-                ? 'bg-white/10 text-white'
+                ? 'bg-gradient-to-r from-cyan-600 to-blue-600 text-white shadow-lg shadow-blue-700/20'
                 : 'text-slate-400 hover:bg-white/5 hover:text-white'
             }`}
           >
-            <MessageSquare className={`w-5 h-5 flex-shrink-0 ${activePanel === 'atendimento' ? 'text-white' : 'text-slate-400 group-hover:text-white'}`} />
+            <MessageSquare className={`w-5 h-5 flex-shrink-0 transition-colors ${activePanel === 'atendimento' ? 'text-white' : 'text-slate-400 group-hover:text-white'}`} />
             <span className="flex-1 text-left">Atendimento</span>
             {activePanel === 'atendimento' && <ChevronRight className="w-4 h-4 opacity-50" />}
           </button>
@@ -1134,7 +1161,7 @@ export default function ChatbotIA() {
             ].map(sub => (
               <button
                 key={sub.key}
-                onClick={() => setActivePanel('atendimento')}
+                onClick={() => selectPanel('atendimento')}
                 className="w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-xs text-slate-500 hover:text-slate-300 hover:bg-white/5 transition-all"
               >
                 <span className={`w-1.5 h-1.5 rounded-full bg-current ${sub.color} opacity-70`} />
@@ -1144,7 +1171,7 @@ export default function ChatbotIA() {
           </div>
 
           <div className="border-t border-white/10 mt-4 pt-4 space-y-1">
-            <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider px-3 mb-3">
+            <p className="text-xs font-semibold text-slate-500 uppercase tracking-widest px-3 mb-3">
               Ferramentas
             </p>
             {[
@@ -1154,14 +1181,14 @@ export default function ChatbotIA() {
             ].map(item => (
               <button
                 key={item.key}
-                onClick={() => setActivePanel(item.key)}
-                className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-all group ${
+                onClick={() => selectPanel(item.key)}
+                className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium transition-all duration-150 group ${
                   activePanel === item.key
-                    ? 'bg-white/10 text-white'
+                    ? 'bg-gradient-to-r from-cyan-600 to-blue-600 text-white shadow-lg shadow-blue-700/20'
                     : 'text-slate-400 hover:bg-white/5 hover:text-white'
                 }`}
               >
-                <span className={`flex-shrink-0 ${activePanel === item.key ? 'text-white' : 'text-slate-400 group-hover:text-white'}`}>
+                <span className={`flex-shrink-0 transition-colors ${activePanel === item.key ? 'text-white' : 'text-slate-400 group-hover:text-white'}`}>
                   {item.icon}
                 </span>
                 <span className="flex-1 text-left">{item.label}</span>
@@ -1174,7 +1201,7 @@ export default function ChatbotIA() {
         {/* User footer */}
         <div className="border-t border-white/10 px-4 py-3">
           <div className="flex items-center gap-2.5">
-            <div className="w-7 h-7 bg-gradient-to-br from-cyan-500 to-blue-600 rounded-full flex items-center justify-center flex-shrink-0">
+            <div className="w-7 h-7 bg-gradient-to-br from-cyan-500 to-blue-600 rounded-full flex items-center justify-center flex-shrink-0 animate-pulse-soft">
               <span className="text-white text-xs font-bold">
                 {user?.name
                   .split(' ')
@@ -1198,10 +1225,17 @@ export default function ChatbotIA() {
       {/* ── Main Content ── */}
       <main className="flex-1 flex flex-col min-h-screen overflow-hidden">
         {/* Top Bar */}
-        <div className="bg-white border-b border-slate-200 px-6 py-3.5 flex items-center gap-3 flex-shrink-0">
+        <div className="bg-white border-b border-slate-200 px-4 sm:px-6 py-3.5 flex items-center gap-3 flex-shrink-0 shadow-sm">
+          <button
+            onClick={() => setMobileSidebarOpen(true)}
+            className="lg:hidden p-2 -ml-2 text-slate-500 hover:text-slate-700 hover:bg-slate-100 rounded-lg transition-colors active:scale-95"
+            aria-label="Abrir menu"
+          >
+            <Menu className="w-5 h-5" />
+          </button>
           <div className="flex items-center gap-2">
             <div className="w-7 h-7 bg-gradient-to-br from-cyan-500/20 to-blue-600/20 rounded-lg flex items-center justify-center">
-              <Bot className="w-4 h-4 text-cyan-600" />
+              <Bot className="w-4 h-4 text-cyan-600 animate-pulse-soft" />
             </div>
             <div>
               <h2 className="text-sm font-bold text-slate-800">{panelTitles[activePanel]}</h2>
@@ -1209,10 +1243,10 @@ export default function ChatbotIA() {
             </div>
           </div>
           <div className="flex-1" />
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-1.5 sm:gap-2">
             <span className="flex items-center gap-1.5 text-xs text-emerald-600 bg-emerald-50 border border-emerald-200 px-2.5 py-1 rounded-full font-medium">
               <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
-              Online
+              <span className="hidden sm:inline">Online</span>
             </span>
             <span className="text-xs bg-cyan-500/10 text-cyan-600 border border-cyan-200 px-2.5 py-1 rounded-full font-medium">
               BETA
@@ -1221,7 +1255,7 @@ export default function ChatbotIA() {
         </div>
 
         {/* Panel content */}
-        <div className="flex-1 overflow-hidden">
+        <div className="flex-1 overflow-auto animate-page-enter">
           {activePanel === 'atendimento' && <AtendimentoPanel />}
           {activePanel === 'templates' && <TemplatesPanel />}
           {activePanel === 'fluxos' && <FluxosPanel />}

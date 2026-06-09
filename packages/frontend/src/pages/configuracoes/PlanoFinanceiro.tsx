@@ -81,7 +81,7 @@ function PlanForm({ plan, onSubmit, loading }: { plan: HealthPlan | null; onSubm
       {/* Type selection as visual cards */}
       <div>
         <label className="label mb-2">Tipo de Plano *</label>
-        <div className="grid grid-cols-3 gap-2">
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
           {PLAN_TYPES.map(type => (
             <label
               key={type.value}
@@ -234,13 +234,13 @@ export default function PlanoFinanceiro() {
   const handleEdit = (p: HealthPlan) => { setEditPlan(p); setModalOpen(true) }
 
   return (
-    <div className="max-w-3xl space-y-6 animate-fade-in">
+    <div className="max-w-3xl space-y-6 animate-page-enter">
       <div className="flex items-start justify-between">
-        <div>
+        <div className="animate-stagger-1">
           <h1 className="page-title">Planos de Saúde</h1>
           <p className="page-subtitle">Cadastre convênios e formas de atendimento</p>
         </div>
-        <button onClick={handleNew} className="btn-primary">
+        <button onClick={handleNew} className="btn-primary animate-stagger-1">
           <Plus className="w-4 h-4" />
           Novo Plano
         </button>
@@ -253,8 +253,8 @@ export default function PlanoFinanceiro() {
           { label: 'Planos Ativos', value: stats.active, icon: CheckCircle, color: 'text-emerald-600', bg: 'bg-emerald-50' },
           { label: 'Convênios', value: stats.convenio, icon: CreditCard, color: 'text-purple-600', bg: 'bg-purple-50' },
           { label: 'Vínculos', value: stats.totalPatients, icon: Users, color: 'text-amber-600', bg: 'bg-amber-50' },
-        ].map(({ label, value, icon: Icon, color, bg }) => (
-          <div key={label} className={`card flex items-center gap-3 py-4 ${bg}`}>
+        ].map(({ label, value, icon: Icon, color, bg }, idx) => (
+          <div key={label} className={`card flex items-center gap-3 py-4 ${bg} animate-stagger-${idx+1}`}>
             <Icon className={`w-8 h-8 ${color}`} />
             <div>
               <p className={`text-2xl font-bold ${color}`}>{value}</p>

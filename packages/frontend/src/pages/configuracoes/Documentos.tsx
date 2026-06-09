@@ -167,13 +167,13 @@ export default function Documentos() {
   }
 
   return (
-    <div className="max-w-3xl space-y-6 animate-fade-in">
+    <div className="max-w-3xl space-y-6 animate-page-enter">
       <div className="flex items-start justify-between">
-        <div>
+        <div className="animate-stagger-1">
           <h1 className="page-title">Documentos</h1>
           <p className="page-subtitle">Templates de atestados, declarações, recibos e comprovantes</p>
         </div>
-        <button onClick={() => { setEditDoc(null); setModalOpen(true) }} className="btn-primary">
+        <button onClick={() => { setEditDoc(null); setModalOpen(true) }} className="btn-primary animate-stagger-1">
           <Plus className="w-4 h-4" />
           Novo Documento
         </button>

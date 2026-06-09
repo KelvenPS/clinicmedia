@@ -122,21 +122,21 @@ export default function FormasPagamento() {
   })
 
   return (
-    <div className="max-w-2xl space-y-6 animate-fade-in">
+    <div className="max-w-2xl space-y-6 animate-page-enter">
       <div className="flex items-start justify-between">
-        <div>
+        <div className="animate-stagger-1">
           <h1 className="page-title">Formas de Pagamento</h1>
           <p className="page-subtitle">Configure como você recebe dos pacientes</p>
         </div>
-        <button onClick={() => { setEditMethod(null); setModalOpen(true) }} className="btn-primary">
+        <button onClick={() => { setEditMethod(null); setModalOpen(true) }} className="btn-primary animate-stagger-1">
           <Plus className="w-4 h-4" />
           Adicionar
         </button>
       </div>
 
       {methods.length === 0 ? (
-        <div className="card text-center py-12">
-          <Wallet className="w-10 h-10 text-slate-300 mx-auto mb-3" />
+        <div className="card text-center py-12 animate-stagger-2">
+          <Wallet className="w-10 h-10 text-slate-300 mx-auto mb-3 animate-float" />
           <p className="text-slate-400">Nenhuma forma de pagamento cadastrada</p>
           <button onClick={() => setModalOpen(true)} className="text-blue-600 text-sm font-medium mt-2 hover:underline">
             Adicionar primeira forma

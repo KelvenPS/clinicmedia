@@ -120,13 +120,13 @@ export default function TiposAtendimento() {
   const handleEdit = (t: AppointmentType) => { setEditType(t); setModalOpen(true) }
 
   return (
-    <div className="max-w-3xl space-y-6 animate-fade-in">
+    <div className="max-w-3xl space-y-6 animate-page-enter">
       <div className="flex items-start justify-between">
-        <div>
+        <div className="animate-stagger-1">
           <h1 className="page-title">Tipos de Atendimento</h1>
           <p className="page-subtitle">Cadastre os tipos de consulta com seus valores base</p>
         </div>
-        <button onClick={handleNew} className="btn-primary">
+        <button onClick={handleNew} className="btn-primary animate-stagger-1">
           <Plus className="w-4 h-4" />
           Novo Tipo
         </button>
@@ -134,14 +134,14 @@ export default function TiposAtendimento() {
 
       {/* Stats */}
       <div className="grid grid-cols-2 gap-4">
-        <div className="card flex items-center gap-3 py-4 bg-blue-50">
+        <div className="card flex items-center gap-3 py-4 bg-blue-50 animate-stagger-1">
           <Stethoscope className="w-8 h-8 text-blue-600" />
           <div>
             <p className="text-2xl font-bold text-blue-600">{types.length}</p>
             <p className="text-xs text-slate-500">Total de tipos</p>
           </div>
         </div>
-        <div className="card flex items-center gap-3 py-4 bg-emerald-50">
+        <div className="card flex items-center gap-3 py-4 bg-emerald-50 animate-stagger-2">
           <CheckCircle className="w-8 h-8 text-emerald-600" />
           <div>
             <p className="text-2xl font-bold text-emerald-600">{types.filter(t => t.active).length}</p>

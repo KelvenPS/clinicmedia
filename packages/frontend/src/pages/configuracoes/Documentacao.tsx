@@ -93,13 +93,13 @@ const modules = [
 
 export default function Documentacao() {
   return (
-    <div className="max-w-3xl space-y-6 animate-fade-in">
-      <div>
+    <div className="max-w-3xl space-y-6 animate-page-enter">
+      <div className="animate-stagger-1">
         <h1 className="page-title">Documentação</h1>
         <p className="page-subtitle">Guia completo de uso do sistema</p>
       </div>
 
-      <div className="card bg-gradient-to-r from-blue-600 to-blue-700 text-white border-0">
+      <div className="card bg-gradient-to-r from-blue-600 to-blue-700 text-white border-0 animate-stagger-1">
         <div className="flex items-start gap-4">
           <BookOpen className="w-8 h-8 opacity-80 flex-shrink-0 mt-0.5" />
           <div>
@@ -111,7 +111,7 @@ export default function Documentacao() {
         </div>
       </div>
 
-      <div className="grid gap-4">
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
         {modules.map(({ icon: Icon, title, color, bg, border, desc, items }) => (
           <div key={title} className={`card border ${border}`}>
             <div className="flex items-start gap-4">

@@ -1,4 +1,4 @@
-import { HelpCircle, MessageCircle, Mail, Phone, ChevronDown, ChevronUp } from 'lucide-react'
+import { HelpCircle, MessageCircle, Mail, Phone, ChevronDown, ArrowRight, Search } from 'lucide-react'
 import { useState } from 'react'
 
 const faqs = [
@@ -11,19 +11,28 @@ const faqs = [
   { q: 'Posso ter mais de um médico cadastrado?', a: 'Sim. Um administrador pode cadastrar quantos médicos forem necessários em "Configurações > Usuários". Cada médico verá apenas sua própria agenda e financeiro.' },
 ]
 
-function FAQItem({ q, a }: { q: string; a: string }) {
+function FAQItem({ q, a, idx }: { q: string; a: string; idx: number }) {
   const [open, setOpen] = useState(false)
   return (
-    <div className="border border-slate-200 rounded-xl overflow-hidden">
+    <div
+      className={`rounded-xl border overflow-hidden transition-all duration-200 ${
+        open ? 'border-blue-200 shadow-sm' : 'border-slate-200 hover:border-slate-300'
+      }`}
+      style={{ animationDelay: `${idx * 0.04}s` }}
+    >
       <button
         onClick={() => setOpen(!open)}
-        className="w-full flex items-center justify-between px-5 py-4 text-left hover:bg-slate-50 transition-colors"
+        className="w-full flex items-center justify-between px-5 py-4 text-left hover:bg-slate-50/80 transition-colors"
       >
         <span className="font-medium text-slate-900 text-sm pr-4">{q}</span>
-        {open ? <ChevronUp className="w-4 h-4 text-slate-400 flex-shrink-0" /> : <ChevronDown className="w-4 h-4 text-slate-400 flex-shrink-0" />}
+        <div className={`w-6 h-6 flex items-center justify-center rounded-lg flex-shrink-0 transition-all duration-200 ${
+          open ? 'bg-blue-100 rotate-180' : 'hover:bg-slate-100'
+        }`}>
+          <ChevronDown className={`w-4 h-4 ${open ? 'text-blue-600' : 'text-slate-400'}`} />
+        </div>
       </button>
       {open && (
-        <div className="px-5 pb-4 bg-slate-50 border-t border-slate-200">
+        <div className="px-5 pb-4 bg-slate-50/60 border-t border-slate-100">
           <p className="text-sm text-slate-600 leading-relaxed pt-3">{a}</p>
         </div>
       )}
@@ -32,37 +41,74 @@ function FAQItem({ q, a }: { q: string; a: string }) {
 }
 
 export default function Ajuda() {
+  const [search, setSearch] = useState('')
+
+  const filtered = faqs.filter(
+    f =>
+      f.q.toLowerCase().includes(search.toLowerCase()) ||
+      f.a.toLowerCase().includes(search.toLowerCase())
+  )
+
   return (
-    <div className="max-w-2xl space-y-6 animate-fade-in">
-      <div>
-        <h1 className="page-title">Ajuda & Suporte</h1>
+    <div className="max-w-2xl space-y-6 animate-page-enter">
+      <div className="animate-stagger-1">
+        <h1 className="page-title">Ajuda &amp; Suporte</h1>
         <p className="page-subtitle">Encontre respostas para suas dúvidas</p>
       </div>
 
-      <div className="card space-y-3">
-        <h2 className="font-semibold text-slate-900 flex items-center gap-2">
-          <HelpCircle className="w-4 h-4 text-blue-600" />
-          Perguntas Frequentes
-        </h2>
-        {faqs.map((item, i) => <FAQItem key={i} {...item} />)}
+      {/* Search */}
+      <div className="relative animate-stagger-2">
+        <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400 pointer-events-none" />
+        <input
+          value={search}
+          onChange={e => setSearch(e.target.value)}
+          placeholder="Buscar nas perguntas frequentes..."
+          className="input-field pl-10"
+        />
       </div>
 
-      <div className="card bg-gradient-to-br from-blue-50 to-blue-100 border-blue-200">
-        <h2 className="font-semibold text-blue-900 mb-4">Ainda precisa de ajuda?</h2>
+      {/* FAQ */}
+      <div className="card space-y-2.5 animate-stagger-3">
+        <h2 className="font-semibold text-slate-900 flex items-center gap-2 mb-4">
+          <div className="w-7 h-7 bg-blue-50 rounded-lg flex items-center justify-center">
+            <HelpCircle className="w-4 h-4 text-blue-600" />
+          </div>
+          Perguntas Frequentes
+          <span className="ml-auto text-xs text-slate-400 font-normal">{filtered.length} resultado{filtered.length !== 1 ? 's' : ''}</span>
+        </h2>
+        {filtered.length === 0 ? (
+          <div className="text-center py-8 text-slate-400 text-sm">
+            Nenhuma pergunta encontrada para "{search}"
+          </div>
+        ) : (
+          filtered.map((item, i) => <FAQItem key={i} {...item} idx={i} />)
+        )}
+      </div>
+
+      {/* Support */}
+      <div className="card animate-stagger-4 bg-gradient-to-br from-slate-900 to-slate-800 border-slate-700">
+        <h2 className="font-semibold text-white mb-4">Ainda precisa de ajuda?</h2>
         <div className="space-y-3">
           {[
-            { icon: MessageCircle, label: 'Chat ao vivo', desc: 'Suporte em tempo real', color: 'text-blue-600 bg-blue-100' },
-            { icon: Mail, label: 'Email', desc: 'suporte@agendaclinica.com.br', color: 'text-emerald-600 bg-emerald-100' },
-            { icon: Phone, label: 'Telefone', desc: '(11) 4004-0000 · Seg-Sex 8h-18h', color: 'text-purple-600 bg-purple-100' },
-          ].map(({ icon: Icon, label, desc, color }) => (
-            <div key={label} className="flex items-center gap-3 p-3 bg-white rounded-xl border border-blue-100">
-              <div className={`w-9 h-9 rounded-lg flex items-center justify-center ${color.split(' ')[1]}`}>
-                <Icon className={`w-5 h-5 ${color.split(' ')[0]}`} />
+            { icon: MessageCircle, label: 'Chat ao vivo', desc: 'Suporte em tempo real', bg: 'bg-cyan-500/20 text-cyan-300', cta: 'Iniciar chat' },
+            { icon: Mail, label: 'Email', desc: 'suporte@agendaclinica.com.br', bg: 'bg-emerald-500/20 text-emerald-300', cta: 'Enviar email' },
+            { icon: Phone, label: 'Telefone', desc: '(11) 4004-0000 · Seg-Sex 8h-18h', bg: 'bg-violet-500/20 text-violet-300', cta: 'Ligar agora' },
+          ].map(({ icon: Icon, label, desc, bg, cta }) => (
+            <div
+              key={label}
+              className="flex items-center gap-3 p-3.5 bg-white/5 hover:bg-white/10 rounded-xl border border-white/10 cursor-pointer transition-all duration-150 group"
+            >
+              <div className={`w-9 h-9 rounded-xl flex items-center justify-center flex-shrink-0 ${bg}`}>
+                <Icon className="w-4 h-4" />
               </div>
-              <div>
-                <p className="font-medium text-slate-900 text-sm">{label}</p>
-                <p className="text-xs text-slate-500">{desc}</p>
+              <div className="flex-1 min-w-0">
+                <p className="font-medium text-white text-sm">{label}</p>
+                <p className="text-xs text-slate-400">{desc}</p>
               </div>
+              <span className="text-xs text-slate-400 group-hover:text-white flex items-center gap-1 transition-colors">
+                {cta}
+                <ArrowRight className="w-3 h-3 group-hover:translate-x-0.5 transition-transform" />
+              </span>
             </div>
           ))}
         </div>

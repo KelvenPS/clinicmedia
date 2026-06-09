@@ -100,6 +100,8 @@ model User {
   integrations        Integration[]       @relation("DoctorIntegrations")
   whatsappInstance    WhatsAppInstance?   @relation("DoctorWhatsApp")
   healthPlans         HealthPlan[]        @relation("DoctorHealthPlans")
+  appointmentTypes    AppointmentType[]   @relation("DoctorAppointmentTypes")
+  sqlLogs             SqlQueryLog[]       @relation("AdminSqlLogs")
 }
 
 model DoctorSecretary {
@@ -239,11 +241,27 @@ model Appointment {
 
 model AppointmentType {
   id        String   @id @default(uuid())
+  doctorId  String?
   name      String
   baseValue Float?
   active    Boolean  @default(true)
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+
+  doctor    User?    @relation("DoctorAppointmentTypes", fields: [doctorId], references: [id])
+}
+
+model SqlQueryLog {
+  id         String   @id @default(uuid())
+  adminId    String
+  query      String   @db.Text
+  rowCount   Int?
+  durationMs Int?
+  success    Boolean
+  error      String?
+  createdAt  DateTime @default(now())
+
+  admin      User     @relation("AdminSqlLogs", fields: [adminId], references: [id])
 }
 
 model Transaction {

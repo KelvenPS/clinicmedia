@@ -87,6 +87,17 @@ router.put('/:id', requireRole('ADMIN', 'DOCTOR'), async (req: AuthRequest, res)
     const { id } = req.params
     const { secretaryIds, ...data } = roomSchema.partial().parse(req.body)
 
+    // Ownership check: DOCTOR can only edit their own rooms
+    const existing = await prisma.room.findUnique({ where: { id } })
+    if (!existing) {
+      res.status(404).json({ message: 'Sala não encontrada' })
+      return
+    }
+    if (req.user!.role === 'DOCTOR' && existing.doctorId !== req.user!.userId) {
+      res.status(403).json({ message: 'Acesso negado. Esta sala pertence a outro médico.' })
+      return
+    }
+
     const room = await prisma.room.update({
       where: { id },
       data,
@@ -115,11 +126,15 @@ router.put('/:id', requireRole('ADMIN', 'DOCTOR'), async (req: AuthRequest, res)
   }
 })
 
-router.patch('/:id/toggle', requireRole('ADMIN', 'DOCTOR'), async (req, res) => {
+router.patch('/:id/toggle', requireRole('ADMIN', 'DOCTOR'), async (req: AuthRequest, res) => {
   try {
     const { id } = req.params
     const current = await prisma.room.findUnique({ where: { id } })
     if (!current) { res.status(404).json({ message: 'Sala não encontrada' }); return }
+    if (req.user!.role === 'DOCTOR' && current.doctorId !== req.user!.userId) {
+      res.status(403).json({ message: 'Acesso negado. Esta sala pertence a outro médico.' })
+      return
+    }
     const room = await prisma.room.update({ where: { id }, data: { active: !current.active } })
     res.json(room)
   } catch {
@@ -127,9 +142,19 @@ router.patch('/:id/toggle', requireRole('ADMIN', 'DOCTOR'), async (req, res) => 
   }
 })
 
-router.delete('/:id', requireRole('ADMIN', 'DOCTOR'), async (req, res) => {
+router.delete('/:id', requireRole('ADMIN', 'DOCTOR'), async (req: AuthRequest, res) => {
   try {
-    await prisma.room.delete({ where: { id: req.params.id } })
+    const { id } = req.params
+    const existing = await prisma.room.findUnique({ where: { id } })
+    if (!existing) {
+      res.status(404).json({ message: 'Sala não encontrada' })
+      return
+    }
+    if (req.user!.role === 'DOCTOR' && existing.doctorId !== req.user!.userId) {
+      res.status(403).json({ message: 'Acesso negado. Esta sala pertence a outro médico.' })
+      return
+    }
+    await prisma.room.delete({ where: { id } })
     res.json({ message: 'Sala removida com sucesso' })
   } catch {
     res.status(500).json({ message: 'Erro interno do servidor' })

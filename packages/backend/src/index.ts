@@ -21,6 +21,7 @@ import subscriptionRoutes from './routes/subscriptions'
 import integrationRoutes from './routes/integrations'
 import chatbotRoutes from './routes/chatbot'
 import adminRoutes from './routes/admin'
+import adminSqlRoutes from './routes/admin-sql'
 
 dotenv.config()
 
@@ -54,6 +55,7 @@ app.use('/api/payment-methods', paymentMethodRoutes)
 app.use('/api/subscriptions', subscriptionRoutes)
 app.use('/api/integrations', integrationRoutes)
 app.use('/api/chatbot', chatbotRoutes)
+app.use('/api/admin/sql', adminSqlRoutes)
 app.use('/api/admin', adminRoutes)
 
 app.get('/api/health', (_req, res) => {

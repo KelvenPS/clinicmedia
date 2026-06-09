@@ -1,0 +1,40 @@
+name: CI — Homologação
+
+on:
+  push:
+    branches: [develop]
+  pull_request:
+    branches: [main, develop]
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: Build & Type Check
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Generate Prisma Client
+        run: npx prisma generate --schema packages/backend/prisma/schema.prisma
+
+      - name: Build backend (TypeScript)
+        run: npm run build -w packages/backend
+
+      - name: Build frontend (Vite)
+        run: npm run build -w packages/frontend
+        env:
+          VITE_API_URL: http://staging.cliniq.local/api

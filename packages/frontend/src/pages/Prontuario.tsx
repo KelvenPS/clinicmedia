@@ -15,7 +15,6 @@ import {
   Stethoscope,
   Trash2,
   ChevronDown,
-  ChevronUp,
 } from 'lucide-react'
 import toast from 'react-hot-toast'
 import api from '../lib/api'
@@ -48,16 +47,22 @@ function RecordCard({ record, onDelete, canDelete }: { record: MedicalRecord; on
   const tc = recordTypeConfig[record.type] || recordTypeConfig.OUTROS
 
   return (
-    <div className="border border-slate-200 rounded-xl overflow-hidden">
+    <div
+      className={`border rounded-2xl overflow-hidden transition-all duration-200 ${
+        expanded ? 'border-slate-300 shadow-sm' : 'border-slate-200 hover:border-slate-300'
+      }`}
+    >
       <button
-        className="w-full flex items-center gap-3 px-4 py-3 text-left hover:bg-slate-50 transition-colors"
+        className="w-full flex items-center gap-3 px-4 py-3.5 text-left hover:bg-slate-50/80 transition-colors"
         onClick={() => setExpanded(!expanded)}
       >
-        <span className="text-xl flex-shrink-0">{tc.icon}</span>
+        <span className={`text-lg w-8 h-8 rounded-xl flex items-center justify-center flex-shrink-0 ${tc.bg}`}>
+          {tc.icon}
+        </span>
         <div className="flex-1 min-w-0">
-          <div className="flex items-center gap-2">
-            <p className="font-medium text-slate-900 text-sm">{record.title}</p>
-            <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${tc.bg} ${tc.color}`}>
+          <div className="flex items-center gap-2 flex-wrap">
+            <p className="font-semibold text-slate-900 text-sm">{record.title}</p>
+            <span className={`text-xs px-2 py-0.5 rounded-full font-semibold ${tc.bg} ${tc.color}`}>
               {tc.label}
             </span>
           </div>
@@ -65,17 +70,22 @@ function RecordCard({ record, onDelete, canDelete }: { record: MedicalRecord; on
             {format(new Date(record.date), "dd 'de' MMM 'de' yyyy", { locale: ptBR })}
           </p>
         </div>
-        {expanded ? <ChevronUp className="w-4 h-4 text-slate-400" /> : <ChevronDown className="w-4 h-4 text-slate-400" />}
+        <div className={`w-6 h-6 rounded-lg flex items-center justify-center flex-shrink-0 transition-all duration-200 ${
+          expanded ? 'bg-slate-200 rotate-180' : 'hover:bg-slate-100'
+        }`}>
+          <ChevronDown className="w-3.5 h-3.5 text-slate-500" />
+        </div>
       </button>
 
       {expanded && (
-        <div className="px-4 pb-4 pt-1 border-t border-slate-100 bg-slate-50">
+        <div className="px-4 pb-4 pt-3 border-t border-slate-100 bg-slate-50/60 animate-slide-in">
           <p className="text-sm text-slate-700 whitespace-pre-wrap leading-relaxed">{record.content}</p>
           {canDelete && (
             <div className="flex justify-end mt-3">
               <button
                 onClick={onDelete}
-                className="flex items-center gap-1.5 text-xs text-red-500 hover:text-red-700 hover:bg-red-50 px-2 py-1 rounded-lg transition-colors"
+                className="flex items-center gap-1.5 text-xs text-red-500 hover:text-red-700
+                           hover:bg-red-50 px-3 py-1.5 rounded-xl transition-all duration-150 active:scale-95"
               >
                 <Trash2 className="w-3.5 h-3.5" />
                 Excluir registro
@@ -224,9 +234,9 @@ export default function Prontuario() {
   const totalRecords = grouped.reduce((acc, g) => acc + g.records.length, 0)
 
   return (
-    <div className="space-y-4 animate-fade-in">
+    <div className="space-y-4 animate-page-enter">
       {/* Header */}
-      <div className="flex items-center justify-between">
+      <div className="flex items-center justify-between animate-stagger-1">
         <div>
           <h1 className="page-title">Prontuário Eletrônico</h1>
           <p className="page-subtitle">Registros médicos organizados por paciente</p>
@@ -237,12 +247,12 @@ export default function Prontuario() {
         </button>
       </div>
 
-      <div className="grid grid-cols-1 xl:grid-cols-3 gap-4" style={{ minHeight: '600px' }}>
+      <div className="grid grid-cols-1 xl:grid-cols-3 gap-4 animate-stagger-2" style={{ minHeight: '600px' }}>
         {/* Patient list */}
         <div className="card p-0 overflow-hidden flex flex-col">
-          <div className="p-4 border-b border-slate-200">
+          <div className="p-4 border-b border-slate-100">
             <div className="relative">
-              <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400 pointer-events-none" />
               <input
                 value={search}
                 onChange={e => setSearch(e.target.value)}
@@ -251,9 +261,12 @@ export default function Prontuario() {
               />
             </div>
           </div>
-          <div className="overflow-y-auto flex-1">
+          <div className="overflow-y-auto flex-1 scrollbar-none">
             {patients.length === 0 ? (
-              <div className="text-center py-8 text-slate-400 text-sm">Nenhum paciente encontrado</div>
+              <div className="empty-state py-8">
+                <User className="w-8 h-8 text-slate-200 mb-2" />
+                <p className="text-slate-400 text-sm">Nenhum paciente encontrado</p>
+              </div>
             ) : (
               patients.map(p => {
                 const isSelected = selectedPatient?.id === p.id
@@ -262,13 +275,24 @@ export default function Prontuario() {
                   <button
                     key={p.id}
                     onClick={() => setSelectedPatient(p)}
-                    className={`w-full flex items-center gap-3 px-4 py-3 text-left border-b border-slate-100 hover:bg-blue-50 transition-colors ${isSelected ? 'bg-blue-50 border-l-2 border-l-blue-600' : ''}`}
+                    className={`w-full flex items-center gap-3 px-4 py-3 text-left border-b border-slate-100
+                      transition-all duration-150 ${
+                      isSelected
+                        ? 'bg-blue-50 border-l-2 border-l-blue-600'
+                        : 'hover:bg-slate-50 border-l-2 border-l-transparent'
+                    }`}
                   >
-                    <div className={`w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0 text-xs font-bold ${isSelected ? 'bg-blue-600 text-white' : 'bg-slate-200 text-slate-600'}`}>
+                    <div className={`w-9 h-9 rounded-full flex items-center justify-center flex-shrink-0 text-xs font-bold shadow-sm ${
+                      isSelected
+                        ? 'bg-blue-600 text-white shadow-blue-600/30'
+                        : 'bg-slate-100 text-slate-600'
+                    }`}>
                       {initials}
                     </div>
                     <div className="flex-1 min-w-0">
-                      <p className={`text-sm font-medium truncate ${isSelected ? 'text-blue-700' : 'text-slate-900'}`}>{p.name}</p>
+                      <p className={`text-sm font-semibold truncate ${
+                        isSelected ? 'text-blue-700' : 'text-slate-900'
+                      }`}>{p.name}</p>
                       <p className="text-xs text-slate-400 truncate">{p.phone}</p>
                     </div>
                     {isSelected && <ChevronRight className="w-4 h-4 text-blue-500 flex-shrink-0" />}
@@ -282,10 +306,12 @@ export default function Prontuario() {
         {/* Records panel */}
         <div className="xl:col-span-2 card p-0 overflow-hidden flex flex-col">
           {!selectedPatient ? (
-            <div className="flex-1 flex flex-col items-center justify-center text-center p-8">
-              <ClipboardList className="w-14 h-14 text-slate-200 mb-4" />
-              <p className="text-slate-400 font-medium">Selecione um paciente</p>
-              <p className="text-slate-400 text-sm">para visualizar seu prontuário</p>
+            <div className="empty-state flex-1">
+              <div className="w-16 h-16 bg-slate-100 rounded-2xl flex items-center justify-center mb-4 animate-float">
+                <ClipboardList className="w-8 h-8 text-slate-300" />
+              </div>
+              <p className="text-slate-500 font-semibold">Selecione um paciente</p>
+              <p className="text-slate-400 text-sm mt-1">para visualizar seu prontuário</p>
             </div>
           ) : (
             <>
@@ -314,32 +340,37 @@ export default function Prontuario() {
               </div>
 
               {/* Records grouped by doctor */}
-              <div className="overflow-y-auto flex-1 p-5 space-y-6">
+              <div className="overflow-y-auto flex-1 p-5 space-y-6 scrollbar-none">
                 {grouped.length === 0 ? (
-                  <div className="text-center py-10">
-                    <FileText className="w-10 h-10 text-slate-200 mx-auto mb-3" />
-                    <p className="text-slate-400">Nenhum prontuário registrado</p>
+                  <div className="empty-state">
+                    <div className="w-14 h-14 bg-slate-100 rounded-2xl flex items-center justify-center mb-3 animate-float">
+                      <FileText className="w-7 h-7 text-slate-300" />
+                    </div>
+                    <p className="text-slate-500 font-semibold">Nenhum prontuário registrado</p>
                     <button
                       onClick={() => setModalOpen(true)}
-                      className="text-blue-600 text-sm font-medium mt-2 hover:underline"
+                      className="mt-4 btn-primary text-xs"
                     >
+                      <Plus className="w-3.5 h-3.5" />
                       Criar primeiro registro
                     </button>
                   </div>
                 ) : (
                   grouped.map(group => (
-                    <div key={group.doctor.id}>
+                    <div key={group.doctor.id} className="animate-slide-up">
                       <div className="flex items-center gap-2 mb-3">
-                        <Stethoscope className="w-4 h-4 text-blue-600" />
-                        <h3 className="font-semibold text-slate-900">Dr(a). {group.doctor.name}</h3>
+                        <div className="w-7 h-7 bg-blue-100 rounded-lg flex items-center justify-center flex-shrink-0">
+                          <Stethoscope className="w-3.5 h-3.5 text-blue-600" />
+                        </div>
+                        <h3 className="font-semibold text-slate-900 text-sm">Dr(a). {group.doctor.name}</h3>
                         {group.doctor.specialty && (
                           <span className="text-xs text-slate-400">· {group.doctor.specialty}</span>
                         )}
-                        <span className="ml-auto text-xs bg-blue-100 text-blue-700 px-2 py-0.5 rounded-full">
+                        <span className="ml-auto text-xs bg-blue-50 text-blue-700 px-2.5 py-0.5 rounded-full font-semibold border border-blue-100">
                           {group.records.length} registro{group.records.length !== 1 ? 's' : ''}
                         </span>
                       </div>
-                      <div className="space-y-2 pl-6 border-l-2 border-blue-100">
+                      <div className="space-y-2 pl-5 border-l-2 border-blue-100">
                         {group.records.map(record => (
                           <RecordCard
                             key={record.id}

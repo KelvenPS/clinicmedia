@@ -45,19 +45,20 @@ interface SummaryCardProps {
 
 function SummaryCard({ icon: Icon, label, value, color, iconBg }: SummaryCardProps) {
   return (
-    <div className="card">
+    <div className="card-hover">
       <div className="flex items-start gap-4">
-        <div className={`w-12 h-12 rounded-xl flex items-center justify-center flex-shrink-0 ${iconBg}`}>
-          <Icon className={`w-6 h-6 ${color}`} />
+        <div className={`w-12 h-12 rounded-2xl flex items-center justify-center flex-shrink-0 shadow-sm ${iconBg}`}>
+          <Icon className="w-5 h-5 text-white" />
         </div>
         <div>
-          <p className="text-sm text-slate-500">{label}</p>
-          <p className={`text-2xl font-bold ${color} mt-0.5`}>{currency(value)}</p>
+          <p className="text-xs text-slate-500 font-medium uppercase tracking-wide">{label}</p>
+          <p className={`text-2xl font-bold ${color} mt-1 leading-none`}>{currency(value)}</p>
         </div>
       </div>
     </div>
   )
 }
+
 
 export default function Financeiro() {
   const { user } = useAuthStore()
@@ -146,9 +147,9 @@ export default function Financeiro() {
   const handleEdit = (tx: Transaction) => { setEditTx(tx); setModalOpen(true) }
 
   return (
-    <div className="space-y-6 animate-fade-in">
+    <div className="space-y-6 animate-page-enter">
       {/* Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 animate-stagger-1">
         <div>
           <h1 className="page-title">Financeiro</h1>
           <p className="page-subtitle">Controle de receitas e despesas</p>
@@ -160,10 +161,10 @@ export default function Financeiro() {
       </div>
 
       {/* Filters */}
-      <div className="card py-4">
+      <div className="card py-4 animate-stagger-2">
         <div className="flex flex-wrap items-center gap-3">
           {/* Period */}
-          <div className="flex rounded-lg border border-slate-200 overflow-hidden">
+          <div className="flex rounded-xl border border-slate-200 overflow-hidden">
             {[
               { key: 'current', label: 'Mês Atual' },
               { key: 'last', label: 'Mês Anterior' },
@@ -171,7 +172,11 @@ export default function Financeiro() {
               <button
                 key={key}
                 onClick={() => setPeriod(key as 'current' | 'last')}
-                className={`px-3 py-2 text-xs font-medium transition-colors ${period === key ? 'bg-blue-600 text-white' : 'text-slate-600 hover:bg-slate-50'}`}
+                className={`px-4 py-2 text-xs font-semibold transition-all duration-150 ${
+                  period === key
+                    ? 'bg-blue-600 text-white'
+                    : 'text-slate-500 hover:text-slate-700 hover:bg-slate-50'
+                }`}
               >
                 {label}
               </button>
@@ -216,63 +221,91 @@ export default function Financeiro() {
 
       {/* Summary cards */}
       <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4">
-        <SummaryCard
-          icon={TrendingUp}
-          label="Receitas"
-          value={summary?.income ?? 0}
-          color="text-emerald-600"
-          iconBg="bg-emerald-100"
-        />
-        <SummaryCard
-          icon={TrendingDown}
-          label="Despesas"
-          value={summary?.expense ?? 0}
-          color="text-red-600"
-          iconBg="bg-red-100"
-        />
-        <SummaryCard
-          icon={DollarSign}
-          label="Saldo"
-          value={summary?.balance ?? 0}
-          color={(summary?.balance ?? 0) >= 0 ? 'text-blue-600' : 'text-red-600'}
-          iconBg="bg-blue-100"
-        />
-        <SummaryCard
-          icon={Clock}
-          label="Pendentes"
-          value={summary?.pending ?? 0}
-          color="text-amber-600"
-          iconBg="bg-amber-100"
-        />
+        <div className="animate-stagger-1">
+          <SummaryCard
+            icon={TrendingUp}
+            label="Receitas"
+            value={summary?.income ?? 0}
+            color="text-emerald-600"
+            iconBg="bg-gradient-to-br from-emerald-400 to-emerald-600"
+          />
+        </div>
+        <div className="animate-stagger-2">
+          <SummaryCard
+            icon={TrendingDown}
+            label="Despesas"
+            value={summary?.expense ?? 0}
+            color="text-red-600"
+            iconBg="bg-gradient-to-br from-red-400 to-red-600"
+          />
+        </div>
+        <div className="animate-stagger-3">
+          <SummaryCard
+            icon={DollarSign}
+            label="Saldo"
+            value={summary?.balance ?? 0}
+            color={(summary?.balance ?? 0) >= 0 ? 'text-blue-600' : 'text-red-600'}
+            iconBg="bg-gradient-to-br from-blue-500 to-blue-700"
+          />
+        </div>
+        <div className="animate-stagger-4">
+          <SummaryCard
+            icon={Clock}
+            label="Pendentes"
+            value={summary?.pending ?? 0}
+            color="text-amber-600"
+            iconBg="bg-gradient-to-br from-amber-400 to-amber-600"
+          />
+        </div>
       </div>
 
       {/* Chart */}
-      <div className="card">
-        <div className="flex items-center gap-2 mb-6">
-          <BarChart3 className="w-5 h-5 text-blue-600" />
-          <h2 className="text-lg font-semibold text-slate-900">Visão Anual {new Date().getFullYear()}</h2>
+      <div className="card animate-stagger-4">
+        <div className="flex items-center justify-between mb-6">
+          <div className="flex items-center gap-2">
+            <div className="w-8 h-8 bg-blue-100 rounded-xl flex items-center justify-center">
+              <BarChart3 className="w-4 h-4 text-blue-600" />
+            </div>
+            <div>
+              <h2 className="text-base font-semibold text-slate-900">Visão Anual {new Date().getFullYear()}</h2>
+              <p className="text-xs text-slate-400">Receitas vs Despesas</p>
+            </div>
+          </div>
         </div>
-        <ResponsiveContainer width="100%" height={280}>
-          <BarChart data={chartData} margin={{ top: 0, right: 0, left: 0, bottom: 0 }}>
-            <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" />
-            <XAxis dataKey="name" tick={{ fontSize: 12, fill: '#64748b' }} axisLine={false} tickLine={false} />
-            <YAxis tick={{ fontSize: 12, fill: '#64748b' }} axisLine={false} tickLine={false} tickFormatter={v => `R$${v >= 1000 ? `${v / 1000}k` : v}`} />
+        <ResponsiveContainer width="100%" height={260}>
+          <BarChart data={chartData} margin={{ top: 4, right: 4, left: -8, bottom: 0 }}>
+            <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" vertical={false} />
+            <XAxis dataKey="name" tick={{ fontSize: 11, fill: '#94a3b8' }} axisLine={false} tickLine={false} />
+            <YAxis tick={{ fontSize: 11, fill: '#94a3b8' }} axisLine={false} tickLine={false} tickFormatter={v => `R$${v >= 1000 ? `${(v / 1000).toFixed(0)}k` : v}`} />
             <Tooltip
-              formatter={(value: number) => currency(value)}
-              contentStyle={{ borderRadius: '8px', border: '1px solid #e2e8f0', fontSize: 12 }}
+              formatter={(value: number) => [currency(value)]}
+              contentStyle={{
+                borderRadius: '12px',
+                border: 'none',
+                boxShadow: '0 8px 24px -4px rgba(0,0,0,0.12)',
+                fontSize: 12,
+                padding: '10px 14px',
+              }}
+              cursor={{ fill: '#f8fafc' }}
             />
-            <Legend wrapperStyle={{ fontSize: 12 }} />
-            <Bar dataKey="Receitas" fill="#10b981" radius={[4, 4, 0, 0]} />
-            <Bar dataKey="Despesas" fill="#ef4444" radius={[4, 4, 0, 0]} />
+            <Legend
+              wrapperStyle={{ fontSize: 12, paddingTop: 12 }}
+              iconType="circle"
+              iconSize={8}
+            />
+            <Bar dataKey="Receitas" fill="#10b981" radius={[6, 6, 0, 0]} maxBarSize={36} />
+            <Bar dataKey="Despesas" fill="#f43f5e" radius={[6, 6, 0, 0]} maxBarSize={36} />
           </BarChart>
         </ResponsiveContainer>
       </div>
 
       {/* Transactions table */}
-      <div className="card p-0 overflow-hidden">
-        <div className="px-6 py-4 border-b border-slate-200">
-          <h2 className="font-semibold text-slate-900">Transações</h2>
-          <p className="text-sm text-slate-500">{transactions.length} registros encontrados</p>
+      <div className="card p-0 overflow-hidden animate-stagger-5">
+        <div className="px-6 py-4 border-b border-slate-100 flex items-center justify-between">
+          <div>
+            <h2 className="font-semibold text-slate-900">Transações</h2>
+            <p className="text-xs text-slate-400 mt-0.5">{transactions.length} registros encontrados</p>
+          </div>
         </div>
         <div className="overflow-x-auto">
           <table className="w-full">
@@ -296,7 +329,7 @@ export default function Financeiro() {
                 </tr>
               ) : (
                 transactions.map(tx => (
-                  <tr key={tx.id} className="hover:bg-slate-50 transition-colors">
+                  <tr key={tx.id} className="table-row">
                     <td className="px-6 py-4">
                       <div className="flex items-center gap-2">
                         <div className={`w-2 h-2 rounded-full flex-shrink-0 ${tx.type === 'INCOME' ? 'bg-emerald-500' : 'bg-red-500'}`} />
@@ -322,11 +355,13 @@ export default function Financeiro() {
                     </td>
                     <td className="px-6 py-4">
                       <span className={`status-badge ${
-                        tx.status === 'PAID' ? 'bg-emerald-100 text-emerald-700' :
-                        tx.status === 'PENDING' ? 'bg-amber-100 text-amber-700' :
-                        'bg-slate-100 text-slate-600'
+                        tx.status === 'PAID'
+                          ? 'bg-emerald-50 text-emerald-700 ring-1 ring-emerald-200'
+                          : tx.status === 'PENDING'
+                          ? 'bg-amber-50 text-amber-700 ring-1 ring-amber-200'
+                          : 'bg-slate-100 text-slate-500'
                       }`}>
-                        {tx.status === 'PAID' ? 'Pago' : tx.status === 'PENDING' ? 'Pendente' : 'Cancelado'}
+                        {tx.status === 'PAID' ? '✓ Pago' : tx.status === 'PENDING' ? '● Pendente' : '✕ Cancelado'}
                       </span>
                     </td>
                     <td className="px-6 py-4">

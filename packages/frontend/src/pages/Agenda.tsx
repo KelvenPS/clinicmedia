@@ -274,8 +274,8 @@ export default function Agenda() {
   }
 
   return (
-    <div className="space-y-4 animate-fade-in">
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+    <div className="space-y-4 animate-page-enter">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 animate-stagger-1">
         <div>
           <h1 className="page-title">Agenda</h1>
           <p className="page-subtitle">Gerencie consultas e agendamentos</p>
@@ -284,7 +284,9 @@ export default function Agenda() {
           {(user?.role === 'DOCTOR' || user?.role === 'ADMIN') && (
             <button
               onClick={() => setBlockModalOpen(true)}
-              className="flex items-center gap-2 px-4 py-2 bg-amber-500 hover:bg-amber-600 text-white rounded-lg font-medium text-sm transition-colors shadow-sm"
+              className="flex items-center gap-2 px-4 py-2.5 bg-gradient-to-r from-amber-500 to-amber-600
+                         hover:from-amber-600 hover:to-amber-700 active:scale-95
+                         text-white rounded-xl font-medium text-sm transition-all duration-150 shadow-sm"
             >
               <Lock className="w-4 h-4" />
               Bloquear
@@ -301,20 +303,35 @@ export default function Agenda() {
       </div>
 
       {/* Controls */}
-      <div className="card py-3.5">
+      <div className="card py-3.5 animate-stagger-2">
         <div className="flex flex-wrap items-center gap-3">
           <div className="flex items-center gap-2">
-            <button onClick={() => setCurrentWeek(subWeeks(currentWeek, 1))} className="w-8 h-8 rounded-lg border border-slate-200 flex items-center justify-center hover:bg-slate-50">
-              <ChevronLeft className="w-4 h-4 text-slate-600" />
+            <button
+              onClick={() => setCurrentWeek(subWeeks(currentWeek, 1))}
+              className="w-8 h-8 rounded-xl border border-slate-200 flex items-center justify-center
+                         hover:bg-slate-50 hover:border-slate-300 active:scale-90
+                         transition-all duration-150"
+            >
+              <ChevronLeft className="w-4 h-4 text-slate-500" />
             </button>
             <p className="font-semibold text-slate-900 text-sm min-w-[200px] text-center">
               {format(weekStart, "d 'de' MMM", { locale: ptBR })} –{' '}
               {format(addDays(weekStart, 6), "d 'de' MMM yyyy", { locale: ptBR })}
             </p>
-            <button onClick={() => setCurrentWeek(addWeeks(currentWeek, 1))} className="w-8 h-8 rounded-lg border border-slate-200 flex items-center justify-center hover:bg-slate-50">
-              <ChevronRight className="w-4 h-4 text-slate-600" />
+            <button
+              onClick={() => setCurrentWeek(addWeeks(currentWeek, 1))}
+              className="w-8 h-8 rounded-xl border border-slate-200 flex items-center justify-center
+                         hover:bg-slate-50 hover:border-slate-300 active:scale-90
+                         transition-all duration-150"
+            >
+              <ChevronRight className="w-4 h-4 text-slate-500" />
             </button>
-            <button onClick={() => setCurrentWeek(new Date())} className="px-3 py-1.5 text-xs font-medium text-blue-600 hover:bg-blue-50 rounded-lg border border-blue-200">
+            <button
+              onClick={() => setCurrentWeek(new Date())}
+              className="px-3 py-1.5 text-xs font-semibold text-blue-600 hover:bg-blue-50
+                         rounded-lg border border-blue-200 hover:border-blue-300
+                         transition-all duration-150 active:scale-95"
+            >
               Hoje
             </button>
           </div>
@@ -345,20 +362,33 @@ export default function Agenda() {
 
       {/* Calendar grid */}
       <div className="card p-0 overflow-hidden">
-        <div className="grid border-b border-slate-200 bg-slate-50" style={{ gridTemplateColumns: '56px repeat(7, 1fr)' }}>
+        <div className="grid border-b border-slate-200 bg-slate-50/80" style={{ gridTemplateColumns: '56px repeat(7, 1fr)' }}>
           <div className="border-r border-slate-200" />
           {weekDays.map(day => {
             const isToday = isSameDay(day, new Date())
             return (
-              <div key={day.toISOString()} className={`p-3 text-center border-r border-slate-200 last:border-r-0 ${isToday ? 'bg-blue-50' : ''}`}>
-                <p className={`text-xs font-semibold uppercase tracking-wide ${isToday ? 'text-blue-600' : 'text-slate-400'}`}>
+              <div
+                key={day.toISOString()}
+                className={`p-3 text-center border-r border-slate-200 last:border-r-0 transition-colors ${
+                  isToday ? 'bg-blue-50' : 'hover:bg-slate-100/60'
+                }`}
+              >
+                <p className={`text-xs font-bold uppercase tracking-wider ${
+                  isToday ? 'text-blue-600' : 'text-slate-400'
+                }`}>
                   {format(day, 'EEE', { locale: ptBR })}
                 </p>
-                <div className={`w-8 h-8 rounded-full flex items-center justify-center mx-auto mt-1 ${isToday ? 'bg-blue-600 text-white' : 'text-slate-700'}`}>
+                <div className={`w-8 h-8 rounded-full flex items-center justify-center mx-auto mt-1 transition-all ${
+                  isToday
+                    ? 'bg-blue-600 text-white shadow-md shadow-blue-600/30'
+                    : 'text-slate-600 hover:bg-slate-200'
+                }`}>
                   <span className="text-sm font-bold">{format(day, 'd')}</span>
                 </div>
                 {getApptsByDay(day).length > 0 && (
-                  <div className="w-1.5 h-1.5 bg-blue-400 rounded-full mx-auto mt-1" />
+                  <div className={`w-1.5 h-1.5 rounded-full mx-auto mt-1.5 ${
+                    isToday ? 'bg-blue-300' : 'bg-blue-400'
+                  }`} />
                 )}
               </div>
             )
@@ -484,23 +514,25 @@ export default function Agenda() {
       </div>
 
       {/* Mobile list */}
-      <div className="xl:hidden space-y-2">
+      <div className="xl:hidden space-y-2 animate-stagger-3">
         {appointments
           .filter(a => !(user?.role === 'SECRETARY' && a.isBlocked))
-          .map(appt => (
+          .map((appt, idx) => (
             <div
               key={appt.id}
-              className="card flex items-center gap-4 cursor-pointer hover:shadow-md transition-shadow py-3"
+              className="card-hover flex items-center gap-4 py-3"
+              style={{ animationDelay: `${idx * 0.04}s` }}
               onClick={e => handleApptClick(e, appt)}
             >
               <div className="text-center min-w-[52px]">
-                <p className="text-xs font-medium text-slate-500">{format(parseISO(appt.date), 'EEE', { locale: ptBR })}</p>
-                <p className="text-lg font-bold">{format(parseISO(appt.date), 'd')}</p>
+                <p className="text-xs font-medium text-slate-400">{format(parseISO(appt.date), 'EEE', { locale: ptBR })}</p>
+                <p className="text-xl font-bold text-slate-900">{format(parseISO(appt.date), 'd')}</p>
                 <p className="text-xs font-bold text-blue-600">{format(parseISO(appt.date), 'HH:mm')}</p>
               </div>
+              <div className="w-px h-10 bg-slate-200 flex-shrink-0" />
               <div className="flex-1 min-w-0">
-                <p className="font-medium text-sm truncate">{appt.patient.name}</p>
-                <p className="text-xs text-slate-500 flex items-center gap-1">
+                <p className="font-semibold text-sm text-slate-900 truncate">{appt.patient.name}</p>
+                <p className="text-xs text-slate-400 flex items-center gap-1 mt-0.5">
                   <Clock className="w-3 h-3" /> {appt.duration}min · {appt.doctor.name}
                 </p>
               </div>

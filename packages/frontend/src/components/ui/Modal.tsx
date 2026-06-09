@@ -1,4 +1,4 @@
-import { useEffect } from 'react'
+import { useEffect, useState } from 'react'
 import { X } from 'lucide-react'
 
 interface ModalProps {
@@ -17,34 +17,76 @@ const sizes = {
 }
 
 export default function Modal({ isOpen, onClose, title, children, size = 'md' }: ModalProps) {
+  const [visible, setVisible] = useState(false)
+  const [animating, setAnimating] = useState(false)
+
   useEffect(() => {
     if (isOpen) {
+      setVisible(true)
+      requestAnimationFrame(() => setAnimating(true))
       document.body.style.overflow = 'hidden'
     } else {
-      document.body.style.overflow = ''
+      setAnimating(false)
+      const t = setTimeout(() => {
+        setVisible(false)
+        document.body.style.overflow = ''
+      }, 220)
+      return () => clearTimeout(t)
     }
-    return () => { document.body.style.overflow = '' }
   }, [isOpen])
 
-  if (!isOpen) return null
+  // Fechar com Escape
+  useEffect(() => {
+    if (!isOpen) return
+    const handler = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') onClose()
+    }
+    window.addEventListener('keydown', handler)
+    return () => window.removeEventListener('keydown', handler)
+  }, [isOpen, onClose])
+
+  if (!visible) return null
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center p-4"
+      style={{
+        transition: 'opacity 0.22s ease',
+        opacity: animating ? 1 : 0,
+      }}
+    >
+      {/* Backdrop */}
       <div
         className="absolute inset-0 bg-slate-900/60 backdrop-blur-sm"
         onClick={onClose}
       />
-      <div className={`relative w-full ${sizes[size]} bg-white rounded-2xl shadow-2xl animate-slide-in max-h-[90vh] flex flex-col`}>
-        <div className="flex items-center justify-between px-6 py-4 border-b border-slate-200">
-          <h2 className="text-lg font-semibold text-slate-900">{title}</h2>
+
+      {/* Panel */}
+      <div
+        className={`relative w-full ${sizes[size]} bg-white rounded-2xl shadow-2xl shadow-slate-900/20 max-h-[90vh] flex flex-col`}
+        style={{
+          transition: 'opacity 0.22s ease, transform 0.25s cubic-bezier(.22,1,.36,1)',
+          opacity: animating ? 1 : 0,
+          transform: animating ? 'scale(1) translateY(0)' : 'scale(0.94) translateY(8px)',
+        }}
+      >
+        {/* Header */}
+        <div className="flex items-center justify-between px-6 py-4 border-b border-slate-100 flex-shrink-0">
+          <h2 className="text-base font-semibold text-slate-900">{title}</h2>
           <button
             onClick={onClose}
-            className="w-8 h-8 flex items-center justify-center rounded-lg text-slate-400 hover:text-slate-600 hover:bg-slate-100 transition-colors"
+            className="w-8 h-8 flex items-center justify-center rounded-xl text-slate-400
+                       hover:text-slate-700 hover:bg-slate-100 active:scale-90
+                       transition-all duration-150"
           >
-            <X className="w-5 h-5" />
+            <X className="w-4 h-4" />
           </button>
         </div>
-        <div className="overflow-y-auto flex-1 px-6 py-5">{children}</div>
+
+        {/* Body */}
+        <div className="overflow-y-auto flex-1 px-6 py-5">
+          {children}
+        </div>
       </div>
     </div>
   )

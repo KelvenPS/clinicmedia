@@ -249,12 +249,6 @@ export default function Prontuario() {
       <PageHeader
         title="Prontuário Eletrônico"
         subtitle="Registros médicos organizados por paciente"
-        actions={
-          <button onClick={() => setModalOpen(true)} className="btn-primary">
-            <Plus className="w-4 h-4" />
-            Novo Registro
-          </button>
-        }
       />
 
       <div className="grid grid-cols-1 xl:grid-cols-3 gap-4 min-h-[min(600px,70vh)]">
@@ -347,13 +341,15 @@ export default function Prontuario() {
                       <p className="text-xs text-slate-500">{selectedPatient.phone} · {totalRecords} registros</p>
                     </div>
                   </div>
-                  <button
-                    onClick={() => setModalOpen(true)}
-                    className="btn-primary text-xs py-2"
-                  >
-                    <Plus className="w-3.5 h-3.5" />
-                    Novo Registro
-                  </button>
+                  {grouped.length > 0 && (
+                    <button
+                      onClick={() => setModalOpen(true)}
+                      className="btn-primary text-xs py-2 animate-fade-in"
+                    >
+                      <Plus className="w-3.5 h-3.5" />
+                      Novo Registro
+                    </button>
+                  )}
                 </div>
               </div>
 

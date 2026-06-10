@@ -3,7 +3,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { z } from 'zod'
-import { Plus, Edit2, CreditCard, Users, CheckCircle, XCircle, Percent, DollarSign } from 'lucide-react'
+import { Plus, Edit2, CreditCard, Users, CheckCircle, XCircle, Percent, DollarSign, Info } from 'lucide-react'
 import toast from 'react-hot-toast'
 import api from '../../lib/api'
 import type { HealthPlan } from '../../types'
@@ -13,7 +13,7 @@ const PLAN_TYPES = [
   {
     value: 'PARTICULAR',
     label: 'Particular',
-    description: 'Atendimento sem convênio',
+    description: 'Sem convênio',
     icon: '💳',
     color: 'text-blue-700',
     bg: 'bg-blue-50',
@@ -22,7 +22,7 @@ const PLAN_TYPES = [
   {
     value: 'CONVENIO',
     label: 'Convênio',
-    description: 'Plano de saúde / convênio médico',
+    description: 'Plano de saúde',
     icon: '🏥',
     color: 'text-emerald-700',
     bg: 'bg-emerald-50',
@@ -31,7 +31,7 @@ const PLAN_TYPES = [
   {
     value: 'OUTROS',
     label: 'Outros',
-    description: 'Tipo personalizado de plano',
+    description: 'Tipo personalizado',
     icon: '✨',
     color: 'text-purple-700',
     bg: 'bg-purple-50',
@@ -51,7 +51,7 @@ const schema = z.object({
 type FormData = z.infer<typeof schema>
 
 function PlanForm({ plan, onSubmit, loading }: { plan: HealthPlan | null; onSubmit: (d: FormData) => void; loading: boolean }) {
-  const { register, handleSubmit, formState: { errors }, watch, setValue } = useForm<FormData>({
+  const { register, handleSubmit, formState: { errors }, watch } = useForm<FormData>({
     resolver: zodResolver(schema),
     defaultValues: {
       name: plan?.name || '',
@@ -64,7 +64,6 @@ function PlanForm({ plan, onSubmit, loading }: { plan: HealthPlan | null; onSubm
   })
 
   const watchType = watch('type')
-  const selectedType = PLAN_TYPES.find(t => t.value === watchType)
 
   return (
     <form onSubmit={handleSubmit(onSubmit)} className="space-y-5">
@@ -78,18 +77,23 @@ function PlanForm({ plan, onSubmit, loading }: { plan: HealthPlan | null; onSubm
         {errors.name && <p className="text-xs text-red-500 mt-1">{errors.name.message}</p>}
       </div>
 
-      {/* Type selection as visual cards */}
       <div>
         <label className="label mb-2">Tipo de Plano *</label>
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
           {PLAN_TYPES.map(type => (
             <label
               key={type.value}
-              className={`relative flex flex-col items-center p-3 rounded-xl border-2 cursor-pointer transition-all ${watchType === type.value ? `${type.border} ${type.bg}` : 'border-slate-200 hover:border-slate-300'}`}
+              className={`relative flex flex-col items-center p-3.5 rounded-xl border-2 cursor-pointer transition-all duration-150 ${
+                watchType === type.value
+                  ? `${type.border} ${type.bg} shadow-sm`
+                  : 'border-slate-200 hover:border-slate-300 hover:bg-slate-50'
+              }`}
             >
               <input {...register('type')} type="radio" value={type.value} className="sr-only" />
-              <span className="text-2xl mb-1">{type.icon}</span>
-              <span className={`text-sm font-semibold ${watchType === type.value ? type.color : 'text-slate-600'}`}>{type.label}</span>
+              <span className="text-2xl mb-1.5">{type.icon}</span>
+              <span className={`text-sm font-semibold ${watchType === type.value ? type.color : 'text-slate-600'}`}>
+                {type.label}
+              </span>
               <span className="text-xs text-slate-400 text-center mt-0.5 leading-tight">{type.description}</span>
               {watchType === type.value && (
                 <div className={`absolute top-1.5 right-1.5 w-4 h-4 rounded-full flex items-center justify-center ${type.border.replace('border-', 'bg-')}`}>
@@ -101,7 +105,6 @@ function PlanForm({ plan, onSubmit, loading }: { plan: HealthPlan | null; onSubm
         </div>
       </div>
 
-      {/* Custom type name (for OUTROS) */}
       {watchType === 'OUTROS' && (
         <div>
           <label className="label">Nome do Tipo Personalizado</label>
@@ -116,7 +119,7 @@ function PlanForm({ plan, onSubmit, loading }: { plan: HealthPlan | null; onSubm
       <div className="grid grid-cols-2 gap-4">
         <div>
           <label className="label flex items-center gap-1">
-            <DollarSign className="w-3.5 h-3.5 text-slate-500" />
+            <DollarSign className="w-3.5 h-3.5 text-slate-400" />
             Valor Padrão (R$)
           </label>
           <input
@@ -127,12 +130,12 @@ function PlanForm({ plan, onSubmit, loading }: { plan: HealthPlan | null; onSubm
             className="input-field"
             placeholder="0,00"
           />
-          <p className="text-xs text-slate-400 mt-1">Valor base da consulta neste plano</p>
+          <p className="text-xs text-slate-400 mt-1">Valor base da consulta</p>
         </div>
 
         <div>
           <label className="label flex items-center gap-1">
-            <Percent className="w-3.5 h-3.5 text-slate-500" />
+            <Percent className="w-3.5 h-3.5 text-slate-400" />
             Desconto (%)
           </label>
           <div className="relative">
@@ -147,13 +150,12 @@ function PlanForm({ plan, onSubmit, loading }: { plan: HealthPlan | null; onSubm
             />
             <span className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 text-sm">%</span>
           </div>
-          <p className="text-xs text-slate-400 mt-1">Percentual de desconto do plano</p>
+          <p className="text-xs text-slate-400 mt-1">Percentual de desconto</p>
         </div>
       </div>
 
-      {/* CONVENIO extra info */}
       {watchType === 'CONVENIO' && (
-        <div className="p-3 bg-emerald-50 border border-emerald-200 rounded-xl text-xs text-emerald-700 flex items-start gap-2">
+        <div className="p-3.5 bg-emerald-50 border border-emerald-200 rounded-xl text-xs text-emerald-700 flex items-start gap-2">
           <CreditCard className="w-4 h-4 flex-shrink-0 mt-0.5" />
           <p>No cadastro do paciente, você pode informar o número da carteirinha para este convênio.</p>
         </div>
@@ -165,7 +167,7 @@ function PlanForm({ plan, onSubmit, loading }: { plan: HealthPlan | null; onSubm
           {...register('description')}
           rows={3}
           className="input-field resize-none"
-          placeholder="Descreva as coberturas, procedimentos aceitos, observações importantes..."
+          placeholder="Coberturas, procedimentos aceitos, observações..."
         />
       </div>
 
@@ -181,10 +183,10 @@ function PlanForm({ plan, onSubmit, loading }: { plan: HealthPlan | null; onSubm
   )
 }
 
-const typeConfig: Record<string, { label: string; color: string; bg: string }> = {
-  PARTICULAR: { label: 'Particular', color: 'text-blue-700', bg: 'bg-blue-100' },
-  CONVENIO: { label: 'Convênio', color: 'text-emerald-700', bg: 'bg-emerald-100' },
-  OUTROS: { label: 'Outros', color: 'text-purple-700', bg: 'bg-purple-100' },
+const typeConfig: Record<string, { label: string; color: string; bg: string; icon: string }> = {
+  PARTICULAR: { label: 'Particular', color: 'text-blue-700', bg: 'bg-blue-100', icon: '💳' },
+  CONVENIO: { label: 'Convênio', color: 'text-emerald-700', bg: 'bg-emerald-100', icon: '🏥' },
+  OUTROS: { label: 'Outros', color: 'text-purple-700', bg: 'bg-purple-100', icon: '✨' },
 }
 
 export default function PlanoFinanceiro() {
@@ -235,29 +237,31 @@ export default function PlanoFinanceiro() {
 
   return (
     <div className="max-w-3xl space-y-6 animate-page-enter">
-      <div className="flex items-start justify-between">
+      <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-3">
         <div className="animate-stagger-1">
           <h1 className="page-title">Planos de Saúde</h1>
           <p className="page-subtitle">Cadastre convênios e formas de atendimento</p>
         </div>
-        <button onClick={handleNew} className="btn-primary animate-stagger-1">
+        <button onClick={handleNew} className="btn-primary self-start animate-stagger-1">
           <Plus className="w-4 h-4" />
           Novo Plano
         </button>
       </div>
 
       {/* Stats */}
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 animate-stagger-2">
         {[
-          { label: 'Total de Planos', value: stats.total, icon: CreditCard, color: 'text-blue-600', bg: 'bg-blue-50' },
-          { label: 'Planos Ativos', value: stats.active, icon: CheckCircle, color: 'text-emerald-600', bg: 'bg-emerald-50' },
-          { label: 'Convênios', value: stats.convenio, icon: CreditCard, color: 'text-purple-600', bg: 'bg-purple-50' },
-          { label: 'Vínculos', value: stats.totalPatients, icon: Users, color: 'text-amber-600', bg: 'bg-amber-50' },
-        ].map(({ label, value, icon: Icon, color, bg }, idx) => (
-          <div key={label} className={`card flex items-center gap-3 py-4 ${bg} animate-stagger-${idx+1}`}>
-            <Icon className={`w-8 h-8 ${color}`} />
+          { label: 'Total', value: stats.total, icon: CreditCard, color: 'text-blue-600', bg: 'bg-blue-50', border: 'border-blue-100' },
+          { label: 'Ativos', value: stats.active, icon: CheckCircle, color: 'text-emerald-600', bg: 'bg-emerald-50', border: 'border-emerald-100' },
+          { label: 'Convênios', value: stats.convenio, icon: CreditCard, color: 'text-purple-600', bg: 'bg-purple-50', border: 'border-purple-100' },
+          { label: 'Vínculos', value: stats.totalPatients, icon: Users, color: 'text-amber-600', bg: 'bg-amber-50', border: 'border-amber-100' },
+        ].map(({ label, value, icon: Icon, color, bg, border }) => (
+          <div key={label} className="card flex items-center gap-3 py-4">
+            <div className={`w-10 h-10 ${bg} rounded-xl flex items-center justify-center border ${border} flex-shrink-0`}>
+              <Icon className={`w-5 h-5 ${color}`} />
+            </div>
             <div>
-              <p className={`text-2xl font-bold ${color}`}>{value}</p>
+              <p className={`text-2xl font-bold ${color} tabular-nums`}>{value}</p>
               <p className="text-xs text-slate-500">{label}</p>
             </div>
           </div>
@@ -265,39 +269,56 @@ export default function PlanoFinanceiro() {
       </div>
 
       {/* Plans list */}
-      <div className="card p-0 overflow-hidden">
-        <div className="px-6 py-4 border-b border-slate-200 flex items-center justify-between">
-          <h2 className="font-semibold text-slate-900">
-            {displayedPlans.length} planos {!showAll && 'ativos'}
+      <div className="card p-0 overflow-hidden animate-stagger-3">
+        <div className="px-5 py-4 border-b border-slate-100 flex items-center justify-between">
+          <h2 className="font-semibold text-slate-900 flex items-center gap-2">
+            {displayedPlans.length > 0 && (
+              <span className="w-5 h-5 bg-blue-600 text-white text-xs rounded-full flex items-center justify-center font-bold tabular-nums">
+                {displayedPlans.length}
+              </span>
+            )}
+            Planos {!showAll && 'ativos'}
           </h2>
-          <button
-            onClick={() => setShowAll(!showAll)}
-            className="text-xs text-blue-600 hover:text-blue-700 font-medium"
-          >
-            {showAll ? 'Mostrar apenas ativos' : 'Mostrar todos'}
-          </button>
+          {plans.length > 0 && (
+            <button
+              onClick={() => setShowAll(!showAll)}
+              className="text-xs text-blue-600 hover:text-blue-700 font-medium transition-colors px-2 py-1 rounded-lg hover:bg-blue-50"
+            >
+              {showAll ? 'Apenas ativos' : 'Ver todos'}
+            </button>
+          )}
         </div>
 
         {displayedPlans.length === 0 ? (
-          <div className="text-center py-12">
-            <CreditCard className="w-10 h-10 text-slate-300 mx-auto mb-3" />
-            <p className="text-slate-400">Nenhum plano cadastrado</p>
-            <button onClick={handleNew} className="text-blue-600 text-sm font-medium mt-2 hover:underline">
+          <div className="text-center py-14">
+            <div className="w-14 h-14 bg-slate-100 rounded-2xl flex items-center justify-center mx-auto mb-4 animate-float">
+              <CreditCard className="w-7 h-7 text-slate-300" />
+            </div>
+            <p className="text-slate-500 font-medium">Nenhum plano cadastrado</p>
+            <p className="text-slate-400 text-sm mt-1">Comece criando um plano de atendimento</p>
+            <button onClick={handleNew} className="mt-4 btn-primary text-sm">
+              <Plus className="w-3.5 h-3.5" />
               Criar primeiro plano
             </button>
           </div>
         ) : (
           <div className="divide-y divide-slate-100">
-            {displayedPlans.map(plan => {
+            {displayedPlans.map((plan, idx) => {
               const tc = typeConfig[plan.type] || typeConfig.OUTROS
               return (
-                <div key={plan.id} className={`flex items-center gap-4 px-6 py-4 hover:bg-slate-50 transition-colors ${!plan.active ? 'opacity-60' : ''}`}>
-                  <div className={`w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0 ${tc.bg}`}>
-                    <CreditCard className={`w-5 h-5 ${tc.color}`} />
+                <div
+                  key={plan.id}
+                  className={`flex items-center gap-4 px-5 py-4 group hover:bg-slate-50 transition-colors duration-150 ${!plan.active ? 'opacity-60' : ''}`}
+                  style={{ animationDelay: `${idx * 0.04}s` }}
+                >
+                  <div className={`w-10 h-10 rounded-xl flex items-center justify-center text-lg flex-shrink-0 ${tc.bg}`}>
+                    {tc.icon}
                   </div>
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-2 flex-wrap">
-                      <p className="font-semibold text-slate-900">{plan.name}</p>
+                      <p className="font-semibold text-slate-900 group-hover:text-blue-700 transition-colors duration-150">
+                        {plan.name}
+                      </p>
                       <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${tc.bg} ${tc.color}`}>
                         {plan.customTypeName || tc.label}
                       </span>
@@ -318,13 +339,13 @@ export default function PlanoFinanceiro() {
                           {plan.discountPercent}% desconto
                         </span>
                       )}
-                      {plan.description && (
-                        <p className="text-xs text-slate-400 truncate max-w-[200px]">{plan.description}</p>
-                      )}
+                      <span className="text-xs text-slate-400 flex items-center gap-1">
+                        <Users className="w-3 h-3" />
+                        {plan._count?.patientPlans ?? 0} vínculos
+                      </span>
                     </div>
-                    <p className="text-xs text-slate-400 mt-0.5">{plan._count?.patientPlans ?? 0} pacientes vinculados</p>
                   </div>
-                  <div className="flex items-center gap-1 flex-shrink-0">
+                  <div className="flex items-center gap-1 flex-shrink-0 opacity-0 group-hover:opacity-100 transition-opacity duration-150">
                     <button
                       onClick={() => handleEdit(plan)}
                       className="p-1.5 text-slate-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-colors"
@@ -340,6 +361,15 @@ export default function PlanoFinanceiro() {
                       {plan.active ? <XCircle className="w-4 h-4" /> : <CheckCircle className="w-4 h-4" />}
                     </button>
                   </div>
+                  {/* Mobile always-visible actions */}
+                  <div className="flex items-center gap-1 flex-shrink-0 sm:hidden">
+                    <button
+                      onClick={() => handleEdit(plan)}
+                      className="p-1.5 text-slate-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-colors"
+                    >
+                      <Edit2 className="w-4 h-4" />
+                    </button>
+                  </div>
                 </div>
               )
             })}
@@ -347,16 +377,26 @@ export default function PlanoFinanceiro() {
         )}
       </div>
 
-      <div className="card bg-blue-50 border-blue-200">
-        <h3 className="font-semibold text-blue-900 mb-2 flex items-center gap-2">
-          <CreditCard className="w-4 h-4" />
+      {/* Info banner */}
+      <div className="card bg-blue-50 border-blue-200 animate-stagger-4">
+        <h3 className="font-semibold text-blue-900 mb-3 flex items-center gap-2">
+          <div className="w-7 h-7 bg-blue-100 rounded-lg flex items-center justify-center border border-blue-200">
+            <Info className="w-3.5 h-3.5 text-blue-600" />
+          </div>
           Como usar os Planos de Saúde
         </h3>
-        <ul className="text-sm text-blue-700 space-y-1.5">
-          <li>• Cadastre todos os convênios e formas de pagamento que sua clínica aceita</li>
-          <li>• Defina o valor padrão e o percentual de desconto por plano</li>
-          <li>• No cadastro do paciente, vincule os planos com número da carteirinha (Convênio)</li>
-          <li>• Tipos personalizados: use "Outros" e defina o nome do tipo</li>
+        <ul className="text-sm text-blue-700 space-y-2">
+          {[
+            'Cadastre todos os convênios e formas de atendimento que sua clínica aceita',
+            'Defina o valor padrão e o percentual de desconto por plano',
+            'No cadastro do paciente, vincule os planos com número da carteirinha (Convênio)',
+            'Tipos personalizados: use "Outros" e defina o nome do tipo',
+          ].map(item => (
+            <li key={item} className="flex items-start gap-2">
+              <span className="w-1.5 h-1.5 rounded-full bg-blue-400 flex-shrink-0 mt-1.5" />
+              {item}
+            </li>
+          ))}
         </ul>
       </div>
 

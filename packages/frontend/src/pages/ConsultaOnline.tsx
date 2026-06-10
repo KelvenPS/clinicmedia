@@ -24,7 +24,7 @@ const roadmap = [
 
 export default function ConsultaOnline() {
   return (
-    <div className="max-w-3xl mx-auto animate-page-enter space-y-8">
+    <div className="max-w-3xl mx-auto page-stagger space-y-8">
       {/* Badge */}
       <div className="flex justify-center pt-2 animate-stagger-1">
         <span className="inline-flex items-center gap-2 bg-violet-50 text-violet-700 border border-violet-200 text-xs font-bold px-4 py-1.5 rounded-full uppercase tracking-widest shadow-sm">

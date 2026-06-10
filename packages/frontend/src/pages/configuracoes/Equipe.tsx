@@ -100,7 +100,7 @@ export default function Equipe() {
   const activeCount = team.filter(t => t.active).length
 
   return (
-    <div className="max-w-2xl space-y-6 animate-page-enter">
+    <div className="max-w-2xl space-y-6 page-stagger">
       {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 animate-stagger-1">
         <div>

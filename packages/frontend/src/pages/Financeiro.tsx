@@ -28,6 +28,7 @@ import { useAuthStore } from '../store/authStore'
 import type { Transaction, FinancialResponse, MonthlyData, User } from '../types'
 import Modal from '../components/ui/Modal'
 import TransactionForm from '../components/Financial/TransactionForm'
+import PageHeader from '../components/ui/PageHeader'
 
 const MONTH_NAMES = ['Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun', 'Jul', 'Ago', 'Set', 'Out', 'Nov', 'Dez']
 
@@ -147,21 +148,20 @@ export default function Financeiro() {
   const handleEdit = (tx: Transaction) => { setEditTx(tx); setModalOpen(true) }
 
   return (
-    <div className="space-y-6">
-      {/* ── Header ── */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 animate-stagger-1">
-        <div>
-          <h1 className="page-title">Financeiro</h1>
-          <p className="page-subtitle">Controle de receitas e despesas</p>
-        </div>
-        <button onClick={handleNew} className="btn-primary self-start">
-          <Plus className="w-4 h-4" />
-          Nova Transação
-        </button>
-      </div>
+    <div className="space-y-6 page-stagger">
+      <PageHeader
+        title="Financeiro"
+        subtitle="Controle de receitas e despesas"
+        actions={
+          <button onClick={handleNew} className="btn-primary">
+            <Plus className="w-4 h-4" />
+            Nova Transação
+          </button>
+        }
+      />
 
       {/* ── Filters ── */}
-      <div className="card py-4 animate-stagger-2">
+      <div className="card py-4">
         <div className="flex flex-wrap items-center gap-3">
           {/* Period selector */}
           <div className="seg-control">

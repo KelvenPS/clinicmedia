@@ -113,10 +113,10 @@ export default function Dashboard() {
     : 0
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-6 page-stagger">
 
       {/* ── Welcome banner ── */}
-      <div className="animate-stagger-1 bg-gradient-to-br from-blue-700 via-blue-600 to-cyan-600 rounded-2xl p-6 text-white shadow-xl shadow-blue-700/25 overflow-hidden relative">
+      <div className="bg-gradient-to-br from-blue-700 via-blue-600 to-cyan-600 rounded-2xl p-5 sm:p-6 text-white shadow-xl shadow-blue-700/25 overflow-hidden relative">
         {/* Decorative elements */}
         <div className="absolute -top-10 -right-10 w-52 h-52 bg-white/5 rounded-full blur-3xl pointer-events-none" />
         <div className="absolute bottom-0 left-1/3 w-40 h-40 bg-cyan-400/10 rounded-full blur-2xl pointer-events-none" />

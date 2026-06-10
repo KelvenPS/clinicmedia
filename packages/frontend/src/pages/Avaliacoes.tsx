@@ -585,9 +585,9 @@ export default function Avaliacoes() {
   // ─── Render ───────────────────────────────────────────────────────────────
 
   return (
-    <div className="space-y-4 animate-fade-in">
+    <div className="space-y-4 page-stagger">
       {/* Header */}
-      <div className="flex items-center justify-between no-print">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 no-print">
         <div>
           <h1 className="page-title flex items-center gap-2">
             <Brain className="w-6 h-6 text-blue-600" />
@@ -597,7 +597,7 @@ export default function Avaliacoes() {
         </div>
       </div>
 
-      <div className="grid grid-cols-1 xl:grid-cols-4 gap-4 no-print" style={{ minHeight: '600px' }}>
+      <div className="grid grid-cols-1 xl:grid-cols-4 gap-4 no-print min-h-[min(600px,70vh)]">
         {/* ─── Left panel ─────────────────────────────────── */}
         <div className="xl:col-span-1 space-y-3">
           <div className="card p-0 overflow-hidden">

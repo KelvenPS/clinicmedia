@@ -18,6 +18,7 @@ import {
 } from 'lucide-react'
 import toast from 'react-hot-toast'
 import api from '../lib/api'
+import PageHeader from '../components/ui/PageHeader'
 import { useAuthStore } from '../store/authStore'
 import type { Patient, User as UserType, GroupedMedicalRecord, MedicalRecord } from '../types'
 import Modal from '../components/ui/Modal'
@@ -244,20 +245,19 @@ export default function Prontuario() {
   const totalRecords = grouped.reduce((acc, g) => acc + g.records.length, 0)
 
   return (
-    <div className="space-y-4">
-      {/* ── Header ── */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 animate-stagger-1">
-        <div>
-          <h1 className="page-title">Prontuário Eletrônico</h1>
-          <p className="page-subtitle">Registros médicos organizados por paciente</p>
-        </div>
-        <button onClick={() => setModalOpen(true)} className="btn-primary self-start">
-          <Plus className="w-4 h-4" />
-          Novo Registro
-        </button>
-      </div>
+    <div className="space-y-4 page-stagger">
+      <PageHeader
+        title="Prontuário Eletrônico"
+        subtitle="Registros médicos organizados por paciente"
+        actions={
+          <button onClick={() => setModalOpen(true)} className="btn-primary">
+            <Plus className="w-4 h-4" />
+            Novo Registro
+          </button>
+        }
+      />
 
-      <div className="grid grid-cols-1 xl:grid-cols-3 gap-4 animate-stagger-2" style={{ minHeight: '600px' }}>
+      <div className="grid grid-cols-1 xl:grid-cols-3 gap-4 min-h-[min(600px,70vh)]">
         {/* Patient list */}
         <div className="card p-0 overflow-hidden flex flex-col">
           <div className="p-4 border-b border-slate-100">

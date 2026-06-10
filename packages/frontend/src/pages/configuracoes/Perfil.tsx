@@ -8,6 +8,7 @@ import toast from 'react-hot-toast'
 import api from '../../lib/api'
 import { useAuthStore } from '../../store/authStore'
 import type { AuthUser } from '../../types'
+import PageHeader from '../../components/ui/PageHeader'
 
 const schema = z.object({
   name: z.string().min(2),
@@ -44,9 +45,11 @@ export default function Perfil() {
     queryFn: () => api.get('/auth/me').then(r => r.data),
   })
 
-  const { register, handleSubmit, formState: { errors, isDirty }, setValue } = useForm<FormData>({
+  const { register, handleSubmit, watch, formState: { errors, isDirty }, setValue } = useForm<FormData>({
     resolver: zodResolver(schema),
   })
+
+  const watchedSpecialty = watch('specialty')
 
   useEffect(() => {
     if (profile) {
@@ -73,15 +76,19 @@ export default function Perfil() {
   const gradient = user?.role ? avatarGradients[user.role] : 'from-blue-500 to-blue-700'
   const initials = user?.name?.split(' ').slice(0, 2).map(n => n[0]).join('').toUpperCase()
 
+  const displayRole = user?.role === 'DOCTOR' && watchedSpecialty
+    ? watchedSpecialty
+    : roleInfo?.label
+
   return (
-    <div className="max-w-2xl space-y-6 animate-page-enter">
-      <div className="animate-stagger-1">
-        <h1 className="page-title">Meu Perfil</h1>
-        <p className="page-subtitle">Gerencie suas informações pessoais e profissionais</p>
-      </div>
+    <div className="max-w-3xl mx-auto space-y-6 page-stagger">
+      <PageHeader
+        title="Meu Perfil"
+        subtitle="Gerencie suas informações pessoais e profissionais"
+      />
 
       {/* Avatar card */}
-      <div className="card animate-stagger-2 overflow-hidden relative">
+      <div className="card overflow-hidden relative">
         <div className="absolute inset-0 bg-gradient-to-br from-slate-50 to-white pointer-events-none" />
         <div className="relative flex flex-col sm:flex-row sm:items-center gap-5">
           {/* Avatar */}
@@ -115,10 +122,10 @@ export default function Perfil() {
                 </span>
               )}
             </div>
-            {roleInfo && (
+            {roleInfo && displayRole && (
               <span className={`inline-flex items-center gap-1.5 mt-3 text-xs font-semibold px-3 py-1 rounded-full border ${roleInfo.bg} ${roleInfo.border} ${roleInfo.color}`}>
                 <Shield className="w-3 h-3" />
-                {roleInfo.label}
+                {displayRole}
               </span>
             )}
           </div>
@@ -129,7 +136,7 @@ export default function Perfil() {
       <form onSubmit={handleSubmit(d => saveMutation.mutate(d))} className="space-y-5">
 
         {/* Personal info */}
-        <div className="card space-y-4 animate-stagger-3">
+        <div className="card space-y-4">
           <h3 className="font-semibold text-slate-900 flex items-center gap-2.5 pb-1">
             <div className="w-8 h-8 bg-blue-50 rounded-xl flex items-center justify-center border border-blue-100">
               <User className="w-4 h-4 text-blue-600" />
@@ -182,7 +189,7 @@ export default function Perfil() {
         </div>
 
         {/* Password section */}
-        <div className="card space-y-4 animate-stagger-4">
+        <div className="card space-y-4">
           <h3 className="font-semibold text-slate-900 flex items-center gap-2.5 pb-1">
             <div className="w-8 h-8 bg-slate-100 rounded-xl flex items-center justify-center border border-slate-200">
               <LockKeyhole className="w-4 h-4 text-slate-500" />
@@ -212,7 +219,7 @@ export default function Perfil() {
         </div>
 
         {/* Save button */}
-        <div className="animate-stagger-5">
+        <div>
           <button
             type="submit"
             disabled={saveMutation.isPending}

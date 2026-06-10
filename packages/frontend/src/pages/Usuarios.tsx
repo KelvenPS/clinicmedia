@@ -8,6 +8,7 @@ import api from '../lib/api'
 import type { User } from '../types'
 import Modal from '../components/ui/Modal'
 import UserForm from '../components/Users/UserForm'
+import PageHeader from '../components/ui/PageHeader'
 
 const roleConfig: Record<string, { label: string; className: string }> = {
   ADMIN: { label: 'Admin', className: 'bg-purple-100 text-purple-700' },
@@ -66,21 +67,20 @@ export default function Usuarios() {
   const handleNew = () => { setEditUser(null); setModalOpen(true) }
 
   return (
-    <div className="space-y-6 animate-fade-in">
-      {/* Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-        <div>
-          <h1 className="page-title">Usuários</h1>
-          <p className="page-subtitle">Gerencie usuários e permissões de acesso</p>
-        </div>
-        <button onClick={handleNew} className="btn-primary self-start">
-          <Plus className="w-4 h-4" />
-          Novo Usuário
-        </button>
-      </div>
+    <div className="space-y-6 page-stagger">
+      <PageHeader
+        title="Usuários"
+        subtitle="Gerencie usuários e permissões de acesso"
+        actions={
+          <button onClick={handleNew} className="btn-primary">
+            <Plus className="w-4 h-4" />
+            Novo Usuário
+          </button>
+        }
+      />
 
       {/* Stats */}
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 sm:gap-4">
         {[
           { label: 'Total', value: stats.total, color: 'text-slate-900', bg: 'bg-slate-100' },
           { label: 'Médicos', value: stats.doctors, color: 'text-blue-700', bg: 'bg-blue-100' },
@@ -94,10 +94,68 @@ export default function Usuarios() {
         ))}
       </div>
 
+      {/* Search — mobile */}
+      <div className="sm:hidden card py-3">
+        <div className="relative">
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+          <input
+            value={search}
+            onChange={e => setSearch(e.target.value)}
+            placeholder="Buscar usuários..."
+            className="input-field pl-9 py-2"
+          />
+        </div>
+      </div>
+
+      {/* Mobile cards */}
+      <div className="sm:hidden space-y-3">
+        {isLoading ? (
+          <div className="card py-12 text-center text-slate-400">Carregando...</div>
+        ) : filtered.length === 0 ? (
+          <div className="card py-12 text-center text-slate-400">Nenhum usuário encontrado</div>
+        ) : (
+          filtered.map(u => {
+            const initials = u.name.split(' ').slice(0, 2).map(n => n[0]).join('').toUpperCase()
+            const role = roleConfig[u.role]
+            return (
+              <div key={u.id} className={`card p-4 ${!u.active ? 'opacity-60' : ''}`}>
+                <div className="flex items-start gap-3">
+                  <div className={`w-10 h-10 rounded-full flex items-center justify-center flex-shrink-0 ${u.active ? 'bg-blue-600' : 'bg-slate-300'}`}>
+                    <span className="text-white text-sm font-bold">{initials}</span>
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <p className="font-semibold text-slate-900 truncate">{u.name}</p>
+                    <p className="text-xs text-slate-500 truncate">{u.email}</p>
+                    <div className="flex flex-wrap items-center gap-2 mt-2">
+                      <span className={`status-badge ${role.className}`}>{role.label}</span>
+                      <span className={`status-badge ${u.active ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-100 text-slate-600'}`}>
+                        {u.active ? 'Ativo' : 'Inativo'}
+                      </span>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-1 flex-shrink-0">
+                    <button onClick={() => handleEdit(u)} className="btn-icon" title="Editar">
+                      <Edit2 className="w-4 h-4" />
+                    </button>
+                    <button
+                      onClick={() => toggleMutation.mutate(u.id)}
+                      className="btn-icon"
+                      title={u.active ? 'Desativar' : 'Ativar'}
+                    >
+                      {u.active ? <UserX className="w-4 h-4" /> : <UserCheck className="w-4 h-4" />}
+                    </button>
+                  </div>
+                </div>
+              </div>
+            )
+          })
+        )}
+      </div>
+
       {/* Table */}
-      <div className="card p-0 overflow-hidden">
-        <div className="px-6 py-4 border-b border-slate-200 flex items-center gap-4">
-          <div className="relative flex-1 max-w-sm">
+      <div className="card p-0 overflow-hidden hidden sm:block">
+        <div className="px-4 sm:px-6 py-4 border-b border-slate-200 flex flex-col sm:flex-row items-stretch sm:items-center gap-3 sm:gap-4">
+          <div className="relative flex-1 sm:max-w-sm">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
             <input
               value={search}

@@ -129,7 +129,7 @@ export default function Planos() {
   const currentPlan = subscription?.plan
 
   return (
-    <div className="max-w-4xl space-y-6 animate-page-enter">
+    <div className="max-w-4xl space-y-6 page-stagger">
       <div className="animate-stagger-1">
         <h1 className="page-title">Planos ClinIQ Pro</h1>
         <p className="page-subtitle">Escolha o plano ideal para sua prática</p>

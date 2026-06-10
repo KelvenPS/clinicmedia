@@ -1255,7 +1255,7 @@ export default function ChatbotIA() {
         </div>
 
         {/* Panel content */}
-        <div className="flex-1 overflow-auto animate-page-enter">
+        <div className="flex-1 overflow-auto page-stagger">
           {activePanel === 'atendimento' && <AtendimentoPanel />}
           {activePanel === 'templates' && <TemplatesPanel />}
           {activePanel === 'fluxos' && <FluxosPanel />}

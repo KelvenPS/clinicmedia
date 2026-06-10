@@ -682,7 +682,7 @@ export default function Integracoes() {
   const configured = integrations.filter(i => i.active).length
 
   return (
-    <div className="max-w-4xl space-y-6 animate-page-enter">
+    <div className="max-w-4xl space-y-6 page-stagger">
       {/* Header */}
       <div className="animate-stagger-1">
         <h1 className="page-title flex items-center gap-2">

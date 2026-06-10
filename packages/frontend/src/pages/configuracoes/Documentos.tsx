@@ -167,7 +167,7 @@ export default function Documentos() {
   }
 
   return (
-    <div className="max-w-3xl space-y-6 animate-page-enter">
+    <div className="max-w-3xl space-y-6 page-stagger">
       <div className="flex items-start justify-between">
         <div className="animate-stagger-1">
           <h1 className="page-title">Documentos</h1>

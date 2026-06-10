@@ -12,6 +12,7 @@ import type { Appointment, AppointmentBlock, User, Patient, AppointmentType, Roo
 import StatusBadge from '../components/ui/StatusBadge'
 import Modal from '../components/ui/Modal'
 import AppointmentForm from '../components/Agenda/AppointmentForm'
+import PageHeader from '../components/ui/PageHeader'
 
 const SLOT_HEIGHT = 40
 const DEFAULT_START_HOUR = 7
@@ -274,14 +275,12 @@ export default function Agenda() {
   }
 
   return (
-    <div className="space-y-4">
-      {/* ── Header ── */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 animate-stagger-1">
-        <div>
-          <h1 className="page-title">Agenda</h1>
-          <p className="page-subtitle">Gerencie consultas e agendamentos</p>
-        </div>
-        <div className="flex items-center gap-2 self-start sm:self-auto flex-wrap">
+    <div className="space-y-4 page-stagger">
+      <PageHeader
+        title="Agenda"
+        subtitle="Gerencie consultas e agendamentos"
+        actions={
+        <div className="flex items-center gap-2 flex-wrap">
           {(user?.role === 'DOCTOR' || user?.role === 'ADMIN') && (
             <button
               onClick={() => setBlockModalOpen(true)}
@@ -304,10 +303,11 @@ export default function Agenda() {
             <span className="sm:hidden">Agendar</span>
           </button>
         </div>
-      </div>
+        }
+      />
 
       {/* ── Controls bar ── */}
-      <div className="card py-3 animate-stagger-2">
+      <div className="card py-3">
         <div className="flex flex-col sm:flex-row sm:items-center gap-3">
           {/* Week navigation */}
           <div className="flex items-center gap-2">

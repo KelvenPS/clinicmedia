@@ -9,6 +9,7 @@ import type { Patient } from '../types'
 import Modal from '../components/ui/Modal'
 import PatientForm from '../components/Patients/PatientForm'
 import { SkeletonTable } from '../components/ui/SkeletonCard'
+import PageHeader from '../components/ui/PageHeader'
 
 export default function Pacientes() {
   const qc = useQueryClient()
@@ -40,21 +41,20 @@ export default function Pacientes() {
   const handleNew = () => { setEditPatient(null); setModalOpen(true) }
 
   return (
-    <div className="space-y-6">
-      {/* ── Header ── */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 animate-stagger-1">
-        <div>
-          <h1 className="page-title">Pacientes</h1>
-          <p className="page-subtitle">Gerencie o cadastro de pacientes</p>
-        </div>
-        <button onClick={handleNew} className="btn-primary self-start">
-          <Plus className="w-4 h-4" />
-          Novo Paciente
-        </button>
-      </div>
+    <div className="space-y-6 page-stagger">
+      <PageHeader
+        title="Pacientes"
+        subtitle="Gerencie o cadastro de pacientes"
+        actions={
+          <button onClick={handleNew} className="btn-primary">
+            <Plus className="w-4 h-4" />
+            Novo Paciente
+          </button>
+        }
+      />
 
       {/* ── Search + count ── */}
-      <div className="card py-4 animate-stagger-2">
+      <div className="card py-4">
         <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3">
           <div className="relative flex-1">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400 pointer-events-none" />

@@ -6,6 +6,7 @@ import SettingsSidebar from './SettingsSidebar'
 import NotificationBell from './NotificationBell'
 import SubscriptionGate from './SubscriptionGate'
 import PageTransition from './ui/PageTransition'
+import SettingsMobileNav from './SettingsMobileNav'
 import { useAuthStore } from '../store/authStore'
 
 const ROUTE_LABELS: Record<string, string> = {
@@ -233,7 +234,7 @@ export default function Layout() {
           className={`
             fixed inset-y-0 left-0 z-50 lg:hidden
             transition-transform duration-300 ease-spring
-            ${mobileOpen ? 'translate-x-0' : '-translate-x-full'}
+            ${mobileOpen ? 'translate-x-0 animate-drawer-in' : '-translate-x-full'}
           `}
           style={{ width: 256 }}
         >
@@ -287,8 +288,9 @@ export default function Layout() {
           </header>
 
           {/* Page content */}
-          <main className="flex-1 overflow-y-auto">
-            <div className="p-4 sm:p-6 max-w-screen-2xl mx-auto">
+          <main className="flex-1 overflow-y-auto overflow-x-hidden">
+            <div className="p-4 sm:p-6 max-w-screen-2xl mx-auto w-full">
+              {isSettings && <SettingsMobileNav />}
               <PageTransition>
                 <Outlet />
               </PageTransition>

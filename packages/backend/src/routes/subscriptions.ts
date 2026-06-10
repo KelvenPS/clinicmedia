@@ -185,6 +185,11 @@ router.get('/features', async (req: AuthRequest, res) => {
 // POST /api/subscriptions/checkout
 router.post('/checkout', async (req: AuthRequest, res) => {
   try {
+    if (!process.env.MP_ACCESS_TOKEN) {
+      res.status(503).json({ message: 'Pagamento não configurado. Entre em contato com o suporte.' })
+      return
+    }
+
     const { plan, billingCycle } = z.object({
       plan: z.enum(['PRO', 'PLUS', 'CLINIC', 'TELECONSULTA']),
       billingCycle: z.enum(['MONTHLY', 'ANNUAL']),
@@ -196,15 +201,25 @@ router.post('/checkout', async (req: AuthRequest, res) => {
     const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:5173'
     const backendUrl  = process.env.BACKEND_URL  || 'http://localhost:3001'
 
+    // Fetch payer email so MP can match to a test/prod user correctly
+    const doctor = await prisma.user.findUnique({
+      where: { id: req.user!.userId },
+      select: { email: true, name: true },
+    })
+
     const pref = await preference.create({
       body: {
         items: [{
           id: `${plan}_${billingCycle}`,
           title,
-          unit_price: amount,
+          unit_price: Math.round(amount * 100) / 100, // ensure 2 decimal places
           quantity: 1,
           currency_id: 'BRL',
         }],
+        payer: {
+          email: doctor?.email ?? req.user!.email,
+          name: doctor?.name,
+        },
         back_urls: {
           success: `${frontendUrl}/configuracoes/planos?status=success&plan=${plan}&cycle=${billingCycle}`,
           failure: `${frontendUrl}/configuracoes/planos?status=failure`,
@@ -213,10 +228,6 @@ router.post('/checkout', async (req: AuthRequest, res) => {
         auto_return: 'approved',
         external_reference: `${req.user!.userId}:${plan}:${billingCycle}`,
         notification_url: `${backendUrl}/api/subscriptions/webhook`,
-        payment_methods: {
-          excluded_payment_types: [],
-          installments: billingCycle === 'ANNUAL' ? 12 : 1,
-        },
       },
     })
 
@@ -237,8 +248,13 @@ router.post('/checkout', async (req: AuthRequest, res) => {
       res.status(400).json({ message: 'Dados inválidos', errors: error.errors })
       return
     }
-    console.error('Checkout error:', error)
-    res.status(500).json({ message: 'Erro ao criar preferência de pagamento' })
+    const mpError = error as { status?: number; message?: string; code?: string }
+    console.error('Checkout error:', mpError)
+    res.status(500).json({
+      message: 'Erro ao criar preferência de pagamento',
+      detail: mpError?.message,
+      code: mpError?.code,
+    })
   }
 })
 

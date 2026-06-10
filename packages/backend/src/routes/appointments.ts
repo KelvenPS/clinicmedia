@@ -130,6 +130,7 @@ router.post('/', async (req: AuthRequest, res) => {
       res.status(400).json({ message: 'Dados inválidos', errors: error.errors })
       return
     }
+    console.error('[appointments] POST /', error)
     res.status(500).json({ message: 'Erro interno do servidor' })
   }
 })

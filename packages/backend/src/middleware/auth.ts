@@ -12,7 +12,7 @@ export interface AuthRequest extends Request {
   }
 }
 
-export function authenticate(req: AuthRequest, res: Response, next: NextFunction) {
+export async function authenticate(req: AuthRequest, res: Response, next: NextFunction): Promise<void> {
   const authHeader = req.headers.authorization
 
   if (!authHeader?.startsWith('Bearer ')) {
@@ -24,6 +24,19 @@ export function authenticate(req: AuthRequest, res: Response, next: NextFunction
 
   try {
     const payload = verifyToken(token)
+
+    // Verify user still exists and is active in the current DB.
+    // This rejects stale tokens from previous deployments or DB resets.
+    const user = await prisma.user.findUnique({
+      where: { id: payload.userId, active: true },
+      select: { id: true },
+    })
+
+    if (!user) {
+      res.status(401).json({ message: 'Sessão expirada. Faça login novamente.' })
+      return
+    }
+
     req.user = payload
     next()
   } catch {

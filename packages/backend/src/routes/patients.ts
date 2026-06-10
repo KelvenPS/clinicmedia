@@ -90,7 +90,8 @@ router.get('/', async (req: AuthRequest, res) => {
     })
 
     res.json(patients)
-  } catch {
+  } catch (error) {
+    console.error('[patients] GET /', error)
     res.status(500).json({ message: 'Erro interno do servidor' })
   }
 })
@@ -161,6 +162,10 @@ router.post('/', async (req: AuthRequest, res) => {
         ...rest,
         doctorId,
         email: rest.email || null,
+        cpf: rest.cpf || null,
+        rg: rest.rg || null,
+        address: rest.address || null,
+        notes: rest.notes || null,
         birthDate: rest.birthDate ? new Date(rest.birthDate) : null,
         patientPlans: plans?.length
           ? {
@@ -193,6 +198,7 @@ router.post('/', async (req: AuthRequest, res) => {
       res.status(400).json({ message: 'Dados inválidos', errors: error.errors })
       return
     }
+    console.error('[patients] POST /', error)
     res.status(500).json({ message: 'Erro interno do servidor' })
   }
 })
@@ -217,7 +223,12 @@ router.put('/:id', async (req: AuthRequest, res) => {
 
     const updateData: Record<string, unknown> = { ...rest }
     if (rest.birthDate) updateData.birthDate = new Date(rest.birthDate)
-    if (rest.email === '') updateData.email = null
+    // Normalize empty strings to null for nullable unique/optional fields
+    if (rest.email !== undefined) updateData.email = rest.email || null
+    if (rest.cpf !== undefined) updateData.cpf = rest.cpf || null
+    if (rest.rg !== undefined) updateData.rg = rest.rg || null
+    if (rest.address !== undefined) updateData.address = rest.address || null
+    if (rest.notes !== undefined) updateData.notes = rest.notes || null
 
     if (plans !== undefined) {
       await prisma.patientPlan.deleteMany({ where: { patientId: id } })
@@ -244,7 +255,8 @@ router.put('/:id', async (req: AuthRequest, res) => {
     })
 
     res.json(patient)
-  } catch {
+  } catch (error) {
+    console.error('[patients] PUT /:id', error)
     res.status(500).json({ message: 'Erro interno do servidor' })
   }
 })

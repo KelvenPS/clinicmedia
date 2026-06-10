@@ -42,6 +42,11 @@ router.post('/login', async (req, res) => {
       return
     }
 
+    // Ensure every doctor has a trial subscription row (backfill for pre-existing accounts)
+    if (user.role === 'DOCTOR') {
+      await ensureTrialSubscription(user.id).catch(() => {})
+    }
+
     const token = signToken({
       userId: user.id,
       email: user.email,

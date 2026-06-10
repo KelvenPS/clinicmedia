@@ -29,7 +29,11 @@ const app = express()
 const PORT = process.env.PORT || 3001
 
 app.use(cors({
-  origin: process.env.FRONTEND_URL || 'http://localhost:5173',
+  origin: (origin, callback) => {
+    // Allow same-origin requests (no origin header) and any browser origin.
+    // Auth is enforced by JWT tokens, not by origin allow-list.
+    callback(null, origin || true)
+  },
   credentials: true,
 }))
 

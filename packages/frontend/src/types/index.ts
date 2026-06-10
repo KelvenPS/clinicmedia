@@ -237,16 +237,66 @@ export interface PaymentMethod {
   createdAt: string
 }
 
+export type PlanKey = 'TRIAL' | 'PRO' | 'PLUS' | 'CLINIC' | 'TELECONSULTA'
+export type PlanStatus = 'ACTIVE' | 'INACTIVE' | 'CANCELLED' | 'EXPIRED'
+
+export const PLAN_DISPLAY: Record<PlanKey, string> = {
+  TRIAL:        'Período Gratuito',
+  PRO:          'Pro',
+  PLUS:         'Plus',
+  CLINIC:       'Clínica',
+  TELECONSULTA: 'Teleconsulta',
+}
+
+export const PLAN_FEATURES: Record<PlanKey, string[]> = {
+  TRIAL:        ['agenda'],
+  PRO:          ['agenda', 'prontuario', 'financeiro', 'avaliacoes', 'nota_fiscal', 'documentos'],
+  PLUS:         ['agenda', 'prontuario', 'financeiro', 'avaliacoes', 'nota_fiscal', 'documentos', 'chatbot'],
+  CLINIC:       ['agenda', 'prontuario', 'financeiro', 'avaliacoes', 'nota_fiscal', 'documentos', 'chatbot', 'whatsapp'],
+  TELECONSULTA: ['agenda', 'teleconsulta'],
+}
+
+export const PLAN_LIMITS: Record<PlanKey, { rooms: number; secretaries: number }> = {
+  TRIAL:        { rooms: 0, secretaries: 0 },
+  PRO:          { rooms: 2, secretaries: 1 },
+  PLUS:         { rooms: 5, secretaries: 5 },
+  CLINIC:       { rooms: 999, secretaries: 999 },
+  TELECONSULTA: { rooms: 0, secretaries: 0 },
+}
+
+export const PLAN_PRICES: Record<string, { monthly: number; annual: number }> = {
+  PRO:          { monthly: 89.90,  annual: 89.90  * 12 * 0.85 },
+  PLUS:         { monthly: 109.90, annual: 109.90 * 12 * 0.85 },
+  CLINIC:       { monthly: 159.90, annual: 159.90 * 12 * 0.85 },
+  TELECONSULTA: { monthly: 199.90, annual: 199.90 * 12 * 0.85 },
+}
+
+export interface SubscriptionPaymentRecord {
+  id: string
+  plan: string
+  billingCycle: string
+  amount: number
+  status: string
+  mpPaymentId?: string | null
+  paidAt?: string | null
+  createdAt: string
+}
+
 export interface DoctorSubscription {
   id: string
   doctorId: string
-  plan: 'TRIAL' | 'PRO' | 'PLUS' | 'CLINIC'
+  plan: PlanKey
   billingCycle: 'MONTHLY' | 'ANNUAL'
-  status: 'ACTIVE' | 'INACTIVE' | 'CANCELLED'
+  status: PlanStatus
   trialEndsAt?: string | null
   currentPeriodStart?: string | null
   currentPeriodEnd?: string | null
+  cancelledAt?: string | null
+  mpPaymentId?: string | null
+  adminNote?: string | null
+  trialWarned?: boolean
   createdAt: string
+  payments?: SubscriptionPaymentRecord[]
 }
 
 export interface AppointmentType {

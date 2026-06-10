@@ -6,6 +6,7 @@ import SettingsSidebar from './SettingsSidebar'
 import NotificationBell from './NotificationBell'
 import SubscriptionGate from './SubscriptionGate'
 import PageTransition from './ui/PageTransition'
+import { TrialBanner } from './ui/TrialBanner'
 import SettingsMobileNav from './SettingsMobileNav'
 import { useAuthStore } from '../store/authStore'
 import type { AuthUser } from '../types'
@@ -293,6 +294,9 @@ export default function Layout() {
               <UserDropdown user={user} onLogout={handleLogout} />
             </div>
           </header>
+
+          {/* Trial / subscription banner */}
+          <TrialBanner />
 
           {/* Page content */}
           <main className="flex-1 overflow-y-auto overflow-x-hidden">

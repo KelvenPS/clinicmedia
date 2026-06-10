@@ -39,6 +39,7 @@ export const SETTINGS_NAV_ITEMS: SettingsNavItem[] = [
   { to: '/configuracoes/documentacao', icon: BookOpen, label: 'Documentação', shortLabel: 'Docs', roles: ['ADMIN', 'DOCTOR', 'SECRETARY'] },
   { to: '/usuarios', icon: UserCog, label: 'Usuários', roles: ['ADMIN'] },
   { to: '/admin/gestao', icon: Shield, label: 'Gestão de Dados', shortLabel: 'Gestão', roles: ['ADMIN'] },
+  { to: '/admin/planos', icon: CreditCard, label: 'Gestão de Planos', shortLabel: 'Planos', roles: ['ADMIN'] },
 ]
 
 export function getVisibleSettingsNav(role?: string) {

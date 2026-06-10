@@ -97,7 +97,8 @@ model User {
   documentTemplates   DocumentTemplate[]  @relation("DoctorDocuments")
   notifications       Notification[]      @relation("UserNotifications")
   paymentMethods      PaymentMethod[]     @relation("DoctorPaymentMethods")
-  subscription        DoctorSubscription? @relation("DoctorSubscription")
+  subscription        DoctorSubscription?   @relation("DoctorSubscription")
+  subscriptionPayments SubscriptionPayment[] @relation("DoctorPayments")
   integrations        Integration[]       @relation("DoctorIntegrations")
   whatsappInstance    WhatsAppInstance?   @relation("DoctorWhatsApp")
   healthPlans         HealthPlan[]        @relation("DoctorHealthPlans")
@@ -397,10 +398,36 @@ model DoctorSubscription {
   trialEndsAt        DateTime?
   currentPeriodStart DateTime?
   currentPeriodEnd   DateTime?
+  cancelledAt        DateTime?
+  mpPaymentId        String?
+  mpPreferenceId     String?
+  trialWarned        Boolean   @default(false)
+  adminNote          String?
   createdAt          DateTime  @default(now())
   updatedAt          DateTime  @updatedAt
 
-  doctor             User      @relation("DoctorSubscription", fields: [doctorId], references: [id])
+  doctor             User                  @relation("DoctorSubscription", fields: [doctorId], references: [id])
+  payments           SubscriptionPayment[] @relation("SubPayments")
+}
+
+model SubscriptionPayment {
+  id             String    @id @default(uuid())
+  doctorId       String
+  subscriptionId String
+  plan           String
+  billingCycle   String    @default("MONTHLY")
+  amount         Float
+  status         String    @default("PENDING")
+  mpPaymentId    String?   @unique
+  mpStatus       String?
+  paidAt         DateTime?
+  createdAt      DateTime  @default(now())
+
+  doctor         User                @relation("DoctorPayments", fields: [doctorId], references: [id])
+  subscription   DoctorSubscription  @relation("SubPayments", fields: [subscriptionId], references: [id])
+
+  @@index([doctorId])
+  @@index([mpPaymentId])
 }
 
 // ─── WhatsApp / Chatbot Module ────────────────────────────────────────────────

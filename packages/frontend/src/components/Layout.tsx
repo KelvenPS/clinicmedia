@@ -8,6 +8,7 @@ import SubscriptionGate from './SubscriptionGate'
 import PageTransition from './ui/PageTransition'
 import SettingsMobileNav from './SettingsMobileNav'
 import { useAuthStore } from '../store/authStore'
+import type { AuthUser } from '../types'
 
 const ROUTE_LABELS: Record<string, string> = {
   dashboard: 'Dashboard',
@@ -77,7 +78,7 @@ function Breadcrumbs() {
   )
 }
 
-function UserDropdown({ user, onLogout }: { user: { name: string; role: string } | null; onLogout: () => void }) {
+function UserDropdown({ user, onLogout }: { user: AuthUser | null; onLogout: () => void }) {
   const [open, setOpen] = useState(false)
   const ref = useRef<HTMLDivElement>(null)
   const navigate = useNavigate()
@@ -110,12 +111,18 @@ function UserDropdown({ user, onLogout }: { user: { name: string; role: string }
         aria-label="Menu do usuário"
       >
         <div className={`
-          w-7 h-7 bg-gradient-to-br from-cyan-500 to-blue-600 rounded-full
+          w-7 h-7 rounded-full overflow-hidden
           flex items-center justify-center shadow shadow-blue-600/25
           transition-transform duration-150 group-hover:scale-105
           ${open ? 'ring-2 ring-blue-400 ring-offset-1' : ''}
         `}>
-          <span className="text-white text-xs font-bold leading-none">{initials}</span>
+          {user?.avatarUrl ? (
+            <img src={user.avatarUrl} alt={user.name} className="w-full h-full object-cover" />
+          ) : (
+            <div className="w-full h-full bg-gradient-to-br from-cyan-500 to-blue-600 flex items-center justify-center">
+              <span className="text-white text-xs font-bold leading-none">{initials}</span>
+            </div>
+          )}
         </div>
         <span className="hidden md:block text-sm font-medium text-slate-700 max-w-[100px] truncate">
           {user?.name?.split(' ')[0]}

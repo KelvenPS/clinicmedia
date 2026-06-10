@@ -61,6 +61,7 @@ router.post('/login', async (req, res) => {
         certNumber: user.certNumber,
         crm: user.crm,
         phone: user.phone,
+        avatarUrl: user.avatarUrl,
       },
     })
   } catch (error) {
@@ -121,6 +122,7 @@ router.post('/register', async (req, res) => {
         certNumber: user.certNumber,
         crm: user.crm,
         phone: user.phone,
+        avatarUrl: user.avatarUrl,
       },
     })
   } catch (error) {
@@ -230,6 +232,7 @@ router.get('/me', authenticate, async (req: AuthRequest, res) => {
         certNumber: true,
         crm: true,
         phone: true,
+        avatarUrl: true,
         active: true,
         createdAt: true,
       },

@@ -2,7 +2,7 @@ import { Router } from 'express'
 import bcrypt from 'bcryptjs'
 import { z } from 'zod'
 import { prisma } from '../lib/prisma'
-import { authenticate, requireRole } from '../middleware/auth'
+import { authenticate, requireRole, AuthRequest } from '../middleware/auth'
 
 const router = Router()
 router.use(authenticate)
@@ -17,6 +17,7 @@ const createUserSchema = z.object({
   certNumber: z.string().optional(),
   crm: z.string().optional(),
   phone: z.string().optional(),
+  avatarUrl: z.string().optional(),
 })
 
 const updateUserSchema = createUserSchema.partial().omit({ password: true }).extend({
@@ -37,6 +38,7 @@ router.get('/', requireRole('ADMIN'), async (_req, res) => {
         certNumber: true,
         crm: true,
         phone: true,
+        avatarUrl: true,
         createdAt: true,
         _count: {
           select: { doctorAppointments: true },
@@ -79,6 +81,7 @@ router.post('/', requireRole('ADMIN'), async (req, res) => {
         certNumber: true,
         crm: true,
         phone: true,
+        avatarUrl: true,
         createdAt: true,
       },
     })
@@ -93,12 +96,24 @@ router.post('/', requireRole('ADMIN'), async (req, res) => {
   }
 })
 
-router.put('/:id', requireRole('ADMIN'), async (req, res) => {
+router.put('/:id', async (req: AuthRequest, res) => {
   try {
     const { id } = req.params
+
+    // Permitir se for ADMIN ou se o próprio usuário estiver editando seu perfil
+    if (req.user!.role !== 'ADMIN' && req.user!.userId !== id) {
+      res.status(403).json({ message: 'Acesso negado' })
+      return
+    }
+
     const data = updateUserSchema.parse(req.body)
 
     const updateData: Record<string, unknown> = { ...data }
+
+    // Proteger role para não-admins
+    if (req.user!.role !== 'ADMIN') {
+      delete updateData.role
+    }
 
     if (data.password) {
       updateData.password = await bcrypt.hash(data.password, 10)
@@ -120,6 +135,7 @@ router.put('/:id', requireRole('ADMIN'), async (req, res) => {
         certNumber: true,
         crm: true,
         phone: true,
+        avatarUrl: true,
       },
     })
 

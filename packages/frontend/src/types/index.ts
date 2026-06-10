@@ -17,6 +17,7 @@ export interface User {
   certNumber?: string | null
   crm?: string | null
   phone?: string | null
+  avatarUrl?: string | null
   bio?: string | null
   createdAt?: string
   _count?: { doctorAppointments: number }
@@ -32,6 +33,7 @@ export interface AuthUser {
   certNumber?: string | null
   crm?: string | null
   phone?: string | null
+  avatarUrl?: string | null
 }
 
 export interface HealthPlan {

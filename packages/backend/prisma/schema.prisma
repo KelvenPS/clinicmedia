@@ -76,6 +76,7 @@ model User {
   certNumber   String?
   crm          String?
   phone        String?
+  avatarUrl    String?
   bio               String?
   resetToken        String?
   resetTokenExpiry  DateTime?

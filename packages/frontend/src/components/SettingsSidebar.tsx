@@ -63,10 +63,14 @@ export default function SettingsSidebar() {
 
       <div className="border-t border-white/8 p-3 flex-shrink-0">
         <div className="flex items-center gap-3 px-2 py-2 rounded-xl hover:bg-white/5 transition-colors duration-150">
-          <div className="w-9 h-9 bg-gradient-to-br from-cyan-500 to-blue-600 rounded-full
-                          flex items-center justify-center flex-shrink-0
-                          shadow-md shadow-blue-700/30">
-            <span className="text-white text-sm font-bold leading-none">{initials}</span>
+          <div className="w-9 h-9 rounded-full overflow-hidden flex-shrink-0 shadow-md shadow-blue-700/30">
+            {user?.avatarUrl ? (
+              <img src={user.avatarUrl} alt={user.name} className="w-full h-full object-cover" />
+            ) : (
+              <div className="w-full h-full bg-gradient-to-br from-cyan-500 to-blue-600 flex items-center justify-center">
+                <span className="text-white text-sm font-bold leading-none">{initials}</span>
+              </div>
+            )}
           </div>
           <div className="min-w-0">
             <p className="text-white text-xs font-semibold truncate leading-snug">{user?.name}</p>

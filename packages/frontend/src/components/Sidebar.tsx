@@ -234,11 +234,16 @@ export default function Sidebar({ collapsed = false, onToggleCollapse }: Sidebar
       <div className="p-3 flex-shrink-0 border-t border-white/8">
         <div className={`flex items-center gap-3 ${collapsed ? 'justify-center' : 'mb-2.5'}`}>
           <div
-            className="w-8 h-8 bg-gradient-to-br from-cyan-500 to-blue-600 rounded-full
-                        flex items-center justify-center flex-shrink-0
+            className="w-8 h-8 rounded-full overflow-hidden flex-shrink-0
                         shadow-lg shadow-blue-700/30 ring-2 ring-blue-800"
           >
-            <span className="text-white text-xs font-bold">{initials}</span>
+            {user?.avatarUrl ? (
+              <img src={user.avatarUrl} alt={user.name} className="w-full h-full object-cover" />
+            ) : (
+              <div className="w-full h-full bg-gradient-to-br from-cyan-500 to-blue-600 flex items-center justify-center">
+                <span className="text-white text-xs font-bold">{initials}</span>
+              </div>
+            )}
           </div>
           <div
             className="flex-1 min-w-0 overflow-hidden transition-all duration-300"

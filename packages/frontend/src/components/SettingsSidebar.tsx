@@ -1,5 +1,5 @@
 import { NavLink, useNavigate } from 'react-router-dom'
-import { ArrowLeft, Settings, ChevronRight } from 'lucide-react'
+import { Home, Settings, ChevronRight } from 'lucide-react'
 import { useAuthStore } from '../store/authStore'
 import { getVisibleSettingsNav } from '../config/settingsNav'
 
@@ -18,22 +18,23 @@ export default function SettingsSidebar() {
   return (
     <aside className="w-64 bg-slate-900 flex flex-col h-screen flex-shrink-0 select-none">
       <div className="px-4 py-4 border-b border-white/8 flex-shrink-0">
-        <button
-          onClick={() => navigate('/dashboard')}
-          className="flex items-center gap-2 text-slate-400 hover:text-white
-                     transition-all duration-150 mb-4 group w-full"
-        >
-          <ArrowLeft className="w-4 h-4 transition-transform duration-150 group-hover:-translate-x-0.5" />
-          <span className="text-sm font-medium">Voltar ao sistema</span>
-        </button>
-        <div className="flex items-center gap-3">
-          <div className="w-9 h-9 bg-blue-600/20 rounded-xl flex items-center justify-center border border-blue-500/20">
-            <Settings className="w-4.5 h-4.5 text-blue-400" />
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <div className="w-9 h-9 bg-blue-600/20 rounded-xl flex items-center justify-center border border-blue-500/20">
+              <Settings className="w-4.5 h-4.5 text-blue-400" />
+            </div>
+            <div>
+              <h1 className="text-white font-bold text-sm leading-tight">Configurações</h1>
+              <p className="text-slate-500 text-xs mt-0.5">Preferências</p>
+            </div>
           </div>
-          <div>
-            <h1 className="text-white font-bold text-sm leading-tight">Configurações</h1>
-            <p className="text-slate-500 text-xs mt-0.5">Preferências do sistema</p>
-          </div>
+          <button
+            onClick={() => navigate('/dashboard')}
+            className="w-8 h-8 rounded-lg flex items-center justify-center text-slate-400 hover:text-white hover:bg-white/10 transition-all duration-150"
+            title="Voltar ao sistema"
+          >
+            <Home className="w-4 h-4" />
+          </button>
         </div>
       </div>
 

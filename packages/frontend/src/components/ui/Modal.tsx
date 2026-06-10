@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
+import { createPortal } from 'react-dom'
 import { X } from 'lucide-react'
 
 interface ModalProps {
@@ -63,9 +64,9 @@ export default function Modal({
 
   const visible = phase === 'visible'
 
-  return (
+  return createPortal(
     <div
-      className="fixed inset-0 z-50 flex items-end sm:items-center justify-center sm:p-4"
+      className="fixed inset-0 z-50 overflow-y-auto"
       style={{
         transition: 'opacity 0.24s ease',
         opacity: visible ? 1 : 0,
@@ -73,29 +74,32 @@ export default function Modal({
     >
       {/* Backdrop */}
       <div
-        className="absolute inset-0 bg-slate-900/60 backdrop-blur-sm"
+        className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm"
         onClick={closeOnBackdrop ? onClose : undefined}
       />
 
-      {/* Panel */}
-      <div
-        ref={panelRef}
-        className={`
-          relative w-full ${sizes[size]} bg-white
-          rounded-t-3xl sm:rounded-2xl
-          shadow-2xl shadow-slate-900/25
-          max-h-[95vh] sm:max-h-[90vh]
-          flex flex-col overflow-hidden
-        `}
-        style={{
-          transition: 'opacity 0.24s ease, transform 0.3s cubic-bezier(.22,1,.36,1)',
-          opacity: visible ? 1 : 0,
-          transform: visible
-            ? 'scale(1) translateY(0)'
-            : 'scale(0.96) translateY(12px)',
-        }}
-        onClick={e => e.stopPropagation()}
-      >
+      {/* Flex container to center the panel */}
+      <div className="flex min-h-full items-end sm:items-center justify-center p-4 text-center">
+        {/* Panel */}
+        <div
+          ref={panelRef}
+          className={`
+            relative w-full ${sizes[size]} bg-white
+            rounded-t-3xl sm:rounded-2xl
+            shadow-2xl shadow-slate-900/25
+            max-h-[95vh] sm:max-h-[90vh]
+            flex flex-col overflow-hidden
+            text-left
+          `}
+          style={{
+            transition: 'opacity 0.24s ease, transform 0.3s cubic-bezier(.22,1,.36,1)',
+            opacity: visible ? 1 : 0,
+            transform: visible
+              ? 'scale(1) translateY(0)'
+              : 'scale(0.96) translateY(12px)',
+          }}
+          onClick={e => e.stopPropagation()}
+        >
         {/* Pull indicator mobile */}
         <div className="sm:hidden flex justify-center pt-3 pb-1">
           <div className="w-10 h-1 bg-slate-200 rounded-full" />
@@ -131,5 +135,7 @@ export default function Modal({
         )}
       </div>
     </div>
-  )
+  </div>,
+  document.body
+)
 }

@@ -1,12 +1,15 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { X } from 'lucide-react'
 
 interface ModalProps {
   isOpen: boolean
   onClose: () => void
   title: string
+  subtitle?: string
   children: React.ReactNode
+  footer?: React.ReactNode
   size?: 'sm' | 'md' | 'lg' | 'xl'
+  closeOnBackdrop?: boolean
 }
 
 const sizes = {
@@ -16,26 +19,37 @@ const sizes = {
   xl: 'max-w-4xl',
 }
 
-export default function Modal({ isOpen, onClose, title, children, size = 'md' }: ModalProps) {
-  const [visible, setVisible] = useState(false)
-  const [animating, setAnimating] = useState(false)
+export default function Modal({
+  isOpen,
+  onClose,
+  title,
+  subtitle,
+  children,
+  footer,
+  size = 'md',
+  closeOnBackdrop = true,
+}: ModalProps) {
+  const [phase, setPhase] = useState<'hidden' | 'entering' | 'visible' | 'leaving'>('hidden')
+  const panelRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
     if (isOpen) {
-      setVisible(true)
-      requestAnimationFrame(() => setAnimating(true))
+      setPhase('entering')
+      const t = requestAnimationFrame(() => {
+        requestAnimationFrame(() => setPhase('visible'))
+      })
       document.body.style.overflow = 'hidden'
+      return () => cancelAnimationFrame(t)
     } else {
-      setAnimating(false)
+      setPhase('leaving')
       const t = setTimeout(() => {
-        setVisible(false)
+        setPhase('hidden')
         document.body.style.overflow = ''
-      }, 220)
+      }, 260)
       return () => clearTimeout(t)
     }
   }, [isOpen])
 
-  // Fechar com Escape
   useEffect(() => {
     if (!isOpen) return
     const handler = (e: KeyboardEvent) => {
@@ -45,48 +59,76 @@ export default function Modal({ isOpen, onClose, title, children, size = 'md' }:
     return () => window.removeEventListener('keydown', handler)
   }, [isOpen, onClose])
 
-  if (!visible) return null
+  if (phase === 'hidden') return null
+
+  const visible = phase === 'visible'
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center p-4"
+      className="fixed inset-0 z-50 flex items-end sm:items-center justify-center sm:p-4"
       style={{
-        transition: 'opacity 0.22s ease',
-        opacity: animating ? 1 : 0,
+        transition: 'opacity 0.24s ease',
+        opacity: visible ? 1 : 0,
       }}
     >
       {/* Backdrop */}
       <div
         className="absolute inset-0 bg-slate-900/60 backdrop-blur-sm"
-        onClick={onClose}
+        onClick={closeOnBackdrop ? onClose : undefined}
       />
 
       {/* Panel */}
       <div
-        className={`relative w-full ${sizes[size]} bg-white rounded-2xl shadow-2xl shadow-slate-900/20 max-h-[90vh] flex flex-col`}
+        ref={panelRef}
+        className={`
+          relative w-full ${sizes[size]} bg-white
+          rounded-t-3xl sm:rounded-2xl
+          shadow-2xl shadow-slate-900/25
+          max-h-[95vh] sm:max-h-[90vh]
+          flex flex-col overflow-hidden
+        `}
         style={{
-          transition: 'opacity 0.22s ease, transform 0.25s cubic-bezier(.22,1,.36,1)',
-          opacity: animating ? 1 : 0,
-          transform: animating ? 'scale(1) translateY(0)' : 'scale(0.94) translateY(8px)',
+          transition: 'opacity 0.24s ease, transform 0.3s cubic-bezier(.22,1,.36,1)',
+          opacity: visible ? 1 : 0,
+          transform: visible
+            ? 'scale(1) translateY(0)'
+            : 'scale(0.96) translateY(12px)',
         }}
+        onClick={e => e.stopPropagation()}
       >
+        {/* Pull indicator mobile */}
+        <div className="sm:hidden flex justify-center pt-3 pb-1">
+          <div className="w-10 h-1 bg-slate-200 rounded-full" />
+        </div>
+
         {/* Header */}
-        <div className="flex items-center justify-between px-6 py-4 border-b border-slate-100 flex-shrink-0">
-          <h2 className="text-base font-semibold text-slate-900">{title}</h2>
+        <div className="flex items-start justify-between px-6 py-4 border-b border-slate-100 flex-shrink-0">
+          <div className="min-w-0 pr-2">
+            <h2 className="text-base font-semibold text-slate-900 leading-snug">{title}</h2>
+            {subtitle && (
+              <p className="text-xs text-slate-400 mt-0.5 leading-snug">{subtitle}</p>
+            )}
+          </div>
           <button
             onClick={onClose}
-            className="w-8 h-8 flex items-center justify-center rounded-xl text-slate-400
-                       hover:text-slate-700 hover:bg-slate-100 active:scale-90
-                       transition-all duration-150"
+            className="btn-icon flex-shrink-0 -mt-0.5 -mr-1"
+            aria-label="Fechar"
           >
             <X className="w-4 h-4" />
           </button>
         </div>
 
         {/* Body */}
-        <div className="overflow-y-auto flex-1 px-6 py-5">
+        <div className="overflow-y-auto flex-1 px-6 py-5 scrollbar-none">
           {children}
         </div>
+
+        {/* Footer opcional */}
+        {footer && (
+          <div className="px-6 py-4 border-t border-slate-100 bg-slate-50/60 flex-shrink-0">
+            {footer}
+          </div>
+        )}
       </div>
     </div>
   )

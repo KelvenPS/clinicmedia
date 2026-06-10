@@ -274,22 +274,25 @@ export default function Agenda() {
   }
 
   return (
-    <div className="space-y-4 animate-page-enter">
+    <div className="space-y-4">
+      {/* ── Header ── */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 animate-stagger-1">
         <div>
           <h1 className="page-title">Agenda</h1>
           <p className="page-subtitle">Gerencie consultas e agendamentos</p>
         </div>
-        <div className="flex items-center gap-2 self-start sm:self-auto">
+        <div className="flex items-center gap-2 self-start sm:self-auto flex-wrap">
           {(user?.role === 'DOCTOR' || user?.role === 'ADMIN') && (
             <button
               onClick={() => setBlockModalOpen(true)}
-              className="flex items-center gap-2 px-4 py-2.5 bg-gradient-to-r from-amber-500 to-amber-600
+              className="inline-flex items-center gap-2 px-4 py-2.5
+                         bg-gradient-to-r from-amber-500 to-amber-600
                          hover:from-amber-600 hover:to-amber-700 active:scale-95
-                         text-white rounded-xl font-medium text-sm transition-all duration-150 shadow-sm"
+                         text-white rounded-xl font-medium text-sm transition-all duration-150
+                         shadow-sm shadow-amber-600/20"
             >
               <Lock className="w-4 h-4" />
-              Bloquear
+              <span className="hidden sm:inline">Bloquear</span>
             </button>
           )}
           <button
@@ -297,25 +300,29 @@ export default function Agenda() {
             className="btn-primary"
           >
             <Plus className="w-4 h-4" />
-            Novo Agendamento
+            <span className="hidden sm:inline">Novo Agendamento</span>
+            <span className="sm:hidden">Agendar</span>
           </button>
         </div>
       </div>
 
-      {/* Controls */}
-      <div className="card py-3.5 animate-stagger-2">
-        <div className="flex flex-wrap items-center gap-3">
+      {/* ── Controls bar ── */}
+      <div className="card py-3 animate-stagger-2">
+        <div className="flex flex-col sm:flex-row sm:items-center gap-3">
+          {/* Week navigation */}
           <div className="flex items-center gap-2">
             <button
               onClick={() => setCurrentWeek(subWeeks(currentWeek, 1))}
               className="w-8 h-8 rounded-xl border border-slate-200 flex items-center justify-center
                          hover:bg-slate-50 hover:border-slate-300 active:scale-90
                          transition-all duration-150"
+              aria-label="Semana anterior"
             >
               <ChevronLeft className="w-4 h-4 text-slate-500" />
             </button>
-            <p className="font-semibold text-slate-900 text-sm min-w-[200px] text-center">
-              {format(weekStart, "d 'de' MMM", { locale: ptBR })} –{' '}
+            <p className="font-semibold text-slate-900 text-sm min-w-[190px] text-center">
+              {format(weekStart, "d 'de' MMM", { locale: ptBR })}
+              {' '}–{' '}
               {format(addDays(weekStart, 6), "d 'de' MMM yyyy", { locale: ptBR })}
             </p>
             <button
@@ -323,27 +330,33 @@ export default function Agenda() {
               className="w-8 h-8 rounded-xl border border-slate-200 flex items-center justify-center
                          hover:bg-slate-50 hover:border-slate-300 active:scale-90
                          transition-all duration-150"
+              aria-label="Próxima semana"
             >
               <ChevronRight className="w-4 h-4 text-slate-500" />
             </button>
             <button
               onClick={() => setCurrentWeek(new Date())}
-              className="px-3 py-1.5 text-xs font-semibold text-blue-600 hover:bg-blue-50
-                         rounded-lg border border-blue-200 hover:border-blue-300
-                         transition-all duration-150 active:scale-95"
+              className="px-3 py-1.5 text-xs font-semibold text-blue-600
+                         hover:bg-blue-50 rounded-lg border border-blue-200
+                         hover:border-blue-300 transition-all duration-150 active:scale-95"
             >
               Hoje
             </button>
           </div>
 
           {(user?.role === 'ADMIN' || user?.role === 'SECRETARY') && (
-            <select value={filterDoctorId} onChange={e => setFilterDoctorId(e.target.value)} className="input-field py-2 max-w-[200px] text-sm">
+            <select
+              value={filterDoctorId}
+              onChange={e => setFilterDoctorId(e.target.value)}
+              className="input-field py-2 sm:max-w-[200px] text-sm"
+            >
               <option value="">Todos os profissionais</option>
               {doctors.map(d => <option key={d.id} value={d.id}>Dr(a). {d.name}</option>)}
             </select>
           )}
 
-          <div className="flex items-center gap-3 ml-auto flex-wrap">
+          {/* Legend */}
+          <div className="flex items-center gap-3 sm:ml-auto flex-wrap">
             {[
               { label: 'Agendado', color: 'bg-blue-500' },
               { label: 'Confirmado', color: 'bg-emerald-500' },
@@ -352,7 +365,7 @@ export default function Agenda() {
               { label: 'Bloqueado', color: 'bg-amber-500' },
             ].map(({ label, color }) => (
               <div key={label} className="flex items-center gap-1.5 text-xs text-slate-500">
-                <div className={`w-2.5 h-2.5 rounded-full ${color}`} />
+                <div className={`w-2 h-2 rounded-full ${color}`} />
                 {label}
               </div>
             ))}
@@ -513,40 +526,52 @@ export default function Agenda() {
         </div>
       </div>
 
-      {/* Mobile list */}
+      {/* ── Mobile list ── */}
       <div className="xl:hidden space-y-2 animate-stagger-3">
-        {appointments
-          .filter(a => !(user?.role === 'SECRETARY' && a.isBlocked))
-          .map((appt, idx) => (
-            <div
-              key={appt.id}
-              className="card-hover flex items-center gap-4 py-3"
-              style={{ animationDelay: `${idx * 0.04}s` }}
-              onClick={e => handleApptClick(e, appt)}
-            >
-              <div className="text-center min-w-[52px]">
-                <p className="text-xs font-medium text-slate-400">{format(parseISO(appt.date), 'EEE', { locale: ptBR })}</p>
-                <p className="text-xl font-bold text-slate-900">{format(parseISO(appt.date), 'd')}</p>
-                <p className="text-xs font-bold text-blue-600">{format(parseISO(appt.date), 'HH:mm')}</p>
-              </div>
-              <div className="w-px h-10 bg-slate-200 flex-shrink-0" />
-              <div className="flex-1 min-w-0">
-                <p className="font-semibold text-sm text-slate-900 truncate">{appt.patient.name}</p>
-                <p className="text-xs text-slate-400 flex items-center gap-1 mt-0.5">
-                  <Clock className="w-3 h-3" /> {appt.duration}min · {appt.doctor.name}
-                </p>
-              </div>
-              <StatusBadge status={appt.status} />
+        {appointments.length === 0 ? (
+          <div className="card text-center py-10">
+            <div className="w-14 h-14 bg-slate-100 rounded-2xl flex items-center justify-center mx-auto mb-3 animate-float">
+              <Calendar className="w-7 h-7 text-slate-300" />
             </div>
-          ))}
+            <p className="text-slate-500 font-semibold">Nenhuma consulta esta semana</p>
+            <p className="text-slate-400 text-sm mt-1">Clique em + para agendar</p>
+          </div>
+        ) : (
+          appointments
+            .filter(a => !(user?.role === 'SECRETARY' && a.isBlocked))
+            .map((appt, idx) => (
+              <div
+                key={appt.id}
+                className="card-hover flex items-center gap-4 py-3 px-4"
+                style={{ animationDelay: `${idx * 0.04}s` }}
+                onClick={e => handleApptClick(e, appt)}
+              >
+                <div className="text-center min-w-[52px]">
+                  <p className="text-xs font-semibold text-slate-400 uppercase">
+                    {format(parseISO(appt.date), 'EEE', { locale: ptBR })}
+                  </p>
+                  <p className="text-xl font-bold text-slate-900 tabular-nums leading-tight">
+                    {format(parseISO(appt.date), 'd')}
+                  </p>
+                  <p className="text-xs font-bold text-blue-600 tabular-nums">
+                    {format(parseISO(appt.date), 'HH:mm')}
+                  </p>
+                </div>
+                <div className="w-px h-10 bg-slate-200 flex-shrink-0" />
+                <div className="flex-1 min-w-0">
+                  <p className="font-semibold text-sm text-slate-900 truncate">{appt.patient.name}</p>
+                  <p className="text-xs text-slate-400 flex items-center gap-1 mt-0.5">
+                    <Clock className="w-3 h-3" />
+                    <span className="tabular-nums">{appt.duration}min</span>
+                    {' · '}
+                    <span className="truncate">{appt.doctor.name}</span>
+                  </p>
+                </div>
+                <StatusBadge status={appt.status} />
+              </div>
+            ))
+        )}
       </div>
-
-      {appointments.length === 0 && (
-        <div className="xl:hidden card text-center py-8">
-          <Calendar className="w-8 h-8 text-slate-300 mx-auto mb-2" />
-          <p className="text-slate-400">Nenhuma consulta esta semana</p>
-        </div>
-      )}
 
       <Modal
         isOpen={modalOpen}

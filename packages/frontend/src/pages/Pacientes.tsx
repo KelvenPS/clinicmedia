@@ -40,8 +40,8 @@ export default function Pacientes() {
   const handleNew = () => { setEditPatient(null); setModalOpen(true) }
 
   return (
-    <div className="space-y-6 animate-page-enter">
-      {/* Header */}
+    <div className="space-y-6">
+      {/* ── Header ── */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 animate-stagger-1">
         <div>
           <h1 className="page-title">Pacientes</h1>
@@ -53,7 +53,7 @@ export default function Pacientes() {
         </button>
       </div>
 
-      {/* Search + count */}
+      {/* ── Search + count ── */}
       <div className="card py-4 animate-stagger-2">
         <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3">
           <div className="relative flex-1">
@@ -63,11 +63,26 @@ export default function Pacientes() {
               onChange={e => setSearch(e.target.value)}
               placeholder="Buscar por nome, CPF ou telefone..."
               className="input-field pl-9"
+              autoComplete="off"
             />
+            {search && (
+              <button
+                onClick={() => setSearch('')}
+                className="absolute right-3 top-1/2 -translate-y-1/2 w-5 h-5 rounded-full
+                           bg-slate-200 hover:bg-slate-300 flex items-center justify-center
+                           transition-colors duration-150 text-slate-500"
+              >
+                <span className="text-xs leading-none">×</span>
+              </button>
+            )}
           </div>
-          <div className="flex items-center gap-2 text-sm text-slate-500 px-1">
+          <div className="flex items-center gap-2 text-sm text-slate-500 bg-slate-50
+                          px-3 py-2 rounded-xl border border-slate-200 flex-shrink-0">
             <Users className="w-4 h-4 text-slate-400" />
-            <span><strong className="text-slate-800 font-bold">{patients.length}</strong> pacientes</span>
+            <span>
+              <strong className="text-slate-800 font-bold tabular-nums">{patients.length}</strong>
+              {' '}paciente{patients.length !== 1 ? 's' : ''}
+            </span>
           </div>
         </div>
       </div>
@@ -77,14 +92,14 @@ export default function Pacientes() {
         <div className="overflow-x-auto">
           <table className="w-full">
             <thead>
-              <tr className="bg-slate-50 border-b border-slate-200">
+              <tr className="bg-slate-50/80 border-b border-slate-200">
                 <th className="table-head-cell">Paciente</th>
                 <th className="table-head-cell">Contato</th>
-                <th className="table-head-cell">CPF</th>
+                <th className="table-head-cell hidden lg:table-cell">CPF</th>
                 <th className="table-head-cell">Idade</th>
                 <th className="table-head-cell">Consultas</th>
-                <th className="table-head-cell">Cadastro</th>
-                <th className="px-4 py-3" />
+                <th className="table-head-cell hidden md:table-cell">Cadastro</th>
+                <th className="px-4 py-3 w-12" />
               </tr>
             </thead>
             <tbody>
@@ -121,16 +136,22 @@ export default function Pacientes() {
                   return (
                     <tr
                       key={p.id}
-                      className="table-row"
+                      className="table-row group cursor-pointer"
                       style={{ animationDelay: `${idx * 0.03}s` }}
+                      onClick={() => handleEdit(p)}
                     >
                       <td className="table-cell">
                         <div className="flex items-center gap-3">
-                          <div className="w-9 h-9 rounded-full bg-gradient-to-br from-blue-400 to-blue-600 flex items-center justify-center flex-shrink-0 shadow-sm shadow-blue-400/30">
+                          <div className="w-9 h-9 rounded-full bg-gradient-to-br from-blue-400 to-blue-600
+                                          flex items-center justify-center flex-shrink-0
+                                          shadow-sm shadow-blue-400/20
+                                          group-hover:shadow-blue-400/40 transition-shadow duration-200">
                             <span className="text-white text-xs font-bold">{initials}</span>
                           </div>
                           <div>
-                            <p className="font-semibold text-slate-900 text-sm">{p.name}</p>
+                            <p className="font-semibold text-slate-900 text-sm group-hover:text-blue-700 transition-colors duration-150">
+                              {p.name}
+                            </p>
                             {p.address && (
                               <p className="text-xs text-slate-400 truncate max-w-[160px]">{p.address}</p>
                             )}
@@ -151,28 +172,31 @@ export default function Pacientes() {
                           )}
                         </div>
                       </td>
-                      <td className="table-cell font-mono text-slate-500">{p.cpf || '–'}</td>
+                      <td className="table-cell font-mono text-slate-500 text-xs hidden lg:table-cell">
+                        {p.cpf || '–'}
+                      </td>
                       <td className="table-cell">
                         {age !== null ? (
-                          <span className="inline-flex items-center gap-1 bg-slate-100 text-slate-700 px-2 py-0.5 rounded-full text-xs font-medium">
+                          <span className="inline-flex items-center gap-1 bg-slate-100 text-slate-700 px-2.5 py-1 rounded-full text-xs font-semibold">
                             {age} anos
                           </span>
                         ) : '–'}
                       </td>
                       <td className="table-cell">
-                        <div className="flex items-center gap-1.5 text-sm">
+                        <div className="flex items-center gap-1.5">
                           <Calendar className="w-3.5 h-3.5 text-slate-300" />
-                          <span className="font-semibold text-slate-700">{p._count?.appointments ?? 0}</span>
+                          <span className="font-bold text-slate-700 tabular-nums">{p._count?.appointments ?? 0}</span>
                           <span className="text-slate-400 text-xs">consultas</span>
                         </div>
                       </td>
-                      <td className="table-cell text-slate-400 text-xs">
+                      <td className="table-cell text-slate-400 text-xs hidden md:table-cell tabular-nums">
                         {format(new Date(p.createdAt), 'dd/MM/yyyy', { locale: ptBR })}
                       </td>
-                      <td className="table-cell">
+                      <td className="table-cell" onClick={e => e.stopPropagation()}>
                         <button
                           onClick={() => handleEdit(p)}
-                          className="p-1.5 text-slate-300 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-all duration-150 active:scale-90"
+                          className="p-1.5 text-slate-300 hover:text-blue-600 hover:bg-blue-50
+                                     rounded-lg transition-all duration-150 active:scale-90"
                           title="Editar"
                         >
                           <Edit2 className="w-3.5 h-3.5" />

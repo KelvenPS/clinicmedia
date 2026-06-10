@@ -48,20 +48,26 @@ function RecordCard({ record, onDelete, canDelete }: { record: MedicalRecord; on
 
   return (
     <div
-      className={`border rounded-2xl overflow-hidden transition-all duration-200 ${
-        expanded ? 'border-slate-300 shadow-sm' : 'border-slate-200 hover:border-slate-300'
+      className={`border rounded-2xl overflow-hidden transition-all duration-250 ${
+        expanded
+          ? 'border-blue-200 shadow-md shadow-blue-50'
+          : 'border-slate-200 hover:border-slate-300 hover:shadow-sm'
       }`}
     >
       <button
-        className="w-full flex items-center gap-3 px-4 py-3.5 text-left hover:bg-slate-50/80 transition-colors"
+        className={`w-full flex items-center gap-3 px-4 py-3.5 text-left transition-colors duration-150 ${
+          expanded ? 'bg-blue-50/50' : 'hover:bg-slate-50/80'
+        }`}
         onClick={() => setExpanded(!expanded)}
       >
-        <span className={`text-lg w-8 h-8 rounded-xl flex items-center justify-center flex-shrink-0 ${tc.bg}`}>
+        <span className={`text-base w-8 h-8 rounded-xl flex items-center justify-center flex-shrink-0 ${tc.bg} transition-transform duration-200 ${expanded ? 'scale-110' : ''}`}>
           {tc.icon}
         </span>
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2 flex-wrap">
-            <p className="font-semibold text-slate-900 text-sm">{record.title}</p>
+            <p className={`font-semibold text-sm transition-colors duration-150 ${expanded ? 'text-blue-800' : 'text-slate-900'}`}>
+              {record.title}
+            </p>
             <span className={`text-xs px-2 py-0.5 rounded-full font-semibold ${tc.bg} ${tc.color}`}>
               {tc.label}
             </span>
@@ -70,22 +76,26 @@ function RecordCard({ record, onDelete, canDelete }: { record: MedicalRecord; on
             {format(new Date(record.date), "dd 'de' MMM 'de' yyyy", { locale: ptBR })}
           </p>
         </div>
-        <div className={`w-6 h-6 rounded-lg flex items-center justify-center flex-shrink-0 transition-all duration-200 ${
-          expanded ? 'bg-slate-200 rotate-180' : 'hover:bg-slate-100'
-        }`}>
-          <ChevronDown className="w-3.5 h-3.5 text-slate-500" />
+        <div
+          className={`w-6 h-6 rounded-lg flex items-center justify-center flex-shrink-0
+                      transition-all duration-250 ease-spring ${
+            expanded ? 'bg-blue-100 text-blue-600 rotate-180' : 'bg-slate-100 text-slate-400'
+          }`}
+        >
+          <ChevronDown className="w-3.5 h-3.5" />
         </div>
       </button>
 
       {expanded && (
-        <div className="px-4 pb-4 pt-3 border-t border-slate-100 bg-slate-50/60 animate-slide-in">
+        <div className="px-4 pb-4 pt-3 border-t border-blue-100/70 bg-blue-50/30 animate-slide-in">
           <p className="text-sm text-slate-700 whitespace-pre-wrap leading-relaxed">{record.content}</p>
           {canDelete && (
-            <div className="flex justify-end mt-3">
+            <div className="flex justify-end mt-4">
               <button
                 onClick={onDelete}
                 className="flex items-center gap-1.5 text-xs text-red-500 hover:text-red-700
-                           hover:bg-red-50 px-3 py-1.5 rounded-xl transition-all duration-150 active:scale-95"
+                           hover:bg-red-50 px-3 py-1.5 rounded-xl transition-all duration-150 active:scale-95
+                           border border-transparent hover:border-red-100"
               >
                 <Trash2 className="w-3.5 h-3.5" />
                 Excluir registro
@@ -234,14 +244,14 @@ export default function Prontuario() {
   const totalRecords = grouped.reduce((acc, g) => acc + g.records.length, 0)
 
   return (
-    <div className="space-y-4 animate-page-enter">
-      {/* Header */}
-      <div className="flex items-center justify-between animate-stagger-1">
+    <div className="space-y-4">
+      {/* ── Header ── */}
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 animate-stagger-1">
         <div>
           <h1 className="page-title">Prontuário Eletrônico</h1>
           <p className="page-subtitle">Registros médicos organizados por paciente</p>
         </div>
-        <button onClick={() => setModalOpen(true)} className="btn-primary">
+        <button onClick={() => setModalOpen(true)} className="btn-primary self-start">
           <Plus className="w-4 h-4" />
           Novo Registro
         </button>
@@ -276,26 +286,34 @@ export default function Prontuario() {
                     key={p.id}
                     onClick={() => setSelectedPatient(p)}
                     className={`w-full flex items-center gap-3 px-4 py-3 text-left border-b border-slate-100
-                      transition-all duration-150 ${
+                      transition-all duration-150 relative ${
                       isSelected
-                        ? 'bg-blue-50 border-l-2 border-l-blue-600'
-                        : 'hover:bg-slate-50 border-l-2 border-l-transparent'
+                        ? 'bg-blue-50'
+                        : 'hover:bg-slate-50/70'
                     }`}
                   >
-                    <div className={`w-9 h-9 rounded-full flex items-center justify-center flex-shrink-0 text-xs font-bold shadow-sm ${
+                    {/* Active indicator */}
+                    <div className={`absolute left-0 top-1/2 -translate-y-1/2 w-0.5 rounded-r-full
+                                    transition-all duration-200 ${
+                      isSelected ? 'h-8 bg-blue-600' : 'h-0 bg-transparent'
+                    }`} />
+                    <div className={`w-9 h-9 rounded-full flex items-center justify-center flex-shrink-0
+                                    text-xs font-bold transition-all duration-200 ${
                       isSelected
-                        ? 'bg-blue-600 text-white shadow-blue-600/30'
-                        : 'bg-slate-100 text-slate-600'
+                        ? 'bg-blue-600 text-white shadow-md shadow-blue-600/30 scale-105'
+                        : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
                     }`}>
                       {initials}
                     </div>
                     <div className="flex-1 min-w-0">
-                      <p className={`text-sm font-semibold truncate ${
+                      <p className={`text-sm font-semibold truncate transition-colors duration-150 ${
                         isSelected ? 'text-blue-700' : 'text-slate-900'
                       }`}>{p.name}</p>
                       <p className="text-xs text-slate-400 truncate">{p.phone}</p>
                     </div>
-                    {isSelected && <ChevronRight className="w-4 h-4 text-blue-500 flex-shrink-0" />}
+                    <ChevronRight className={`w-4 h-4 flex-shrink-0 transition-all duration-200 ${
+                      isSelected ? 'text-blue-500 translate-x-0 opacity-100' : 'text-slate-300 -translate-x-1 opacity-0 group-hover:opacity-50'
+                    }`} />
                   </button>
                 )
               })

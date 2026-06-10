@@ -141,44 +141,57 @@ export default function Login() {
 
   return (
     <div className="min-h-screen flex">
-      {/* Left panel */}
+      {/* ── Left panel ── */}
       <div className="hidden lg:flex lg:w-[45%] bg-gradient-to-br from-slate-950 via-slate-900 to-blue-950 flex-col justify-between p-12 relative overflow-hidden">
-        <div className="absolute inset-0 overflow-hidden">
-          <div className="absolute -top-32 -right-32 w-80 h-80 bg-cyan-500/8 rounded-full blur-3xl" />
+        <div className="absolute inset-0 overflow-hidden pointer-events-none">
+          <div className="absolute -top-32 -right-32 w-80 h-80 bg-cyan-500/8 rounded-full blur-3xl animate-float-slow" />
           <div className="absolute -bottom-32 -left-32 w-80 h-80 bg-blue-600/8 rounded-full blur-3xl" />
           <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-96 h-96 bg-indigo-600/5 rounded-full blur-3xl" />
+          {/* Decorative dots */}
+          <div className="absolute top-20 right-20 w-2 h-2 bg-cyan-400/30 rounded-full animate-pulse-soft" />
+          <div className="absolute bottom-32 left-1/3 w-1.5 h-1.5 bg-blue-400/30 rounded-full animate-float" />
+          <div className="absolute top-1/3 right-1/4 w-1 h-1 bg-white/20 rounded-full animate-pulse-soft" style={{ animationDelay: '1s' }} />
         </div>
 
-        <div className="relative z-10">
+        <div className="relative z-10 animate-stagger-1">
           <div className="flex items-center gap-3 mb-16">
-            <div className="w-12 h-12 bg-gradient-to-br from-cyan-500 to-blue-600 rounded-xl flex items-center justify-center shadow-lg shadow-cyan-600/30">
+            <div className="w-12 h-12 bg-gradient-to-br from-cyan-500 to-blue-600 rounded-xl
+                            flex items-center justify-center shadow-lg shadow-cyan-600/30
+                            hover:scale-105 transition-transform duration-200">
               <Zap className="w-7 h-7 text-white" fill="white" />
             </div>
             <div>
-              <h1 className="text-white font-bold text-2xl tracking-tight">ClinIQ <span className="text-cyan-400 font-light">Pro</span></h1>
+              <h1 className="text-white font-bold text-2xl tracking-tight">
+                ClinIQ <span className="text-cyan-400 font-light">Pro</span>
+              </h1>
               <p className="text-slate-400 text-xs">Gestão Clínica Inteligente</p>
             </div>
           </div>
 
-          <h2 className="text-white text-4xl font-bold leading-tight mb-5">
+          <h2 className="text-white text-4xl font-bold leading-tight mb-5 animate-stagger-2">
             Eleve o padrão
             <br />
-            <span className="bg-gradient-to-r from-cyan-400 to-blue-400 bg-clip-text text-transparent">da sua clínica</span>
+            <span className="bg-gradient-to-r from-cyan-400 to-blue-400 bg-clip-text text-transparent">
+              da sua clínica
+            </span>
           </h2>
-          <p className="text-slate-400 text-base leading-relaxed max-w-sm">
+          <p className="text-slate-400 text-base leading-relaxed max-w-sm animate-stagger-3">
             Plataforma completa para gestão de clínicas e consultórios. Agenda, prontuário eletrônico, laudos cognitivos e muito mais.
           </p>
         </div>
 
-        <div className="relative z-10 space-y-4">
+        <div className="relative z-10 space-y-3">
           {[
             { icon: '🗓️', text: 'Agenda inteligente com bloqueio de horários' },
             { icon: '🧠', text: 'Correção de laudos: WISC-IV, WASI, WAIS-III' },
             { icon: '📋', text: 'Prontuário eletrônico por profissional' },
             { icon: '💰', text: 'Controle financeiro e planos de saúde' },
-          ].map(({ icon, text }) => (
-            <div key={text} className="flex items-center gap-3">
-              <span className="text-xl">{icon}</span>
+          ].map(({ icon, text }, i) => (
+            <div
+              key={text}
+              className={`flex items-center gap-3 animate-stagger-${Math.min(i + 4, 8) as 4|5|6|7|8}`}
+            >
+              <span className="text-xl w-8 text-center">{icon}</span>
               <span className="text-slate-300 text-sm">{text}</span>
             </div>
           ))}
@@ -191,9 +204,9 @@ export default function Login() {
         </div>
       </div>
 
-      {/* Right panel */}
-      <div className="flex-1 flex items-center justify-center p-8 bg-white">
-        <div className="w-full max-w-md">
+      {/* ── Right panel ── */}
+      <div className="flex-1 flex items-center justify-center p-6 sm:p-8 bg-white">
+        <div className="w-full max-w-md animate-stagger-2">
           {/* Mobile logo */}
           <div className="flex items-center gap-3 mb-8 lg:hidden">
             <div className="w-10 h-10 bg-gradient-to-br from-cyan-500 to-blue-600 rounded-xl flex items-center justify-center">

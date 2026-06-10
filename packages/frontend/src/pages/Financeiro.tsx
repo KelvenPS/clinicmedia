@@ -147,8 +147,8 @@ export default function Financeiro() {
   const handleEdit = (tx: Transaction) => { setEditTx(tx); setModalOpen(true) }
 
   return (
-    <div className="space-y-6 animate-page-enter">
-      {/* Header */}
+    <div className="space-y-6">
+      {/* ── Header ── */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 animate-stagger-1">
         <div>
           <h1 className="page-title">Financeiro</h1>
@@ -160,11 +160,11 @@ export default function Financeiro() {
         </button>
       </div>
 
-      {/* Filters */}
+      {/* ── Filters ── */}
       <div className="card py-4 animate-stagger-2">
         <div className="flex flex-wrap items-center gap-3">
-          {/* Period */}
-          <div className="flex rounded-xl border border-slate-200 overflow-hidden">
+          {/* Period selector */}
+          <div className="seg-control">
             {[
               { key: 'current', label: 'Mês Atual' },
               { key: 'last', label: 'Mês Anterior' },
@@ -172,11 +172,7 @@ export default function Financeiro() {
               <button
                 key={key}
                 onClick={() => setPeriod(key as 'current' | 'last')}
-                className={`px-4 py-2 text-xs font-semibold transition-all duration-150 ${
-                  period === key
-                    ? 'bg-blue-600 text-white'
-                    : 'text-slate-500 hover:text-slate-700 hover:bg-slate-50'
-                }`}
+                className={`seg-btn px-4 ${period === key ? 'active' : ''}`}
               >
                 {label}
               </button>
@@ -187,7 +183,7 @@ export default function Financeiro() {
             <select
               value={filterDoctorId}
               onChange={e => setFilterDoctorId(e.target.value)}
-              className="input-field py-2 max-w-[200px] text-sm"
+              className="input-field py-2 sm:max-w-[200px] text-sm"
             >
               <option value="">Todos os médicos</option>
               {doctors.map(d => (
@@ -199,7 +195,7 @@ export default function Financeiro() {
           <select
             value={filterType}
             onChange={e => setFilterType(e.target.value)}
-            className="input-field py-2 max-w-[160px] text-sm"
+            className="input-field py-2 sm:max-w-[160px] text-sm"
           >
             <option value="">Tipo: Todos</option>
             <option value="INCOME">Receitas</option>
@@ -209,7 +205,7 @@ export default function Financeiro() {
           <select
             value={filterStatus}
             onChange={e => setFilterStatus(e.target.value)}
-            className="input-field py-2 max-w-[160px] text-sm"
+            className="input-field py-2 sm:max-w-[160px] text-sm"
           >
             <option value="">Status: Todos</option>
             <option value="PAID">Pago</option>
@@ -299,82 +295,105 @@ export default function Financeiro() {
         </ResponsiveContainer>
       </div>
 
-      {/* Transactions table */}
+      {/* ── Transactions table ── */}
       <div className="card p-0 overflow-hidden animate-stagger-5">
         <div className="px-6 py-4 border-b border-slate-100 flex items-center justify-between">
           <div>
             <h2 className="font-semibold text-slate-900">Transações</h2>
-            <p className="text-xs text-slate-400 mt-0.5">{transactions.length} registros encontrados</p>
+            <p className="text-xs text-slate-400 mt-0.5 tabular-nums">
+              {transactions.length} registro{transactions.length !== 1 ? 's' : ''} encontrado{transactions.length !== 1 ? 's' : ''}
+            </p>
           </div>
         </div>
         <div className="overflow-x-auto">
           <table className="w-full">
             <thead>
-              <tr className="bg-slate-50 border-b border-slate-200">
-                <th className="px-6 py-3 text-left text-xs font-semibold text-slate-500 uppercase tracking-wider">Descrição</th>
-                <th className="px-6 py-3 text-left text-xs font-semibold text-slate-500 uppercase tracking-wider">Médico</th>
-                <th className="px-6 py-3 text-left text-xs font-semibold text-slate-500 uppercase tracking-wider">Categoria</th>
-                <th className="px-6 py-3 text-left text-xs font-semibold text-slate-500 uppercase tracking-wider">Data</th>
-                <th className="px-6 py-3 text-right text-xs font-semibold text-slate-500 uppercase tracking-wider">Valor</th>
-                <th className="px-6 py-3 text-left text-xs font-semibold text-slate-500 uppercase tracking-wider">Status</th>
-                <th className="px-6 py-3" />
+              <tr className="bg-slate-50/80 border-b border-slate-200">
+                <th className="table-head-cell">Descrição</th>
+                <th className="table-head-cell hidden md:table-cell">Médico</th>
+                <th className="table-head-cell hidden lg:table-cell">Categoria</th>
+                <th className="table-head-cell">Data</th>
+                <th className="table-head-cell text-right">Valor</th>
+                <th className="table-head-cell">Status</th>
+                <th className="px-4 py-3 w-20" />
               </tr>
             </thead>
-            <tbody className="divide-y divide-slate-100">
+            <tbody>
               {transactions.length === 0 ? (
                 <tr>
-                  <td colSpan={7} className="px-6 py-12 text-center text-slate-400">
-                    Nenhuma transação encontrada no período
+                  <td colSpan={7}>
+                    <div className="empty-state py-12">
+                      <div className="w-14 h-14 bg-slate-100 rounded-2xl flex items-center justify-center mb-3 animate-float">
+                        <DollarSign className="w-7 h-7 text-slate-300" />
+                      </div>
+                      <p className="text-slate-500 font-semibold">Nenhuma transação no período</p>
+                      <p className="text-slate-400 text-sm mt-1">Adicione uma nova transação para começar</p>
+                      <button onClick={handleNew} className="mt-4 btn-primary text-xs">
+                        <Plus className="w-3.5 h-3.5" />
+                        Nova Transação
+                      </button>
+                    </div>
                   </td>
                 </tr>
               ) : (
-                transactions.map(tx => (
-                  <tr key={tx.id} className="table-row">
-                    <td className="px-6 py-4">
+                transactions.map((tx, idx) => (
+                  <tr
+                    key={tx.id}
+                    className="table-row group"
+                    style={{ animationDelay: `${idx * 0.025}s` }}
+                  >
+                    <td className="table-cell max-w-[200px]">
                       <div className="flex items-center gap-2">
                         <div className={`w-2 h-2 rounded-full flex-shrink-0 ${tx.type === 'INCOME' ? 'bg-emerald-500' : 'bg-red-500'}`} />
-                        <p className="text-sm font-medium text-slate-900">{tx.description}</p>
+                        <p className="text-sm font-medium text-slate-900 truncate">{tx.description}</p>
                       </div>
                       {tx.appointment?.patient && (
-                        <p className="text-xs text-slate-400 ml-4 mt-0.5">{tx.appointment.patient.name}</p>
+                        <p className="text-xs text-slate-400 ml-4 mt-0.5 truncate">{tx.appointment.patient.name}</p>
                       )}
                     </td>
-                    <td className="px-6 py-4 text-sm text-slate-600">{tx.doctor.name}</td>
-                    <td className="px-6 py-4">
+                    <td className="table-cell text-slate-600 hidden md:table-cell">
+                      <span className="truncate max-w-[120px] block">{tx.doctor.name}</span>
+                    </td>
+                    <td className="table-cell hidden lg:table-cell">
                       {tx.category && (
-                        <span className="text-xs bg-slate-100 text-slate-600 px-2 py-0.5 rounded-full">
+                        <span className="text-xs bg-slate-100 text-slate-600 px-2.5 py-1 rounded-full font-medium">
                           {tx.category}
                         </span>
                       )}
                     </td>
-                    <td className="px-6 py-4 text-sm text-slate-600">
+                    <td className="table-cell text-slate-600 tabular-nums whitespace-nowrap">
                       {format(new Date(tx.date), 'dd/MM/yyyy', { locale: ptBR })}
                     </td>
-                    <td className={`px-6 py-4 text-sm font-semibold text-right ${tx.type === 'INCOME' ? 'text-emerald-600' : 'text-red-600'}`}>
-                      {tx.type === 'INCOME' ? '+' : '-'}{currency(tx.amount)}
+                    <td className={`table-cell font-bold text-right tabular-nums whitespace-nowrap ${
+                      tx.type === 'INCOME' ? 'text-emerald-600' : 'text-red-600'
+                    }`}>
+                      {tx.type === 'INCOME' ? '+' : '−'}{currency(tx.amount)}
                     </td>
-                    <td className="px-6 py-4">
-                      <span className={`status-badge ${
+                    <td className="table-cell">
+                      <span className={`status-badge gap-1.5 ${
                         tx.status === 'PAID'
                           ? 'bg-emerald-50 text-emerald-700 ring-1 ring-emerald-200'
                           : tx.status === 'PENDING'
                           ? 'bg-amber-50 text-amber-700 ring-1 ring-amber-200'
-                          : 'bg-slate-100 text-slate-500'
+                          : 'bg-slate-100 text-slate-500 ring-1 ring-slate-200'
                       }`}>
-                        {tx.status === 'PAID' ? '✓ Pago' : tx.status === 'PENDING' ? '● Pendente' : '✕ Cancelado'}
+                        <span className={`w-1.5 h-1.5 rounded-full ${
+                          tx.status === 'PAID' ? 'bg-emerald-500' : tx.status === 'PENDING' ? 'bg-amber-400' : 'bg-slate-400'
+                        }`} />
+                        {tx.status === 'PAID' ? 'Pago' : tx.status === 'PENDING' ? 'Pendente' : 'Cancelado'}
                       </span>
                     </td>
-                    <td className="px-6 py-4">
-                      <div className="flex items-center gap-1 justify-end">
+                    <td className="table-cell">
+                      <div className="flex items-center gap-1 justify-end opacity-0 group-hover:opacity-100 transition-opacity duration-150">
                         <button
                           onClick={() => handleEdit(tx)}
-                          className="p-1.5 text-slate-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-colors text-xs font-medium"
+                          className="btn-ghost py-1 px-2 text-xs"
                         >
                           Editar
                         </button>
                         <button
                           onClick={() => deleteMutation.mutate(tx.id)}
-                          className="p-1.5 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors"
+                          className="btn-icon w-7 h-7 hover:text-red-600 hover:bg-red-50"
                         >
                           <Trash2 className="w-3.5 h-3.5" />
                         </button>

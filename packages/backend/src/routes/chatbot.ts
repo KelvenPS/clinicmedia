@@ -14,23 +14,23 @@ const DEFAULT_TEMPLATES = [
     category: 'APPOINTMENT',
     icon: 'calendar',
     nodes: [
-      { id: 'start', type: 'start', position: { x: 250, y: 50 }, data: { label: 'Início' } },
-      { id: 'greet', type: 'message', position: { x: 250, y: 150 }, data: { label: 'Boas-vindas', text: 'Olá! Bem-vindo ao agendamento automático. Como posso ajudar?\n1 - Agendar consulta\n2 - Cancelar consulta\n3 - Remarcar consulta' } },
-      { id: 'menu', type: 'condition', position: { x: 250, y: 300 }, data: { label: 'Menu principal' } },
-      { id: 'schedule', type: 'message', position: { x: 50, y: 450 }, data: { label: 'Agendar', text: 'Por favor, informe a data desejada (DD/MM/AAAA):' } },
-      { id: 'cancel', type: 'message', position: { x: 250, y: 450 }, data: { label: 'Cancelar', text: 'Informe o número da sua consulta para cancelamento:' } },
-      { id: 'reschedule', type: 'message', position: { x: 450, y: 450 }, data: { label: 'Remarcar', text: 'Informe o número da sua consulta e a nova data desejada:' } },
-      { id: 'end', type: 'end', position: { x: 250, y: 600 }, data: { label: 'Fim' } },
+      { id: 'start', type: 'start', x: 270, y: 40, data: { label: 'Início' } },
+      { id: 'greet', type: 'message', x: 170, y: 150, data: { label: 'Boas-vindas', text: 'Olá! Bem-vindo ao agendamento automático. Como posso ajudar?' } },
+      { id: 'menu', type: 'menu', x: 160, y: 290, data: { label: 'Menu principal', text: 'Escolha uma opção:', options: ['Agendar consulta', 'Cancelar consulta', 'Remarcar consulta'] } },
+      { id: 'schedule', type: 'message', x: 20, y: 470, data: { label: 'Agendar', text: 'Por favor, informe a data desejada (DD/MM/AAAA):' } },
+      { id: 'cancel', type: 'message', x: 230, y: 470, data: { label: 'Cancelar', text: 'Informe o número da sua consulta para cancelamento:' } },
+      { id: 'reschedule', type: 'message', x: 440, y: 470, data: { label: 'Remarcar', text: 'Informe o número da consulta e a nova data desejada:' } },
+      { id: 'end', type: 'end', x: 270, y: 620, data: { label: 'Fim' } },
     ],
     edges: [
-      { id: 'e1', source: 'start', target: 'greet' },
-      { id: 'e2', source: 'greet', target: 'menu' },
-      { id: 'e3', source: 'menu', target: 'schedule', label: '1' },
-      { id: 'e4', source: 'menu', target: 'cancel', label: '2' },
-      { id: 'e5', source: 'menu', target: 'reschedule', label: '3' },
-      { id: 'e6', source: 'schedule', target: 'end' },
-      { id: 'e7', source: 'cancel', target: 'end' },
-      { id: 'e8', source: 'reschedule', target: 'end' },
+      { id: 'e1', source: 'start', sourcePort: 0, target: 'greet' },
+      { id: 'e2', source: 'greet', sourcePort: 0, target: 'menu' },
+      { id: 'e3', source: 'menu', sourcePort: 0, target: 'schedule' },
+      { id: 'e4', source: 'menu', sourcePort: 1, target: 'cancel' },
+      { id: 'e5', source: 'menu', sourcePort: 2, target: 'reschedule' },
+      { id: 'e6', source: 'schedule', sourcePort: 0, target: 'end' },
+      { id: 'e7', source: 'cancel', sourcePort: 0, target: 'end' },
+      { id: 'e8', source: 'reschedule', sourcePort: 0, target: 'end' },
     ],
   },
   {
@@ -39,19 +39,19 @@ const DEFAULT_TEMPLATES = [
     category: 'LEAD',
     icon: 'user-plus',
     nodes: [
-      { id: 'start', type: 'start', position: { x: 250, y: 50 }, data: { label: 'Início' } },
-      { id: 'greet', type: 'message', position: { x: 250, y: 150 }, data: { label: 'Boas-vindas', text: 'Olá! Ficamos felizes com seu interesse. Vamos coletar alguns dados para entrarmos em contato. Qual é o seu nome completo?' } },
-      { id: 'ask_phone', type: 'input', position: { x: 250, y: 280 }, data: { label: 'Solicitar telefone', text: 'Qual é o melhor telefone para contato?' } },
-      { id: 'ask_reason', type: 'input', position: { x: 250, y: 410 }, data: { label: 'Motivo da consulta', text: 'Qual é o motivo da consulta ou qual especialidade você busca?' } },
-      { id: 'confirm', type: 'message', position: { x: 250, y: 540 }, data: { label: 'Confirmação', text: 'Obrigado! Seus dados foram registrados. Nossa equipe entrará em contato em breve para agendar sua consulta.' } },
-      { id: 'end', type: 'end', position: { x: 250, y: 650 }, data: { label: 'Fim' } },
+      { id: 'start', type: 'start', x: 270, y: 40, data: { label: 'Início' } },
+      { id: 'greet', type: 'message', x: 170, y: 150, data: { label: 'Boas-vindas', text: 'Olá! Ficamos felizes com seu interesse. Qual é o seu nome completo?' } },
+      { id: 'ask_phone', type: 'message', x: 170, y: 290, data: { label: 'Solicitar telefone', text: 'Qual é o melhor telefone para contato?' } },
+      { id: 'ask_reason', type: 'message', x: 170, y: 430, data: { label: 'Motivo da consulta', text: 'Qual é o motivo da consulta ou qual especialidade você busca?' } },
+      { id: 'confirm', type: 'message', x: 170, y: 570, data: { label: 'Confirmação', text: 'Obrigado! Seus dados foram registrados. Nossa equipe entrará em contato em breve.' } },
+      { id: 'end', type: 'end', x: 270, y: 710, data: { label: 'Fim' } },
     ],
     edges: [
-      { id: 'e1', source: 'start', target: 'greet' },
-      { id: 'e2', source: 'greet', target: 'ask_phone' },
-      { id: 'e3', source: 'ask_phone', target: 'ask_reason' },
-      { id: 'e4', source: 'ask_reason', target: 'confirm' },
-      { id: 'e5', source: 'confirm', target: 'end' },
+      { id: 'e1', source: 'start', sourcePort: 0, target: 'greet' },
+      { id: 'e2', source: 'greet', sourcePort: 0, target: 'ask_phone' },
+      { id: 'e3', source: 'ask_phone', sourcePort: 0, target: 'ask_reason' },
+      { id: 'e4', source: 'ask_reason', sourcePort: 0, target: 'confirm' },
+      { id: 'e5', source: 'confirm', sourcePort: 0, target: 'end' },
     ],
   },
   {
@@ -60,22 +60,22 @@ const DEFAULT_TEMPLATES = [
     category: 'REMINDER',
     icon: 'bell',
     nodes: [
-      { id: 'start', type: 'start', position: { x: 250, y: 50 }, data: { label: 'Início' } },
-      { id: 'reminder_24h', type: 'message', position: { x: 250, y: 150 }, data: { label: 'Lembrete 24h', text: 'Olá, {{nome}}! Lembramos que você tem uma consulta amanhã, {{data}} às {{hora}}. Responda 1 para confirmar ou 2 para cancelar.' } },
-      { id: 'check_response', type: 'condition', position: { x: 250, y: 300 }, data: { label: 'Verificar resposta' } },
-      { id: 'confirmed', type: 'message', position: { x: 100, y: 450 }, data: { label: 'Consulta confirmada', text: 'Consulta confirmada! Te esperamos amanhã. Em caso de dúvidas, entre em contato conosco.' } },
-      { id: 'cancelled', type: 'message', position: { x: 400, y: 450 }, data: { label: 'Consulta cancelada', text: 'Consulta cancelada. Se precisar reagendar, entre em contato conosco.' } },
-      { id: 'reminder_2h', type: 'message', position: { x: 100, y: 580 }, data: { label: 'Lembrete 2h', text: 'Olá, {{nome}}! Sua consulta é hoje às {{hora}}. Aguardamos você!' } },
-      { id: 'end', type: 'end', position: { x: 250, y: 700 }, data: { label: 'Fim' } },
+      { id: 'start', type: 'start', x: 270, y: 40, data: { label: 'Início' } },
+      { id: 'reminder_24h', type: 'message', x: 170, y: 150, data: { label: 'Lembrete 24h', text: 'Olá, {{nome}}! Lembramos que você tem uma consulta amanhã, {{data}} às {{hora}}. Responda SIM para confirmar ou NÃO para cancelar.' } },
+      { id: 'menu', type: 'menu', x: 160, y: 290, data: { label: 'Verificar resposta', text: 'O paciente respondeu:', options: ['Confirmar consulta', 'Cancelar consulta'] } },
+      { id: 'confirmed', type: 'message', x: 60, y: 470, data: { label: 'Confirmada', text: 'Consulta confirmada! Te esperamos amanhã. Em caso de dúvidas, entre em contato.' } },
+      { id: 'cancelled', type: 'message', x: 290, y: 470, data: { label: 'Cancelada', text: 'Consulta cancelada. Se precisar reagendar, entre em contato conosco.' } },
+      { id: 'reminder_2h', type: 'message', x: 60, y: 610, data: { label: 'Lembrete 2h', text: 'Olá, {{nome}}! Sua consulta é hoje às {{hora}}. Aguardamos você!' } },
+      { id: 'end', type: 'end', x: 270, y: 760, data: { label: 'Fim' } },
     ],
     edges: [
-      { id: 'e1', source: 'start', target: 'reminder_24h' },
-      { id: 'e2', source: 'reminder_24h', target: 'check_response' },
-      { id: 'e3', source: 'check_response', target: 'confirmed', label: '1' },
-      { id: 'e4', source: 'check_response', target: 'cancelled', label: '2' },
-      { id: 'e5', source: 'confirmed', target: 'reminder_2h' },
-      { id: 'e6', source: 'reminder_2h', target: 'end' },
-      { id: 'e7', source: 'cancelled', target: 'end' },
+      { id: 'e1', source: 'start', sourcePort: 0, target: 'reminder_24h' },
+      { id: 'e2', source: 'reminder_24h', sourcePort: 0, target: 'menu' },
+      { id: 'e3', source: 'menu', sourcePort: 0, target: 'confirmed' },
+      { id: 'e4', source: 'menu', sourcePort: 1, target: 'cancelled' },
+      { id: 'e5', source: 'confirmed', sourcePort: 0, target: 'reminder_2h' },
+      { id: 'e6', source: 'reminder_2h', sourcePort: 0, target: 'end' },
+      { id: 'e7', source: 'cancelled', sourcePort: 0, target: 'end' },
     ],
   },
   {
@@ -84,26 +84,25 @@ const DEFAULT_TEMPLATES = [
     category: 'WELCOME',
     icon: 'message-circle',
     nodes: [
-      { id: 'start', type: 'start', position: { x: 250, y: 50 }, data: { label: 'Início' } },
-      { id: 'greet', type: 'message', position: { x: 250, y: 150 }, data: { label: 'Boas-vindas', text: 'Olá! Bem-vindo à nossa clínica. Como posso direcionar seu atendimento?\n1 - Agendar consulta\n2 - Informações sobre planos\n3 - Resultados de exames\n4 - Falar com atendente' } },
-      { id: 'router', type: 'condition', position: { x: 250, y: 300 }, data: { label: 'Direcionar' } },
-      { id: 'schedule', type: 'message', position: { x: 0, y: 450 }, data: { label: 'Agendamento', text: 'Vou te direcionar para o agendamento. Um momento...' } },
-      { id: 'plans', type: 'message', position: { x: 170, y: 450 }, data: { label: 'Planos', text: 'Trabalhamos com os principais planos de saúde. Qual plano você possui?' } },
-      { id: 'exams', type: 'message', position: { x: 330, y: 450 }, data: { label: 'Exames', text: 'Para acessar resultados de exames, acesse nosso portal: portal.clinica.com.br' } },
-      { id: 'human', type: 'transfer', position: { x: 500, y: 450 }, data: { label: 'Atendente', text: 'Transferindo para um atendente. Aguarde um momento...' } },
-      { id: 'end', type: 'end', position: { x: 250, y: 600 }, data: { label: 'Fim' } },
+      { id: 'start', type: 'start', x: 270, y: 40, data: { label: 'Início' } },
+      { id: 'greet', type: 'message', x: 170, y: 150, data: { label: 'Boas-vindas', text: 'Olá! Bem-vindo à nossa clínica. Como posso ajudar?' } },
+      { id: 'router', type: 'menu', x: 150, y: 290, data: { label: 'Direcionar', text: 'Selecione uma opção:', options: ['Agendar consulta', 'Informações sobre planos', 'Resultados de exames', 'Falar com atendente'] } },
+      { id: 'schedule', type: 'message', x: 0, y: 500, data: { label: 'Agendamento', text: 'Vou te direcionar para o agendamento. Um momento...' } },
+      { id: 'plans', type: 'message', x: 170, y: 500, data: { label: 'Planos', text: 'Trabalhamos com os principais planos de saúde. Qual plano você possui?' } },
+      { id: 'exams', type: 'message', x: 340, y: 500, data: { label: 'Exames', text: 'Para acessar resultados de exames, acesse nosso portal ou fale com a recepção.' } },
+      { id: 'human', type: 'queue', x: 510, y: 500, data: { label: 'Atendente', text: 'Transferindo para um atendente. Aguarde um momento...' } },
+      { id: 'end', type: 'end', x: 270, y: 660, data: { label: 'Fim' } },
     ],
     edges: [
-      { id: 'e1', source: 'start', target: 'greet' },
-      { id: 'e2', source: 'greet', target: 'router' },
-      { id: 'e3', source: 'router', target: 'schedule', label: '1' },
-      { id: 'e4', source: 'router', target: 'plans', label: '2' },
-      { id: 'e5', source: 'router', target: 'exams', label: '3' },
-      { id: 'e6', source: 'router', target: 'human', label: '4' },
-      { id: 'e7', source: 'schedule', target: 'end' },
-      { id: 'e8', source: 'plans', target: 'end' },
-      { id: 'e9', source: 'exams', target: 'end' },
-      { id: 'e10', source: 'human', target: 'end' },
+      { id: 'e1', source: 'start', sourcePort: 0, target: 'greet' },
+      { id: 'e2', source: 'greet', sourcePort: 0, target: 'router' },
+      { id: 'e3', source: 'router', sourcePort: 0, target: 'schedule' },
+      { id: 'e4', source: 'router', sourcePort: 1, target: 'plans' },
+      { id: 'e5', source: 'router', sourcePort: 2, target: 'exams' },
+      { id: 'e6', source: 'router', sourcePort: 3, target: 'human' },
+      { id: 'e7', source: 'schedule', sourcePort: 0, target: 'end' },
+      { id: 'e8', source: 'plans', sourcePort: 0, target: 'end' },
+      { id: 'e9', source: 'exams', sourcePort: 0, target: 'end' },
     ],
   },
 ]
@@ -122,11 +121,10 @@ async function seedTemplates() {
       console.log('  ✅  Chatbot templates seeded')
     }
   } catch {
-    // Non-fatal — templates may already exist or table may not yet exist
+    // Non-fatal
   }
 }
 
-// Run seed at startup (non-blocking)
 seedTemplates().catch(() => {})
 
 // ─── Zod Schemas ─────────────────────────────────────────────────────────────
@@ -155,20 +153,39 @@ const createFlowSchema = z.object({
   active: z.boolean().optional().default(false),
   trigger: z.enum(['KEYWORD', 'ALL_MESSAGES', 'FIRST_MESSAGE', 'AFTER_HOURS']).default('KEYWORD'),
   triggerValue: z.string().optional(),
+  botType: z.enum(['LIGHT', 'AI_AGENT']).optional().default('LIGHT'),
   nodes: z.array(z.unknown()).optional().default([]),
   edges: z.array(z.unknown()).optional().default([]),
 })
 
 const updateFlowSchema = createFlowSchema.partial()
 
-// ─── Helper: resolve instance for authenticated user ─────────────────────────
+const upsertSettingsSchema = z.object({
+  welcomeMessage: z.string().optional().nullable(),
+  offHoursMessage: z.string().optional().nullable(),
+  businessHoursStart: z.string().regex(/^\d{2}:\d{2}$/).optional(),
+  businessHoursEnd: z.string().regex(/^\d{2}:\d{2}$/).optional(),
+  businessDays: z.array(z.enum(['MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT', 'SUN'])).optional(),
+  autoReply: z.boolean().optional(),
+  queueEnabled: z.boolean().optional(),
+  maxQueueSize: z.number().int().min(1).max(100).optional(),
+  notificationsEnabled: z.boolean().optional(),
+  botType: z.enum(['LIGHT', 'AI_AGENT']).optional(),
+  aiSystemPrompt: z.string().optional().nullable(),
+})
 
-async function resolveInstance(userId: string, role: string) {
-  if (role === 'ADMIN') {
-    // ADMINs use their own instance (same as DOCTOR)
-    return prisma.whatsAppInstance.findUnique({ where: { doctorId: userId } })
-  }
+// ─── Helper: resolve or create instance ──────────────────────────────────────
+
+async function resolveInstance(userId: string) {
   return prisma.whatsAppInstance.findUnique({ where: { doctorId: userId } })
+}
+
+async function resolveOrCreateInstance(userId: string) {
+  const existing = await prisma.whatsAppInstance.findUnique({ where: { doctorId: userId } })
+  if (existing) return existing
+  return prisma.whatsAppInstance.create({
+    data: { doctorId: userId, status: 'DISCONNECTED' },
+  })
 }
 
 // ─── PUBLIC: Webhook (Evolution API format) ──────────────────────────────────
@@ -184,7 +201,6 @@ router.post('/webhook/:instanceKey', async (req: Request, res: Response) => {
       return
     }
 
-    // Evolution API payload: body.data.key, body.data.message, body.data.pushName, etc.
     const data = body?.data ?? body
     const key = data?.key ?? {}
     const remoteJid: string = key?.remoteJid ?? data?.remoteJid ?? ''
@@ -192,17 +208,14 @@ router.post('/webhook/:instanceKey', async (req: Request, res: Response) => {
     const pushName: string = data?.pushName ?? data?.notifyName ?? ''
     const messageContent = data?.message ?? {}
 
-    // Resolve message content and type
     let content = ''
     let messageType: 'TEXT' | 'IMAGE' | 'AUDIO' | 'VIDEO' | 'DOCUMENT' | 'STICKER' | 'LOCATION' = 'TEXT'
     let mediaUrl: string | undefined
 
     if (messageContent.conversation) {
       content = messageContent.conversation
-      messageType = 'TEXT'
     } else if (messageContent.extendedTextMessage?.text) {
       content = messageContent.extendedTextMessage.text
-      messageType = 'TEXT'
     } else if (messageContent.imageMessage) {
       content = messageContent.imageMessage.caption ?? ''
       messageType = 'IMAGE'
@@ -227,14 +240,12 @@ router.post('/webhook/:instanceKey', async (req: Request, res: Response) => {
       content = `[Localização] Lat: ${loc.degreesLatitude}, Lng: ${loc.degreesLongitude}`
       messageType = 'LOCATION'
     } else {
-      // Fallback: stringify what we got
       content = typeof body === 'string' ? body : JSON.stringify(data)
     }
 
     const contactPhone = remoteJid.replace('@s.whatsapp.net', '').replace('@g.us', '')
     const isGroup = remoteJid.endsWith('@g.us')
 
-    // Upsert conversation (find by instanceId + contactPhone)
     let conversation = await prisma.conversation.findFirst({
       where: { instanceId: instance.id, contactPhone },
     })
@@ -263,7 +274,6 @@ router.post('/webhook/:instanceKey', async (req: Request, res: Response) => {
       })
     }
 
-    // Store the message
     await prisma.message.create({
       data: {
         conversationId: conversation.id,
@@ -290,17 +300,15 @@ router.use(authenticate)
 
 // ─── Instance Management ─────────────────────────────────────────────────────
 
-// GET /api/chatbot/instance
 router.get('/instance', async (req: AuthRequest, res: Response) => {
   try {
-    const instance = await resolveInstance(req.user!.userId, req.user!.role)
+    const instance = await resolveInstance(req.user!.userId)
     res.json(instance ?? null)
   } catch {
     res.status(500).json({ message: 'Erro interno do servidor' })
   }
 })
 
-// POST /api/chatbot/instance
 router.post('/instance', async (req: AuthRequest, res: Response) => {
   try {
     const userId = req.user!.userId
@@ -331,16 +339,13 @@ router.post('/instance', async (req: AuthRequest, res: Response) => {
   }
 })
 
-// DELETE /api/chatbot/instance
 router.delete('/instance', async (req: AuthRequest, res: Response) => {
   try {
-    const userId = req.user!.userId
-    const instance = await resolveInstance(userId, req.user!.role)
+    const instance = await resolveInstance(req.user!.userId)
     if (!instance) {
       res.status(404).json({ message: 'Instância não encontrada' })
       return
     }
-
     await prisma.whatsAppInstance.delete({ where: { id: instance.id } })
     res.json({ message: 'Instância e todos os dados associados foram removidos' })
   } catch {
@@ -348,15 +353,13 @@ router.delete('/instance', async (req: AuthRequest, res: Response) => {
   }
 })
 
-// GET /api/chatbot/instance/qr
 router.get('/instance/qr', async (req: AuthRequest, res: Response) => {
   try {
-    const instance = await resolveInstance(req.user!.userId, req.user!.role)
+    const instance = await resolveInstance(req.user!.userId)
     if (!instance) {
       res.status(404).json({ message: 'Instância não encontrada. Crie uma instância primeiro.' })
       return
     }
-
     res.json({
       status: 'SIMULATED',
       message: 'Integração com Evolution API em desenvolvimento. Configure seu webhook URL nas configurações.',
@@ -368,39 +371,76 @@ router.get('/instance/qr', async (req: AuthRequest, res: Response) => {
   }
 })
 
-// POST /api/chatbot/instance/disconnect
 router.post('/instance/disconnect', async (req: AuthRequest, res: Response) => {
   try {
-    const instance = await resolveInstance(req.user!.userId, req.user!.role)
+    const instance = await resolveInstance(req.user!.userId)
     if (!instance) {
       res.status(404).json({ message: 'Instância não encontrada' })
       return
     }
-
     const updated = await prisma.whatsAppInstance.update({
       where: { id: instance.id },
       data: { status: 'DISCONNECTED', qrCode: null, phoneNumber: null },
     })
-
     res.json(updated)
   } catch {
     res.status(500).json({ message: 'Erro interno do servidor' })
   }
 })
 
+// ─── Settings ─────────────────────────────────────────────────────────────────
+
+router.get('/settings', async (req: AuthRequest, res: Response) => {
+  try {
+    const instance = await resolveInstance(req.user!.userId)
+    if (!instance) {
+      res.json(null)
+      return
+    }
+    const settings = await prisma.chatbotSettings.findUnique({
+      where: { instanceId: instance.id },
+    })
+    res.json(settings ?? null)
+  } catch {
+    res.status(500).json({ message: 'Erro interno do servidor' })
+  }
+})
+
+router.put('/settings', async (req: AuthRequest, res: Response) => {
+  try {
+    const instance = await resolveOrCreateInstance(req.user!.userId)
+    const data = upsertSettingsSchema.parse(req.body)
+
+    const settings = await prisma.chatbotSettings.upsert({
+      where: { instanceId: instance.id },
+      create: {
+        instanceId: instance.id,
+        ...data,
+      },
+      update: data,
+    })
+
+    res.json(settings)
+  } catch (error) {
+    if (error instanceof z.ZodError) {
+      res.status(400).json({ message: 'Dados inválidos', errors: error.errors })
+      return
+    }
+    res.status(500).json({ message: 'Erro interno do servidor' })
+  }
+})
+
 // ─── Conversations ────────────────────────────────────────────────────────────
 
-// GET /api/chatbot/conversations
 router.get('/conversations', async (req: AuthRequest, res: Response) => {
   try {
-    const instance = await resolveInstance(req.user!.userId, req.user!.role)
+    const instance = await resolveInstance(req.user!.userId)
     if (!instance) {
       res.json([])
       return
     }
 
     const { category, status, search } = req.query
-
     const where: Record<string, unknown> = { instanceId: instance.id }
 
     if (category) where.category = category as string
@@ -415,9 +455,7 @@ router.get('/conversations', async (req: AuthRequest, res: Response) => {
     const conversations = await prisma.conversation.findMany({
       where,
       orderBy: [{ unreadCount: 'desc' }, { lastMessageAt: 'desc' }],
-      include: {
-        _count: { select: { messages: true } },
-      },
+      include: { _count: { select: { messages: true } } },
     })
 
     res.json(conversations)
@@ -426,11 +464,10 @@ router.get('/conversations', async (req: AuthRequest, res: Response) => {
   }
 })
 
-// GET /api/chatbot/conversations/:id
 router.get('/conversations/:id', async (req: AuthRequest, res: Response) => {
   try {
     const { id } = req.params
-    const instance = await resolveInstance(req.user!.userId, req.user!.role)
+    const instance = await resolveInstance(req.user!.userId)
     if (!instance) {
       res.status(404).json({ message: 'Instância não encontrada' })
       return
@@ -439,10 +476,7 @@ router.get('/conversations/:id', async (req: AuthRequest, res: Response) => {
     const conversation = await prisma.conversation.findFirst({
       where: { id, instanceId: instance.id },
       include: {
-        messages: {
-          orderBy: { timestamp: 'desc' },
-          take: 50,
-        },
+        messages: { orderBy: { timestamp: 'asc' }, take: 50 },
       },
     })
 
@@ -457,21 +491,17 @@ router.get('/conversations/:id', async (req: AuthRequest, res: Response) => {
   }
 })
 
-// PUT /api/chatbot/conversations/:id
 router.put('/conversations/:id', async (req: AuthRequest, res: Response) => {
   try {
     const { id } = req.params
-    const instance = await resolveInstance(req.user!.userId, req.user!.role)
+    const instance = await resolveInstance(req.user!.userId)
     if (!instance) {
       res.status(404).json({ message: 'Instância não encontrada' })
       return
     }
 
     const data = updateConversationSchema.parse(req.body)
-
-    const existing = await prisma.conversation.findFirst({
-      where: { id, instanceId: instance.id },
-    })
+    const existing = await prisma.conversation.findFirst({ where: { id, instanceId: instance.id } })
     if (!existing) {
       res.status(404).json({ message: 'Conversa não encontrada' })
       return
@@ -497,29 +527,22 @@ router.put('/conversations/:id', async (req: AuthRequest, res: Response) => {
   }
 })
 
-// POST /api/chatbot/conversations/:id/read
 router.post('/conversations/:id/read', async (req: AuthRequest, res: Response) => {
   try {
     const { id } = req.params
-    const instance = await resolveInstance(req.user!.userId, req.user!.role)
+    const instance = await resolveInstance(req.user!.userId)
     if (!instance) {
       res.status(404).json({ message: 'Instância não encontrada' })
       return
     }
 
-    const existing = await prisma.conversation.findFirst({
-      where: { id, instanceId: instance.id },
-    })
+    const existing = await prisma.conversation.findFirst({ where: { id, instanceId: instance.id } })
     if (!existing) {
       res.status(404).json({ message: 'Conversa não encontrada' })
       return
     }
 
-    const updated = await prisma.conversation.update({
-      where: { id },
-      data: { unreadCount: 0 },
-    })
-
+    const updated = await prisma.conversation.update({ where: { id }, data: { unreadCount: 0 } })
     res.json(updated)
   } catch {
     res.status(500).json({ message: 'Erro interno do servidor' })
@@ -528,67 +551,48 @@ router.post('/conversations/:id/read', async (req: AuthRequest, res: Response) =
 
 // ─── Messages ─────────────────────────────────────────────────────────────────
 
-// GET /api/chatbot/conversations/:id/messages
+// Returns messages as a flat array (oldest first), up to `limit`
 router.get('/conversations/:id/messages', async (req: AuthRequest, res: Response) => {
   try {
     const { id } = req.params
-    const instance = await resolveInstance(req.user!.userId, req.user!.role)
+    const instance = await resolveInstance(req.user!.userId)
     if (!instance) {
       res.status(404).json({ message: 'Instância não encontrada' })
       return
     }
 
-    const page = Math.max(1, parseInt(req.query.page as string) || 1)
     const limit = Math.min(100, Math.max(1, parseInt(req.query.limit as string) || 50))
-    const skip = (page - 1) * limit
 
-    const conversation = await prisma.conversation.findFirst({
-      where: { id, instanceId: instance.id },
-    })
+    const conversation = await prisma.conversation.findFirst({ where: { id, instanceId: instance.id } })
     if (!conversation) {
       res.status(404).json({ message: 'Conversa não encontrada' })
       return
     }
 
-    const [messages, total] = await Promise.all([
-      prisma.message.findMany({
-        where: { conversationId: id },
-        orderBy: { timestamp: 'desc' },
-        skip,
-        take: limit,
-      }),
-      prisma.message.count({ where: { conversationId: id } }),
-    ])
-
-    res.json({
-      data: messages,
-      pagination: {
-        page,
-        limit,
-        total,
-        pages: Math.ceil(total / limit),
-      },
+    // Fetch newest `limit` messages, then reverse so oldest is first
+    const messages = await prisma.message.findMany({
+      where: { conversationId: id },
+      orderBy: { timestamp: 'desc' },
+      take: limit,
     })
+
+    res.json(messages.reverse())
   } catch {
     res.status(500).json({ message: 'Erro interno do servidor' })
   }
 })
 
-// POST /api/chatbot/conversations/:id/messages
 router.post('/conversations/:id/messages', async (req: AuthRequest, res: Response) => {
   try {
     const { id } = req.params
-    const instance = await resolveInstance(req.user!.userId, req.user!.role)
+    const instance = await resolveInstance(req.user!.userId)
     if (!instance) {
       res.status(404).json({ message: 'Instância não encontrada' })
       return
     }
 
     const data = sendMessageSchema.parse(req.body)
-
-    const conversation = await prisma.conversation.findFirst({
-      where: { id, instanceId: instance.id },
-    })
+    const conversation = await prisma.conversation.findFirst({ where: { id, instanceId: instance.id } })
     if (!conversation) {
       res.status(404).json({ message: 'Conversa não encontrada' })
       return
@@ -607,13 +611,9 @@ router.post('/conversations/:id/messages', async (req: AuthRequest, res: Respons
       },
     })
 
-    // Update conversation last message
     await prisma.conversation.update({
       where: { id },
-      data: {
-        lastMessage: data.content,
-        lastMessageAt: new Date(),
-      },
+      data: { lastMessage: data.content, lastMessageAt: new Date() },
     })
 
     res.status(201).json(message)
@@ -628,10 +628,9 @@ router.post('/conversations/:id/messages', async (req: AuthRequest, res: Respons
 
 // ─── Chatbot Flows ────────────────────────────────────────────────────────────
 
-// GET /api/chatbot/flows
 router.get('/flows', async (req: AuthRequest, res: Response) => {
   try {
-    const instance = await resolveInstance(req.user!.userId, req.user!.role)
+    const instance = await resolveInstance(req.user!.userId)
     if (!instance) {
       res.json([])
       return
@@ -648,15 +647,10 @@ router.get('/flows', async (req: AuthRequest, res: Response) => {
   }
 })
 
-// POST /api/chatbot/flows
 router.post('/flows', async (req: AuthRequest, res: Response) => {
   try {
-    const instance = await resolveInstance(req.user!.userId, req.user!.role)
-    if (!instance) {
-      res.status(404).json({ message: 'Instância não encontrada. Crie uma instância WhatsApp primeiro.' })
-      return
-    }
-
+    // Auto-create instance if needed so user doesn't need to connect WhatsApp first
+    const instance = await resolveOrCreateInstance(req.user!.userId)
     const data = createFlowSchema.parse(req.body)
 
     const flow = await prisma.chatbotFlow.create({
@@ -667,6 +661,7 @@ router.post('/flows', async (req: AuthRequest, res: Response) => {
         active: data.active,
         trigger: data.trigger,
         triggerValue: data.triggerValue ?? null,
+        botType: data.botType ?? 'LIGHT',
         nodes: (data.nodes ?? []) as unknown as object,
         edges: (data.edges ?? []) as unknown as object,
       },
@@ -682,20 +677,16 @@ router.post('/flows', async (req: AuthRequest, res: Response) => {
   }
 })
 
-// GET /api/chatbot/flows/:id
 router.get('/flows/:id', async (req: AuthRequest, res: Response) => {
   try {
     const { id } = req.params
-    const instance = await resolveInstance(req.user!.userId, req.user!.role)
+    const instance = await resolveInstance(req.user!.userId)
     if (!instance) {
       res.status(404).json({ message: 'Instância não encontrada' })
       return
     }
 
-    const flow = await prisma.chatbotFlow.findFirst({
-      where: { id, instanceId: instance.id },
-    })
-
+    const flow = await prisma.chatbotFlow.findFirst({ where: { id, instanceId: instance.id } })
     if (!flow) {
       res.status(404).json({ message: 'Flow não encontrado' })
       return
@@ -707,21 +698,17 @@ router.get('/flows/:id', async (req: AuthRequest, res: Response) => {
   }
 })
 
-// PUT /api/chatbot/flows/:id
 router.put('/flows/:id', async (req: AuthRequest, res: Response) => {
   try {
     const { id } = req.params
-    const instance = await resolveInstance(req.user!.userId, req.user!.role)
+    const instance = await resolveInstance(req.user!.userId)
     if (!instance) {
       res.status(404).json({ message: 'Instância não encontrada' })
       return
     }
 
     const data = updateFlowSchema.parse(req.body)
-
-    const existing = await prisma.chatbotFlow.findFirst({
-      where: { id, instanceId: instance.id },
-    })
+    const existing = await prisma.chatbotFlow.findFirst({ where: { id, instanceId: instance.id } })
     if (!existing) {
       res.status(404).json({ message: 'Flow não encontrado' })
       return
@@ -735,6 +722,7 @@ router.put('/flows/:id', async (req: AuthRequest, res: Response) => {
         ...(data.active !== undefined && { active: data.active }),
         ...(data.trigger !== undefined && { trigger: data.trigger }),
         ...(data.triggerValue !== undefined && { triggerValue: data.triggerValue }),
+        ...(data.botType !== undefined && { botType: data.botType }),
         ...(data.nodes !== undefined && { nodes: data.nodes as unknown as object }),
         ...(data.edges !== undefined && { edges: data.edges as unknown as object }),
       },
@@ -750,19 +738,16 @@ router.put('/flows/:id', async (req: AuthRequest, res: Response) => {
   }
 })
 
-// DELETE /api/chatbot/flows/:id
 router.delete('/flows/:id', async (req: AuthRequest, res: Response) => {
   try {
     const { id } = req.params
-    const instance = await resolveInstance(req.user!.userId, req.user!.role)
+    const instance = await resolveInstance(req.user!.userId)
     if (!instance) {
       res.status(404).json({ message: 'Instância não encontrada' })
       return
     }
 
-    const existing = await prisma.chatbotFlow.findFirst({
-      where: { id, instanceId: instance.id },
-    })
+    const existing = await prisma.chatbotFlow.findFirst({ where: { id, instanceId: instance.id } })
     if (!existing) {
       res.status(404).json({ message: 'Flow não encontrado' })
       return
@@ -775,19 +760,16 @@ router.delete('/flows/:id', async (req: AuthRequest, res: Response) => {
   }
 })
 
-// POST /api/chatbot/flows/:id/toggle
 router.post('/flows/:id/toggle', async (req: AuthRequest, res: Response) => {
   try {
     const { id } = req.params
-    const instance = await resolveInstance(req.user!.userId, req.user!.role)
+    const instance = await resolveInstance(req.user!.userId)
     if (!instance) {
       res.status(404).json({ message: 'Instância não encontrada' })
       return
     }
 
-    const existing = await prisma.chatbotFlow.findFirst({
-      where: { id, instanceId: instance.id },
-    })
+    const existing = await prisma.chatbotFlow.findFirst({ where: { id, instanceId: instance.id } })
     if (!existing) {
       res.status(404).json({ message: 'Flow não encontrado' })
       return
@@ -806,7 +788,6 @@ router.post('/flows/:id/toggle', async (req: AuthRequest, res: Response) => {
 
 // ─── Templates ────────────────────────────────────────────────────────────────
 
-// GET /api/chatbot/templates
 router.get('/templates', async (_req: AuthRequest, res: Response) => {
   try {
     const templates = await prisma.chatbotTemplate.findMany({

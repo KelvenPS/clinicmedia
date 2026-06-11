@@ -489,9 +489,10 @@ model WhatsAppInstance {
   createdAt   DateTime       @default(now())
   updatedAt   DateTime       @updatedAt
 
-  doctor        User           @relation("DoctorWhatsApp", fields: [doctorId], references: [id])
+  doctor        User             @relation("DoctorWhatsApp", fields: [doctorId], references: [id])
   conversations Conversation[]
   flows         ChatbotFlow[]
+  settings      ChatbotSettings?
 }
 
 model Conversation {
@@ -542,6 +543,7 @@ model ChatbotFlow {
   active       Boolean     @default(false)
   trigger      FlowTrigger @default(KEYWORD)
   triggerValue String?
+  botType      String      @default("LIGHT")
   nodes        Json        @default("[]")
   edges        Json        @default("[]")
   executions   Int         @default(0)
@@ -564,4 +566,24 @@ model ChatbotTemplate {
   isGlobal    Boolean  @default(true)
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
+}
+
+model ChatbotSettings {
+  id                   String   @id @default(uuid())
+  instanceId           String   @unique
+  welcomeMessage       String?  @db.Text
+  offHoursMessage      String?  @db.Text
+  businessHoursStart   String   @default("08:00")
+  businessHoursEnd     String   @default("18:00")
+  businessDays         String[] @default(["MON", "TUE", "WED", "THU", "FRI"])
+  autoReply            Boolean  @default(true)
+  queueEnabled         Boolean  @default(true)
+  maxQueueSize         Int      @default(10)
+  notificationsEnabled Boolean  @default(true)
+  botType              String   @default("LIGHT")
+  aiSystemPrompt       String?  @db.Text
+  createdAt            DateTime @default(now())
+  updatedAt            DateTime @updatedAt
+
+  instance WhatsAppInstance @relation(fields: [instanceId], references: [id], onDelete: Cascade)
 }

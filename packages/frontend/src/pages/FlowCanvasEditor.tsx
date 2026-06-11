@@ -98,7 +98,7 @@ const NODE_CFG: Record<NodeType, NodeCfg> = {
 }
 
 function nodeHeight(node: CanvasNode): number {
-  const cfg = NODE_CFG[node.type]
+  const cfg = NODE_CFG[node.type] || NODE_CFG.message
   if (node.type === 'menu') {
     const optCount = node.data.options?.length ?? 2
     return cfg.baseH + optCount * (cfg.extraHPerOption ?? 0)
@@ -108,14 +108,14 @@ function nodeHeight(node: CanvasNode): number {
 
 // Port absolute positions on canvas
 function inputPortPos(node: CanvasNode): { x: number; y: number } | null {
-  const cfg = NODE_CFG[node.type]
+  const cfg = NODE_CFG[node.type] || NODE_CFG.message
   if (!cfg.canHaveInput) return null
   if (cfg.isCircle) return { x: node.x + 32, y: node.y }
   return { x: node.x + cfg.w / 2, y: node.y }
 }
 
 function outputPortPositions(node: CanvasNode): { x: number; y: number; portIndex: number; label?: string }[] {
-  const cfg = NODE_CFG[node.type]
+  const cfg = NODE_CFG[node.type] || NODE_CFG.message
   if (!cfg.canHaveOutput) return []
   const h = nodeHeight(node)
 
@@ -178,7 +178,7 @@ function NodeCard({
   node, selected, connecting,
   onPointerDown, onInputPortClick, onOutputPortClick, onSelect, onDelete,
 }: NodeCardProps) {
-  const cfg = NODE_CFG[node.type]
+  const cfg = NODE_CFG[node.type] || NODE_CFG.message
   const h = nodeHeight(node)
   const outPorts = outputPortPositions(node)
   const inPort = inputPortPos(node)
@@ -318,7 +318,7 @@ interface PropEditorProps {
 }
 
 function PropEditor({ node, onChange }: PropEditorProps) {
-  const cfg = NODE_CFG[node.type]
+  const cfg = NODE_CFG[node.type] || NODE_CFG.message
 
   function setData(patch: Partial<CanvasNode['data']>) {
     onChange({ ...node, data: { ...node.data, ...patch } })
@@ -938,37 +938,42 @@ export default function FlowCanvasEditor({
         <div className="w-72 bg-white border-r border-slate-200 flex flex-col flex-shrink-0 shadow-sm z-10 overflow-hidden">
           {selectedNode ? (
             /* Properties Editor */
-            <div className="flex flex-col h-full">
-              <div className={`px-4 py-3 border-b border-slate-200 flex items-center justify-between ${NODE_CFG[selectedNode.type].headerClass}`}>
-                <div className="flex items-center gap-2">
-                  <span className={NODE_CFG[selectedNode.type].colorClass}>
-                    {NODE_CFG[selectedNode.type].icon}
-                  </span>
-                  <span className={`text-xs font-bold ${NODE_CFG[selectedNode.type].colorClass}`}>
-                    Propriedades: {NODE_CFG[selectedNode.type].label}
-                  </span>
+            (() => {
+              const selectedCfg = NODE_CFG[selectedNode.type] || NODE_CFG.message
+              return (
+                <div className="flex flex-col h-full">
+                  <div className={`px-4 py-3 border-b border-slate-200 flex items-center justify-between ${selectedCfg.headerClass}`}>
+                    <div className="flex items-center gap-2">
+                      <span className={selectedCfg.colorClass}>
+                        {selectedCfg.icon}
+                      </span>
+                      <span className={`text-xs font-bold ${selectedCfg.colorClass}`}>
+                        Propriedades: {selectedCfg.label}
+                      </span>
+                    </div>
+                    <button
+                      onClick={() => setSelectedNodeId(null)}
+                      className="text-slate-400 hover:text-slate-600 p-1 rounded transition-colors"
+                    >
+                      <X className="w-4 h-4" />
+                    </button>
+                  </div>
+
+                  <div className="flex-1 overflow-y-auto p-4">
+                    <PropEditor node={selectedNode} onChange={updateNode} />
+                  </div>
+
+                  <div className="p-4 border-t border-slate-200 bg-slate-50">
+                    <button
+                      onClick={() => deleteNode(selectedNode.id)}
+                      className="w-full flex items-center justify-center gap-2 px-3 py-2 text-red-600 bg-red-50 hover:bg-red-100 border border-red-200 rounded-lg text-xs font-medium transition-all active:scale-[0.98]"
+                    >
+                      <Trash2 className="w-3.5 h-3.5" /> Remover nó
+                    </button>
+                  </div>
                 </div>
-                <button
-                  onClick={() => setSelectedNodeId(null)}
-                  className="text-slate-400 hover:text-slate-600 p-1 rounded transition-colors"
-                >
-                  <X className="w-4 h-4" />
-                </button>
-              </div>
-
-              <div className="flex-1 overflow-y-auto p-4">
-                <PropEditor node={selectedNode} onChange={updateNode} />
-              </div>
-
-              <div className="p-4 border-t border-slate-200 bg-slate-50">
-                <button
-                  onClick={() => deleteNode(selectedNode.id)}
-                  className="w-full flex items-center justify-center gap-2 px-3 py-2 text-red-600 bg-red-50 hover:bg-red-100 border border-red-200 rounded-lg text-xs font-medium transition-all active:scale-[0.98]"
-                >
-                  <Trash2 className="w-3.5 h-3.5" /> Remover nó
-                </button>
-              </div>
-            </div>
+              )
+            })()
           ) : (
             /* Node Palette */
             <div className="flex flex-col h-full">

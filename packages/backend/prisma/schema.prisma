@@ -129,7 +129,9 @@ model Patient {
   cpf       String?   @unique
   rg        String?
   address   String?
-  notes     String?
+  notes            String?
+  responsibleName  String?
+  responsiblePhone String?
   active    Boolean   @default(true)
   createdAt DateTime  @default(now())
   updatedAt DateTime  @updatedAt
@@ -247,13 +249,14 @@ model Appointment {
 }
 
 model AppointmentType {
-  id        String   @id @default(uuid())
-  doctorId  String?
-  name      String
-  baseValue Float?
-  active    Boolean  @default(true)
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  id         String   @id @default(uuid())
+  doctorId   String?
+  name       String
+  baseValue  Float?
+  hasReturns Boolean  @default(false)
+  active     Boolean  @default(true)
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
 
   doctor    User?    @relation("DoctorAppointmentTypes", fields: [doctorId], references: [id])
 }

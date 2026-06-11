@@ -70,6 +70,8 @@ export interface Patient {
   rg?: string | null
   address?: string | null
   notes?: string | null
+  responsibleName?: string | null
+  responsiblePhone?: string | null
   active: boolean
   createdAt: string
   _count?: { appointments: number }
@@ -303,6 +305,7 @@ export interface AppointmentType {
   id: string
   name: string
   baseValue?: number | null
+  hasReturns: boolean
   active: boolean
   createdAt: string
 }

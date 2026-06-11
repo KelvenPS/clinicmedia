@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 import { useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { z } from 'zod'
-import { format } from 'date-fns'
+import { format, differenceInYears, parseISO } from 'date-fns'
 import { useQuery } from '@tanstack/react-query'
 import { Plus, Trash2, CreditCard, ArrowRight } from 'lucide-react'
 import api from '../../lib/api'
@@ -17,6 +17,8 @@ const schema = z.object({
   rg: z.string().optional(),
   address: z.string().optional(),
   notes: z.string().optional(),
+  responsibleName: z.string().optional(),
+  responsiblePhone: z.string().optional(),
 })
 
 type FormData = z.infer<typeof schema>
@@ -47,9 +49,22 @@ export default function PatientForm({ patient, onSubmit, loading }: Props) {
     queryFn: () => api.get('/health-plans').then(r => r.data),
   })
 
-  const { register, handleSubmit, formState: { errors }, setValue } = useForm<FormData>({
+  const { register, handleSubmit, formState: { errors }, setValue, watch } = useForm<FormData>({
     resolver: zodResolver(schema),
   })
+
+  const birthDateValue = watch('birthDate')
+  let isMinor = false
+  if (birthDateValue) {
+    try {
+      const parsedDate = parseISO(birthDateValue)
+      if (!isNaN(parsedDate.getTime())) {
+        isMinor = differenceInYears(new Date(), parsedDate) < 18
+      }
+    } catch (e) {
+      console.error(e)
+    }
+  }
 
   useEffect(() => {
     if (patient) {
@@ -60,6 +75,8 @@ export default function PatientForm({ patient, onSubmit, loading }: Props) {
       setValue('rg', patient.rg || '')
       setValue('address', patient.address || '')
       setValue('notes', patient.notes || '')
+      setValue('responsibleName', patient.responsibleName || '')
+      setValue('responsiblePhone', patient.responsiblePhone || '')
       if (patient.birthDate) setValue('birthDate', format(new Date(patient.birthDate), 'yyyy-MM-dd'))
 
       if (patient.patientPlans) {
@@ -136,6 +153,22 @@ export default function PatientForm({ patient, onSubmit, loading }: Props) {
           <label className="label">Data de Nascimento</label>
           <input {...register('birthDate')} type="date" className="input-field" />
         </div>
+
+        {isMinor && (
+          <>
+            <div>
+              <label className="label">Nome do Responsável</label>
+              <input {...register('responsibleName')} className="input-field" placeholder="Nome do responsável" />
+              {errors.responsibleName && <p className="text-xs text-red-500 mt-1">{errors.responsibleName.message}</p>}
+            </div>
+
+            <div>
+              <label className="label">Telefone do Responsável</label>
+              <input {...register('responsiblePhone')} className="input-field" placeholder="(11) 99999-0000" />
+              {errors.responsiblePhone && <p className="text-xs text-red-500 mt-1">{errors.responsiblePhone.message}</p>}
+            </div>
+          </>
+        )}
       </div>
 
       <div>

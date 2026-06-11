@@ -3,7 +3,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { z } from 'zod'
-import { Plus, Edit2, Stethoscope, DollarSign, CheckCircle, XCircle } from 'lucide-react'
+import { Plus, Edit2, Stethoscope, DollarSign, CheckCircle, XCircle, RefreshCw } from 'lucide-react'
 import toast from 'react-hot-toast'
 import api from '../../lib/api'
 import type { AppointmentType } from '../../types'
@@ -12,6 +12,7 @@ import Modal from '../../components/ui/Modal'
 const schema = z.object({
   name: z.string().min(2, 'Nome obrigatório'),
   baseValue: z.coerce.number().min(0).optional().or(z.literal('')),
+  hasReturns: z.boolean().default(false),
 })
 
 type FormData = z.infer<typeof schema>
@@ -25,13 +26,16 @@ function TypeForm({
   onSubmit: (d: FormData) => void
   loading: boolean
 }) {
-  const { register, handleSubmit, formState: { errors } } = useForm<FormData>({
+  const { register, handleSubmit, formState: { errors }, watch, setValue } = useForm<FormData>({
     resolver: zodResolver(schema),
     defaultValues: {
       name: apptType?.name || '',
       baseValue: apptType?.baseValue ?? '',
+      hasReturns: apptType?.hasReturns ?? false,
     },
   })
+
+  const watchHasReturns = watch('hasReturns')
 
   return (
     <form onSubmit={handleSubmit(onSubmit)} className="space-y-5">
@@ -61,6 +65,29 @@ function TypeForm({
         <p className="text-xs text-slate-400 mt-1">
           Valor padrão para este tipo de atendimento. O desconto do plano do paciente será aplicado automaticamente.
         </p>
+      </div>
+
+      {/* Retornos recorrentes toggle */}
+      <div
+        className={`flex items-start gap-4 p-4 rounded-xl border-2 cursor-pointer transition-all select-none ${
+          watchHasReturns
+            ? 'bg-violet-50 border-violet-400'
+            : 'bg-slate-50 border-slate-200 hover:border-slate-300'
+        }`}
+        onClick={() => setValue('hasReturns', !watchHasReturns, { shouldValidate: true })}
+      >
+        <div className={`mt-0.5 w-10 h-6 rounded-full relative flex-shrink-0 transition-colors ${watchHasReturns ? 'bg-violet-500' : 'bg-slate-300'}`}>
+          <div className={`absolute top-0.5 w-5 h-5 bg-white rounded-full shadow transition-all ${watchHasReturns ? 'left-4' : 'left-0.5'}`} />
+        </div>
+        <div className="flex-1">
+          <p className={`font-semibold text-sm ${watchHasReturns ? 'text-violet-800' : 'text-slate-700'}`}>
+            Disponibiliza retornos recorrentes
+          </p>
+          <p className="text-xs text-slate-500 mt-0.5">
+            Ao agendar este tipo, o sistema perguntará se deseja replicar a consulta nas próximas semanas (5, 7 ou 10 retornos).
+          </p>
+        </div>
+        <input {...register('hasReturns')} type="checkbox" className="sr-only" />
       </div>
 
       <div className="p-3 bg-blue-50 border border-blue-200 rounded-xl text-xs text-blue-700">
@@ -133,7 +160,7 @@ export default function TiposAtendimento() {
       </div>
 
       {/* Stats */}
-      <div className="grid grid-cols-2 gap-4">
+      <div className="grid grid-cols-3 gap-4">
         <div className="card flex items-center gap-3 py-4 bg-blue-50 animate-stagger-1">
           <Stethoscope className="w-8 h-8 text-blue-600" />
           <div>
@@ -146,6 +173,13 @@ export default function TiposAtendimento() {
           <div>
             <p className="text-2xl font-bold text-emerald-600">{types.filter(t => t.active).length}</p>
             <p className="text-xs text-slate-500">Tipos ativos</p>
+          </div>
+        </div>
+        <div className="card flex items-center gap-3 py-4 bg-violet-50 animate-stagger-2">
+          <RefreshCw className="w-8 h-8 text-violet-600" />
+          <div>
+            <p className="text-2xl font-bold text-violet-600">{types.filter(t => t.hasReturns).length}</p>
+            <p className="text-xs text-slate-500">Com retornos</p>
           </div>
         </div>
       </div>
@@ -179,12 +213,21 @@ export default function TiposAtendimento() {
                 key={t.id}
                 className={`flex items-center gap-4 px-6 py-4 hover:bg-slate-50 transition-colors ${!t.active ? 'opacity-60' : ''}`}
               >
-                <div className="w-10 h-10 rounded-xl bg-blue-50 flex items-center justify-center flex-shrink-0">
-                  <Stethoscope className="w-5 h-5 text-blue-600" />
+                <div className={`w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0 ${t.hasReturns ? 'bg-violet-50' : 'bg-blue-50'}`}>
+                  {t.hasReturns
+                    ? <RefreshCw className="w-5 h-5 text-violet-600" />
+                    : <Stethoscope className="w-5 h-5 text-blue-600" />
+                  }
                 </div>
                 <div className="flex-1 min-w-0">
-                  <div className="flex items-center gap-2">
+                  <div className="flex items-center gap-2 flex-wrap">
                     <p className="font-semibold text-slate-900">{t.name}</p>
+                    {t.hasReturns && (
+                      <span className="inline-flex items-center gap-1 text-xs bg-violet-100 text-violet-700 px-2 py-0.5 rounded-full font-medium">
+                        <RefreshCw className="w-3 h-3" />
+                        Disponibiliza Retornos
+                      </span>
+                    )}
                     {!t.active && (
                       <span className="text-xs bg-slate-100 text-slate-500 px-2 py-0.5 rounded-full">Inativo</span>
                     )}
@@ -229,8 +272,8 @@ export default function TiposAtendimento() {
           <li>• Cadastre os tipos de consulta praticados (Consulta, Retorno, Exame, etc.)</li>
           <li>• Defina o valor base de cada tipo de atendimento</li>
           <li>• Na agenda, ao selecionar o tipo, o valor é preenchido automaticamente</li>
-          <li>• O desconto do plano de saúde do paciente é aplicado sobre o valor base</li>
-          <li>• Ao concluir o atendimento, o valor de repasse é lançado automaticamente no financeiro</li>
+          <li>• Ative <strong>Disponibiliza retornos</strong> para tipos que replicam semanalmente</li>
+          <li>• Ao agendar esse tipo, o sistema perguntará quantos retornos criar (5, 7 ou 10)</li>
         </ul>
       </div>
 

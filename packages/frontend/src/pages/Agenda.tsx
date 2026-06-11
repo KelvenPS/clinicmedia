@@ -588,8 +588,6 @@ export default function Agenda() {
           currentUser={user}
           onSubmit={data => {
             // Convert local datetime string to UTC ISO before sending to the backend.
-            // datetime-local inputs return "YYYY-MM-DDTHH:mm" with no timezone — the
-            // server is UTC so without conversion it stores the value 3h off for UTC-3.
             const payload = {
               ...data,
               date: new Date(data.date as string).toISOString(),

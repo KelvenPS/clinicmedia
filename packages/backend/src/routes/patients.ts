@@ -16,6 +16,8 @@ const patientSchema = z.object({
   rg: z.string().optional(),
   address: z.string().optional(),
   notes: z.string().optional(),
+  responsibleName: z.string().optional(),
+  responsiblePhone: z.string().optional(),
   plans: z.array(z.object({
     healthPlanId: z.string(),
     value: z.number().optional(),
@@ -166,6 +168,8 @@ router.post('/', async (req: AuthRequest, res) => {
         rg: rest.rg || null,
         address: rest.address || null,
         notes: rest.notes || null,
+        responsibleName: rest.responsibleName || null,
+        responsiblePhone: rest.responsiblePhone || null,
         birthDate: rest.birthDate ? new Date(rest.birthDate) : null,
         patientPlans: plans?.length
           ? {
@@ -229,6 +233,8 @@ router.put('/:id', async (req: AuthRequest, res) => {
     if (rest.rg !== undefined) updateData.rg = rest.rg || null
     if (rest.address !== undefined) updateData.address = rest.address || null
     if (rest.notes !== undefined) updateData.notes = rest.notes || null
+    if (rest.responsibleName !== undefined) updateData.responsibleName = rest.responsibleName || null
+    if (rest.responsiblePhone !== undefined) updateData.responsiblePhone = rest.responsiblePhone || null
 
     if (plans !== undefined) {
       await prisma.patientPlan.deleteMany({ where: { patientId: id } })

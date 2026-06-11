@@ -9,6 +9,7 @@ router.use(authenticate)
 const typeSchema = z.object({
   name: z.string().min(2, 'Nome obrigatório'),
   baseValue: z.coerce.number().min(0).optional().or(z.literal('')),
+  hasReturns: z.boolean().optional().default(false),
 })
 
 /**
@@ -95,6 +96,7 @@ router.post('/', requireRole('ADMIN', 'DOCTOR'), async (req: AuthRequest, res: R
       data: {
         name: data.name,
         baseValue: data.baseValue === '' ? null : data.baseValue,
+        hasReturns: data.hasReturns ?? false,
         ...(doctorId ? { doctorId } : {}),
       },
     })
@@ -132,6 +134,7 @@ router.put('/:id', requireRole('ADMIN', 'DOCTOR'), async (req: AuthRequest, res:
       data: {
         ...(data.name && { name: data.name }),
         baseValue: data.baseValue === '' ? null : data.baseValue,
+        ...(data.hasReturns !== undefined && { hasReturns: data.hasReturns }),
       },
     })
     res.json(type)

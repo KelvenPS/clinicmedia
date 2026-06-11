@@ -18,6 +18,7 @@ const appointmentSchema = z.object({
   notes: z.string().optional(),
   type: z.string().optional(),
   value: z.number().optional(),
+  repeatCount: z.number().int().min(1).max(50).optional(),
 })
 
 router.get('/', async (req: AuthRequest, res) => {
@@ -75,17 +76,17 @@ router.get('/', async (req: AuthRequest, res) => {
 router.post('/', async (req: AuthRequest, res) => {
   try {
     const data = appointmentSchema.parse(req.body)
+    const { repeatCount, ...apptData } = data
 
     // DOCTOR cannot create an appointment assigned to another professional.
-    // Override doctorId to enforce tenant isolation regardless of body payload.
     if (req.user!.role === 'DOCTOR') {
-      data.doctorId = req.user!.userId
+      apptData.doctorId = req.user!.userId
     }
 
     // SECRETARY can only create for a linked doctor.
     if (req.user!.role === 'SECRETARY') {
       const link = await prisma.doctorSecretary.findFirst({
-        where: { secretaryId: req.user!.userId, doctorId: data.doctorId, active: true },
+        where: { secretaryId: req.user!.userId, doctorId: apptData.doctorId, active: true },
       })
       if (!link) {
         res.status(403).json({ message: 'Acesso negado: profissional não vinculado a esta secretária' })
@@ -93,23 +94,46 @@ router.post('/', async (req: AuthRequest, res) => {
       }
     }
 
-    const appointment = await prisma.appointment.create({
-      data: {
-        ...data,
-        date: new Date(data.date),
-        createdById: req.user!.userId,
-      },
-      include: {
-        patient: { select: { id: true, name: true, phone: true } },
-        doctor: { select: { id: true, name: true, specialty: true } },
-        createdBy: { select: { id: true, name: true } },
-      },
-    })
+    const baseDate = new Date(apptData.date)
+    const totalOccurrences = repeatCount && repeatCount > 1 ? repeatCount : 1
+
+    // Build all dates: base + weekly repeats
+    const dates: Date[] = []
+    for (let i = 0; i < totalOccurrences; i++) {
+      const d = new Date(baseDate)
+      d.setDate(d.getDate() + i * 7)
+      dates.push(d)
+    }
+
+    // Create all appointments in a transaction
+    const created = await prisma.$transaction(
+      dates.map((occDate, idx) =>
+        prisma.appointment.create({
+          data: {
+            ...apptData,
+            date: occDate,
+            title: totalOccurrences > 1 && idx > 0
+              ? `${apptData.title} (Retorno ${idx}/${totalOccurrences - 1})`
+              : apptData.title,
+            createdById: req.user!.userId,
+          },
+          include: {
+            patient: { select: { id: true, name: true, phone: true } },
+            doctor: { select: { id: true, name: true, specialty: true } },
+            createdBy: { select: { id: true, name: true } },
+          },
+        })
+      )
+    )
+
+    const appointment = created[0]
 
     await createNotification(
       appointment.doctorId,
-      'Novo agendamento',
-      `${appointment.patient.name} agendou ${appointment.type || 'consulta'} para ${appointment.date.toLocaleDateString('pt-BR')}`,
+      totalOccurrences > 1 ? `${totalOccurrences} agendamentos criados` : 'Novo agendamento',
+      totalOccurrences > 1
+        ? `${appointment.patient.name} – ${totalOccurrences} sessões semanais a partir de ${appointment.date.toLocaleDateString('pt-BR')}`
+        : `${appointment.patient.name} agendou ${appointment.type || 'consulta'} para ${appointment.date.toLocaleDateString('pt-BR')}`,
       'INFO',
     )
 
@@ -122,9 +146,10 @@ router.post('/', async (req: AuthRequest, res) => {
       type: appointment.type,
       status: appointment.status,
       value: appointment.value,
+      repeatCount: totalOccurrences,
     }).catch(() => {})
 
-    res.status(201).json(appointment)
+    res.status(201).json(totalOccurrences > 1 ? created : appointment)
   } catch (error) {
     if (error instanceof z.ZodError) {
       res.status(400).json({ message: 'Dados inválidos', errors: error.errors })

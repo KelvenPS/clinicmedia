@@ -1,9 +1,9 @@
-import { useEffect } from 'react'
+import { useEffect, useState } from 'react'
 import { useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { z } from 'zod'
 import { format } from 'date-fns'
-import { Trash2, ArrowRight, Info } from 'lucide-react'
+import { Trash2, ArrowRight, Info, RefreshCw, Check, X } from 'lucide-react'
 import type { Appointment, User, Patient, AuthUser, AppointmentType } from '../../types'
 
 const DURATIONS = [
@@ -13,6 +13,8 @@ const DURATIONS = [
   { value: 60, label: '1 hora' },
   { value: 90, label: '1h 30min' },
 ]
+
+const RETURN_OPTIONS = [5, 7, 10]
 
 const schema = z.object({
   patientId: z.string().min(1, 'Selecione um paciente'),
@@ -25,6 +27,7 @@ const schema = z.object({
   value: z.coerce.number().optional(),
   notes: z.string().optional(),
   isBlocked: z.boolean().optional(),
+  repeatCount: z.coerce.number().int().min(1).max(50).optional(),
 })
 
 type FormData = z.infer<typeof schema>
@@ -59,13 +62,28 @@ export default function AppointmentForm({
       duration: 50,
       doctorId: currentUser?.role === 'DOCTOR' ? currentUser.id : '',
       isBlocked: false,
+      repeatCount: 1,
     },
   })
+
+  // Returns flow state
+  const [wantsReturns, setWantsReturns] = useState<boolean | null>(null)
+  const [returnsCount, setReturnsCount] = useState<number>(5)
 
   const watchPatient = watch('patientId')
   const watchType = watch('type')
   const watchValue = watch('value')
   const watchBlocked = watch('isBlocked')
+
+  // Find the selected appointment type object
+  const selectedAppType = appointmentTypes.find(t => t.name === watchType)
+
+  // Reset returns flow when type changes
+  useEffect(() => {
+    setWantsReturns(null)
+    setReturnsCount(5)
+    setValue('repeatCount', 1)
+  }, [watchType, setValue])
 
   useEffect(() => {
     if (appointment) {
@@ -88,8 +106,7 @@ export default function AppointmentForm({
     }
   }, [appointment, defaultDate, setValue])
 
-  // Auto-fill doctorId for SECRETARY: they can only schedule for their linked doctor.
-  // If there's exactly one available doctor in the list, pre-select and lock the field.
+  // Auto-fill doctorId for SECRETARY
   useEffect(() => {
     if (!appointment && currentUser?.role === 'SECRETARY' && doctors.length === 1) {
       setValue('doctorId', doctors[0].id)
@@ -98,7 +115,6 @@ export default function AppointmentForm({
 
   const selectedPatient = patients.find(p => p.id === watchPatient)
   const primaryPlan = selectedPatient?.patientPlans?.[0]
-  const selectedAppType = appointmentTypes.find(t => t.name === watchType)
 
   useEffect(() => {
     if (selectedPatient && !appointment) {
@@ -115,7 +131,16 @@ export default function AppointmentForm({
     }
   }, [watchType, watchPatient, selectedAppType, primaryPlan, appointment, setValue])
 
-  // Info to show repasse calculation
+  // Sync repeatCount with returns flow decisions
+  useEffect(() => {
+    if (wantsReturns === true) {
+      setValue('repeatCount', returnsCount)
+    } else {
+      setValue('repeatCount', 1)
+    }
+  }, [wantsReturns, returnsCount, setValue])
+
+  // Repasse calculation info
   const repasseInfo = (() => {
     if (!selectedAppType?.baseValue) return null
     const discount = primaryPlan?.healthPlan?.discountPercent ?? 0
@@ -124,6 +149,9 @@ export default function AppointmentForm({
   })()
 
   const fmt = (v: number) => v.toFixed(2).replace('.', ',')
+
+  // Whether to show the returns flow (only for new appointments with a hasReturns type)
+  const showReturnsFlow = !appointment && !!selectedAppType?.hasReturns && !watchBlocked
 
   return (
     <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
@@ -250,6 +278,93 @@ export default function AppointmentForm({
         </div>
       </div>
 
+      {/* ── Returns flow ── */}
+      {showReturnsFlow && (
+        <div className="rounded-xl border-2 border-violet-300 bg-violet-50 overflow-hidden">
+          {/* Header alert */}
+          <div className="flex items-center gap-3 px-4 py-3 bg-violet-100 border-b border-violet-200">
+            <RefreshCw className="w-4 h-4 text-violet-600 flex-shrink-0" />
+            <p className="text-sm font-semibold text-violet-800">
+              O tipo vinculado disponibiliza retornos, quer agendar?
+            </p>
+          </div>
+
+          <div className="px-4 py-3 space-y-3">
+            {/* SIM / NÃO */}
+            <div className="flex gap-2">
+              <button
+                type="button"
+                onClick={() => setWantsReturns(true)}
+                className={`flex items-center gap-1.5 px-4 py-2 rounded-xl text-sm font-semibold border-2 transition-all ${
+                  wantsReturns === true
+                    ? 'bg-violet-600 border-violet-600 text-white shadow-md'
+                    : 'bg-white border-violet-300 text-violet-700 hover:border-violet-500'
+                }`}
+              >
+                <Check className="w-3.5 h-3.5" />
+                SIM
+              </button>
+              <button
+                type="button"
+                onClick={() => setWantsReturns(false)}
+                className={`flex items-center gap-1.5 px-4 py-2 rounded-xl text-sm font-semibold border-2 transition-all ${
+                  wantsReturns === false
+                    ? 'bg-slate-600 border-slate-600 text-white shadow-md'
+                    : 'bg-white border-slate-300 text-slate-600 hover:border-slate-400'
+                }`}
+              >
+                <X className="w-3.5 h-3.5" />
+                NÃO
+              </button>
+            </div>
+
+            {/* Return count picker */}
+            {wantsReturns === true && (
+              <div className="space-y-2 pt-1 animate-in fade-in slide-in-from-top-2 duration-200">
+                <p className="text-xs font-semibold text-violet-700">
+                  Quantos retornos o paciente tem direito?
+                </p>
+                <div className="flex flex-wrap gap-2">
+                  {RETURN_OPTIONS.map(n => (
+                    <button
+                      key={n}
+                      type="button"
+                      onClick={() => setReturnsCount(n)}
+                      className={`w-14 h-10 rounded-xl text-sm font-bold border-2 transition-all ${
+                        returnsCount === n
+                          ? 'bg-violet-600 border-violet-600 text-white shadow-md scale-105'
+                          : 'bg-white border-violet-200 text-violet-700 hover:border-violet-400'
+                      }`}
+                    >
+                      {n}
+                    </button>
+                  ))}
+                  {/* Custom input */}
+                  <input
+                    type="number"
+                    min={1}
+                    max={50}
+                    placeholder="Outro"
+                    value={RETURN_OPTIONS.includes(returnsCount) ? '' : returnsCount}
+                    onChange={e => {
+                      const v = parseInt(e.target.value)
+                      if (!isNaN(v) && v >= 1 && v <= 50) setReturnsCount(v)
+                    }}
+                    className="w-20 h-10 rounded-xl border-2 border-violet-200 text-sm text-center font-semibold text-violet-700 focus:border-violet-500 focus:outline-none focus:ring-2 focus:ring-violet-200"
+                  />
+                </div>
+                <div className="flex items-center gap-2 p-2.5 bg-violet-100 rounded-lg">
+                  <RefreshCw className="w-3.5 h-3.5 text-violet-500 flex-shrink-0" />
+                  <p className="text-xs text-violet-700">
+                    Serão criados <strong>{returnsCount} agendamentos</strong> semanais a partir da data selecionada.
+                  </p>
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
       {/* Repasse info */}
       {repasseInfo && !watchBlocked && (
         <div className="flex items-center gap-3 px-4 py-3 bg-emerald-50 border border-emerald-200 rounded-xl">
@@ -300,6 +415,9 @@ export default function AppointmentForm({
         />
       </div>
 
+      {/* Hidden repeatCount field */}
+      <input {...register('repeatCount')} type="hidden" />
+
       <div className="flex items-center gap-3 pt-2">
         <button type="submit" disabled={loading} className="btn-primary flex-1">
           {loading ? (
@@ -307,7 +425,12 @@ export default function AppointmentForm({
               <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
               Salvando...
             </span>
-          ) : appointment ? 'Atualizar Consulta' : 'Agendar Consulta'}
+          ) : appointment
+            ? 'Atualizar Consulta'
+            : wantsReturns === true
+              ? `Agendar ${returnsCount} Consultas`
+              : 'Agendar Consulta'
+          }
         </button>
         {onDelete && (
           <button type="button" onClick={onDelete} className="btn-danger">

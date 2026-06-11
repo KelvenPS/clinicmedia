@@ -32,8 +32,8 @@ export default function ChatbotIA() {
   const [canvasFlow, setCanvasFlow] = useState<Flow | null>(null)
 
   const saveFlowMutation = useMutation({
-    mutationFn: ({ id, name, nodes, edges }: { id: string; name: string; nodes: CanvasNode[]; edges: CanvasEdge[] }) =>
-      api.put(`/chatbot/flows/${id}`, { name, nodes, edges }),
+    mutationFn: ({ id, name, nodes, edges, active }: { id: string; name: string; nodes: CanvasNode[]; edges: CanvasEdge[]; active?: boolean }) =>
+      api.put(`/chatbot/flows/${id}`, { name, nodes, edges, ...(active !== undefined && { active }) }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['chatbot-flows'] })
       setCanvasFlow(null)
@@ -59,9 +59,9 @@ export default function ChatbotIA() {
     setCanvasFlow(flow)
   }
 
-  function handleSaveCanvas(name: string, nodes: CanvasNode[], edges: CanvasEdge[]) {
+  function handleSaveCanvas(name: string, nodes: CanvasNode[], edges: CanvasEdge[], active?: boolean) {
     if (!canvasFlow) return
-    saveFlowMutation.mutate({ id: canvasFlow.id, name, nodes, edges })
+    saveFlowMutation.mutate({ id: canvasFlow.id, name, nodes, edges, active })
   }
 
   function handleSelectPanel(panel: ActivePanel) {
@@ -92,6 +92,7 @@ export default function ChatbotIA() {
             flowId={canvasFlow.id}
             flowName={canvasFlow.name}
             botType={(canvasFlow.botType as 'LIGHT' | 'AI_AGENT') ?? 'LIGHT'}
+            initialActive={canvasFlow.active}
             initialNodes={(canvasFlow.nodes as CanvasNode[] | undefined) ?? []}
             initialEdges={(canvasFlow.edges as CanvasEdge[] | undefined) ?? []}
             onSave={handleSaveCanvas}

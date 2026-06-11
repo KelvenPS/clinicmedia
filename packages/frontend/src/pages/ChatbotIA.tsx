@@ -32,8 +32,8 @@ export default function ChatbotIA() {
   const [canvasFlow, setCanvasFlow] = useState<Flow | null>(null)
 
   const saveFlowMutation = useMutation({
-    mutationFn: ({ id, nodes, edges }: { id: string; nodes: CanvasNode[]; edges: CanvasEdge[] }) =>
-      api.put(`/chatbot/flows/${id}`, { nodes, edges }),
+    mutationFn: ({ id, name, nodes, edges }: { id: string; name: string; nodes: CanvasNode[]; edges: CanvasEdge[] }) =>
+      api.put(`/chatbot/flows/${id}`, { name, nodes, edges }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['chatbot-flows'] })
       setCanvasFlow(null)
@@ -59,9 +59,9 @@ export default function ChatbotIA() {
     setCanvasFlow(flow)
   }
 
-  function handleSaveCanvas(nodes: CanvasNode[], edges: CanvasEdge[]) {
+  function handleSaveCanvas(name: string, nodes: CanvasNode[], edges: CanvasEdge[]) {
     if (!canvasFlow) return
-    saveFlowMutation.mutate({ id: canvasFlow.id, nodes, edges })
+    saveFlowMutation.mutate({ id: canvasFlow.id, name, nodes, edges })
   }
 
   function handleSelectPanel(panel: ActivePanel) {

@@ -3,6 +3,7 @@ import { type Conversation } from '../../types/chatbot'
 import ChatHeader from './ChatHeader'
 import MessageList from './MessageList'
 import MessageComposer from './MessageComposer'
+import QuickActionsBar from './QuickActionsBar'
 
 interface Props {
   conversation: Conversation | null
@@ -25,7 +26,7 @@ export default function ChatArea({
     return (
       <div className="flex-1 flex flex-col items-center justify-center gap-4 bg-slate-50">
         <div className="w-20 h-20 rounded-full bg-white border border-slate-200 flex items-center justify-center shadow-sm">
-          <MessageSquare className="w-9 h-9 text-slate-300" />
+          <MessageSquare className="w-9 h-9 text-slate-350" />
         </div>
         <div className="text-center">
           <p className="text-base font-semibold text-slate-600">Selecione uma conversa</p>
@@ -36,7 +37,7 @@ export default function ChatArea({
   }
 
   return (
-    <div className="flex-1 flex flex-col bg-slate-50 min-w-0 overflow-hidden">
+    <div className="flex-1 flex flex-col bg-[#efeae2] min-w-0 overflow-hidden relative">
       <ChatHeader
         conversation={conversation}
         currentUserId={currentUserId}
@@ -47,6 +48,11 @@ export default function ChatArea({
       />
       <MessageList conversationId={conversation.id} />
       <MessageComposer conversationId={conversation.id} />
+      <QuickActionsBar
+        conversation={conversation}
+        currentUserId={currentUserId}
+        onUpdate={onUpdateConversation}
+      />
     </div>
   )
 }

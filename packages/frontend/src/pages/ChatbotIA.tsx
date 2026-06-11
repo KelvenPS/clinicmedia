@@ -26,6 +26,7 @@ export default function ChatbotIA() {
   const [selectedConversation, setSelectedConversation] = useState<Conversation | null>(null)
   const [conversationCategory, setConversationCategory] = useState<ConversationCategory>('TODOS')
   const [showDetails, setShowDetails] = useState(true)
+  const [searchQuery, setSearchQuery] = useState('')
 
   // Canvas state
   const [canvasFlow, setCanvasFlow] = useState<Flow | null>(null)
@@ -130,6 +131,9 @@ export default function ChatbotIA() {
         <ChatTopBar
           activePanel={activePanel}
           onOpenMobileSidebar={() => setMobileSidebarOpen(true)}
+          searchQuery={searchQuery}
+          onSearchQueryChange={setSearchQuery}
+          userName={user?.name ?? 'KP'}
         />
 
         <div className="flex-1 overflow-hidden">
@@ -143,6 +147,7 @@ export default function ChatbotIA() {
                   onSelect={handleSelectConversation}
                   category={conversationCategory}
                   onCategoryChange={handleSelectCategory}
+                  searchQuery={searchQuery}
                 />
               </div>
 

@@ -1,4 +1,4 @@
-import { Menu, Bot, Wifi, WifiOff, Loader2 } from 'lucide-react'
+import { Menu, Bell, ChevronDown, Search } from 'lucide-react'
 import { useQuery } from '@tanstack/react-query'
 import { type ActivePanel, type ChatbotInstance } from '../../types/chatbot'
 import api from '../../lib/api'
@@ -6,17 +6,19 @@ import api from '../../lib/api'
 interface Props {
   activePanel: ActivePanel
   onOpenMobileSidebar: () => void
+  searchQuery: string
+  onSearchQueryChange: (query: string) => void
+  userName: string
 }
 
-const PANEL_LABELS: Record<ActivePanel, string> = {
-  atendimento: 'Atendimento',
-  templates: 'Templates',
-  fluxos: 'Criar Fluxo',
-  configuracoes: 'Configurações',
-}
-
-export default function ChatTopBar({ activePanel, onOpenMobileSidebar }: Props) {
-  const { data: instance, isLoading } = useQuery<ChatbotInstance>({
+export default function ChatTopBar({
+  activePanel,
+  onOpenMobileSidebar,
+  searchQuery,
+  onSearchQueryChange,
+  userName,
+}: Props) {
+  const { data: instance } = useQuery<ChatbotInstance>({
     queryKey: ['chatbot-instance'],
     queryFn: () => api.get('/chatbot/instance').then(r => r.data),
     retry: 1,
@@ -26,50 +28,61 @@ export default function ChatTopBar({ activePanel, onOpenMobileSidebar }: Props) 
   const isConnected = instance?.status === 'CONNECTED'
   const isConnecting = instance?.status === 'CONNECTING'
 
+  const initials = userName
+    .split(' ')
+    .slice(0, 2)
+    .map(n => n[0])
+    .join('')
+    .toUpperCase()
+
   return (
-    <div className="bg-white border-b border-slate-200 px-4 sm:px-6 py-3.5 flex items-center gap-3 flex-shrink-0 shadow-sm">
-      <button
-        onClick={onOpenMobileSidebar}
-        className="lg:hidden p-2 -ml-2 text-slate-500 hover:text-slate-700 hover:bg-slate-100 rounded-lg"
-      >
-        <Menu className="w-5 h-5" />
-      </button>
+    <header className="bg-white border-b border-slate-200 px-6 py-3 flex items-center justify-between flex-shrink-0 z-10">
+      {/* Mobile Menu Toggle & Search Bar Area */}
+      <div className="flex items-center gap-4 flex-1 max-w-lg">
+        <button
+          onClick={onOpenMobileSidebar}
+          className="lg:hidden p-2 -ml-2 text-slate-500 hover:text-slate-700 hover:bg-slate-100 rounded-lg flex-shrink-0"
+        >
+          <Menu className="w-5 h-5" />
+        </button>
 
-      <div className="flex items-center gap-2">
-        <div className="w-7 h-7 bg-gradient-to-br from-cyan-500/20 to-blue-600/20 rounded-lg flex items-center justify-center">
-          <Bot className="w-4 h-4 text-cyan-600" />
-        </div>
-        <div>
-          <h2 className="text-sm font-bold text-slate-800">{PANEL_LABELS[activePanel]}</h2>
-          <p className="text-xs text-slate-400">Chatbot IA — ClinIQ Pro</p>
+        {/* Search Bar - matches Imagem 1 */}
+        <div className="relative w-full max-w-md">
+          <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+          <input
+            type="text"
+            placeholder="Buscar atendimentos, contatos..."
+            value={searchQuery}
+            onChange={e => onSearchQueryChange(e.target.value)}
+            className="w-full pl-10 pr-4 py-2 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-400 transition-all text-slate-700 placeholder-slate-400"
+          />
         </div>
       </div>
 
-      <div className="flex-1" />
+      {/* Right Action Items - matches Imagem 1 */}
+      <div className="flex items-center gap-4">
+        {/* Connection/Status Dropdown Pill */}
+        <div className="relative">
+          <button className="flex items-center gap-2 px-3 py-1.5 bg-[#eafaf1] text-[#0f7642] hover:bg-[#dff5e9] border border-[#bbf7d0] rounded-full text-xs font-semibold transition-all">
+            <span className={`w-2 h-2 rounded-full ${isConnected ? 'bg-[#10b981]' : isConnecting ? 'bg-[#f59e0b]' : 'bg-slate-400'}`} />
+            <span>Online</span>
+            <ChevronDown className="w-3.5 h-3.5 opacity-60" />
+          </button>
+        </div>
 
-      <div className="flex items-center gap-2">
-        {/* Instance status */}
-        {!isLoading && (
-          <span className={`flex items-center gap-1.5 text-xs px-2.5 py-1 rounded-full font-medium border ${
-            isConnected
-              ? 'text-emerald-600 bg-emerald-50 border-emerald-200'
-              : isConnecting
-              ? 'text-amber-600 bg-amber-50 border-amber-200'
-              : 'text-slate-500 bg-slate-50 border-slate-200'
-          }`}>
-            {isConnected ? (
-              <><span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" /><Wifi className="w-3 h-3" /><span className="hidden sm:inline">Online</span></>
-            ) : isConnecting ? (
-              <><Loader2 className="w-3 h-3 animate-spin" /><span className="hidden sm:inline">Conectando</span></>
-            ) : (
-              <><span className="w-1.5 h-1.5 rounded-full bg-slate-400" /><WifiOff className="w-3 h-3" /><span className="hidden sm:inline">Offline</span></>
-            )}
+        {/* Notifications Icon with Badge */}
+        <button className="relative p-2 text-slate-400 hover:text-slate-600 hover:bg-slate-50 rounded-full transition-all">
+          <Bell className="w-5 h-5" />
+          <span className="absolute top-1 right-1 w-4 h-4 bg-red-500 text-white text-[9px] font-bold rounded-full flex items-center justify-center border border-white">
+            3
           </span>
-        )}
-        <span className="text-xs bg-cyan-500/10 text-cyan-600 border border-cyan-200 px-2.5 py-1 rounded-full font-medium">
-          BETA
-        </span>
+        </button>
+
+        {/* User initials circle avatar */}
+        <div className="w-8 h-8 bg-[#e2e8f0] border border-slate-300 rounded-full flex items-center justify-center flex-shrink-0 text-slate-600 font-bold text-xs shadow-sm">
+          {initials || 'KP'}
+        </div>
       </div>
-    </div>
+    </header>
   )
 }

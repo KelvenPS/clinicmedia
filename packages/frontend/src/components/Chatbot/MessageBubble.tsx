@@ -1,4 +1,4 @@
-import { Bot, FileText, ImageIcon, Mic, Video } from 'lucide-react'
+import { Bot, FileText, ImageIcon, Mic, Video, Check, CheckCheck } from 'lucide-react'
 import { type Message, formatMessageTime } from '../../types/chatbot'
 
 interface Props {
@@ -69,28 +69,48 @@ function MediaPreview({ message }: { message: Message }) {
 export default function MessageBubble({ message }: Props) {
   const isMe = message.fromMe
 
+  // Render ticks matching WhatsApp Web status
+  const renderTicks = () => {
+    if (!isMe) return null
+    if (message.status === 'READ') {
+      return <CheckCheck className="w-3.5 h-3.5 text-[#53bdeb]" />
+    }
+    if (message.status === 'DELIVERED') {
+      return <CheckCheck className="w-3.5 h-3.5 text-slate-400" />
+    }
+    return <Check className="w-3.5 h-3.5 text-slate-400" />
+  }
+
   return (
-    <div className={`flex ${isMe ? 'justify-end' : 'justify-start'}`}>
-      <div className={`flex flex-col max-w-[68%] ${isMe ? 'items-end' : 'items-start'}`}>
+    <div className={`flex ${isMe ? 'justify-end' : 'justify-start'} mb-1.5`}>
+      <div className={`flex flex-col max-w-[65%] ${isMe ? 'items-end' : 'items-start'}`}>
         {message.isBot && (
-          <div className="flex items-center gap-1 mb-1 px-1">
+          <div className="flex items-center gap-1 mb-0.5 px-1">
             <Bot className="w-3 h-3 text-violet-500" />
-            <span className="text-[10px] text-violet-500 font-semibold">Bot</span>
+            <span className="text-[9px] text-violet-500 font-semibold">Bot</span>
           </div>
         )}
 
         <div
-          className={`px-4 py-2.5 rounded-2xl text-sm leading-relaxed shadow-sm ${
+          className={`relative px-3.5 py-2 rounded-xl text-[13.5px] leading-relaxed shadow-sm pb-5 select-text ${
             isMe
-              ? 'bg-blue-600 text-white rounded-tr-sm'
-              : 'bg-white text-slate-800 border border-slate-200 rounded-tl-sm'
+              ? 'bg-[#d9fdd3] text-[#111b21] rounded-tr-none'
+              : 'bg-white text-[#111b21] rounded-tl-none border border-slate-100'
           }`}
         >
           {message.type !== 'TEXT' && <MediaPreview message={message} />}
-          {message.content && <span className="whitespace-pre-wrap break-words">{message.content}</span>}
+          {message.content && (
+            <span className="whitespace-pre-wrap break-words block pr-8">
+              {message.content}
+            </span>
+          )}
+          
+          {/* Time & status indicator inside bubble at bottom right */}
+          <div className="absolute right-2.5 bottom-1 flex items-center gap-1 text-[9.5px] text-slate-400 font-medium select-none">
+            <span>{formatMessageTime(message.timestamp)}</span>
+            {renderTicks()}
+          </div>
         </div>
-
-        <span className="text-[11px] text-slate-400 mt-1 px-1">{formatMessageTime(message.timestamp)}</span>
       </div>
     </div>
   )

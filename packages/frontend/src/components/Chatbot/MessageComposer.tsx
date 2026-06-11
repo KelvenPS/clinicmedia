@@ -1,7 +1,6 @@
-import { useRef } from 'react'
-import { Send, Smile, Paperclip, Loader2 } from 'lucide-react'
+import { useRef, useState, useEffect } from 'react'
+import { Send, Smile, Paperclip, ClipboardList, Loader2 } from 'lucide-react'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
-import { useState } from 'react'
 import api from '../../lib/api'
 
 interface Props {
@@ -9,12 +8,22 @@ interface Props {
   onMessageSent?: () => void
 }
 
+type ComposerTab = 'responder' | 'nota'
+
 export default function MessageComposer({ conversationId, onMessageSent }: Props) {
   const [input, setInput] = useState('')
+  const [activeTab, setActiveTab] = useState<ComposerTab>('responder')
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const queryClient = useQueryClient()
 
-  const sendMutation = useMutation({
+  // Reset input when conversation changes
+  useEffect(() => {
+    setInput('')
+    setActiveTab('responder')
+  }, [conversationId])
+
+  // Send message mutation
+  const sendMsgMutation = useMutation({
     mutationFn: (content: string) =>
       api.post(`/chatbot/conversations/${conversationId}/messages`, { content }),
     onSuccess: () => {
@@ -22,15 +31,34 @@ export default function MessageComposer({ conversationId, onMessageSent }: Props
       queryClient.invalidateQueries({ queryKey: ['chatbot-conversations'] })
       setInput('')
       onMessageSent?.()
-      // Reset textarea height
       if (textareaRef.current) textareaRef.current.style.height = 'auto'
     },
   })
 
+  // Save internal note mutation
+  const saveNoteMutation = useMutation({
+    mutationFn: (notes: string) =>
+      api.put(`/chatbot/conversations/${conversationId}`, { notes }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['chatbot-conversations'] })
+      setInput('')
+      onMessageSent?.()
+      setActiveTab('responder') // Switch back to reply tab after saving
+      if (textareaRef.current) textareaRef.current.style.height = 'auto'
+    },
+  })
+
+  const isPending = sendMsgMutation.isPending || saveNoteMutation.isPending
+
   function handleSend() {
-    const content = input.trim()
-    if (!content || sendMutation.isPending) return
-    sendMutation.mutate(content)
+    const text = input.trim()
+    if (!text || isPending) return
+
+    if (activeTab === 'responder') {
+      sendMsgMutation.mutate(text)
+    } else {
+      saveNoteMutation.mutate(text)
+    }
   }
 
   function handleKeyDown(e: React.KeyboardEvent<HTMLTextAreaElement>) {
@@ -42,51 +70,97 @@ export default function MessageComposer({ conversationId, onMessageSent }: Props
 
   function handleInput(e: React.ChangeEvent<HTMLTextAreaElement>) {
     setInput(e.target.value)
-    // Auto-expand up to 4 lines
     const el = e.target
     el.style.height = 'auto'
     el.style.height = Math.min(el.scrollHeight, 120) + 'px'
   }
 
   return (
-    <div className="bg-white border-t border-slate-200 px-4 py-3 flex-shrink-0">
-      <div className="flex items-end gap-2">
-        <button
-          type="button"
-          title="Emoji (em breve)"
-          className="p-2 text-slate-400 hover:text-slate-600 hover:bg-slate-100 rounded-lg flex-shrink-0 transition-colors"
-        >
-          <Smile className="w-5 h-5" />
-        </button>
-        <button
-          type="button"
-          title="Anexo (em breve)"
-          className="p-2 text-slate-400 hover:text-slate-600 hover:bg-slate-100 rounded-lg flex-shrink-0 transition-colors"
-        >
-          <Paperclip className="w-5 h-5" />
-        </button>
-        <div className="flex-1">
+    <div className="bg-white border-t border-slate-200 px-6 py-4 flex-shrink-0">
+      {/* Container matching Imagem 1 composer */}
+      <div className="border border-slate-200 rounded-2xl overflow-hidden shadow-sm bg-white">
+        {/* Composer Tabs */}
+        <div className="flex border-b border-slate-100 px-4 bg-slate-50/50">
+          <button
+            onClick={() => setActiveTab('responder')}
+            className={`px-3 py-2.5 text-xs font-semibold border-b-2 transition-all ${
+              activeTab === 'responder'
+                ? 'border-blue-600 text-blue-600'
+                : 'border-transparent text-slate-500 hover:text-slate-700'
+            }`}
+          >
+            Responder
+          </button>
+          <button
+            onClick={() => setActiveTab('nota')}
+            className={`px-3 py-2.5 text-xs font-semibold border-b-2 transition-all ${
+              activeTab === 'nota'
+                ? 'border-blue-600 text-blue-600'
+                : 'border-transparent text-slate-500 hover:text-slate-700'
+            }`}
+          >
+            Nota interna
+          </button>
+        </div>
+
+        {/* Text Input area */}
+        <div className="p-3">
           <textarea
             ref={textareaRef}
             value={input}
             onChange={handleInput}
             onKeyDown={handleKeyDown}
-            placeholder="Digite uma mensagem... (Enter para enviar)"
-            rows={1}
-            className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm resize-none focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-400 transition-all"
-            style={{ minHeight: '42px', maxHeight: '120px' }}
+            placeholder={
+              activeTab === 'responder'
+                ? 'Digite sua mensagem... (Enter para enviar)'
+                : 'Digite uma observação interna... (Enter para salvar)'
+            }
+            rows={2}
+            className="w-full px-2 py-1.5 bg-transparent border-0 rounded-none text-[13.5px] resize-none focus:outline-none focus:ring-0 text-slate-700 placeholder-slate-400"
+            style={{ minHeight: '50px', maxHeight: '120px' }}
           />
+
+          {/* Action Row - matches Imagem 1 */}
+          <div className="flex items-center justify-between mt-1 pt-2 border-t border-slate-100/60">
+            <div className="flex items-center gap-1">
+              {/* Attachment, Emoji, Template buttons */}
+              <button
+                type="button"
+                title="Anexo"
+                className="p-1.5 text-slate-400 hover:text-slate-600 hover:bg-slate-50 rounded-lg transition-colors"
+              >
+                <Paperclip className="w-4.5 h-4.5" />
+              </button>
+              <button
+                type="button"
+                title="Emoji"
+                className="p-1.5 text-slate-400 hover:text-slate-600 hover:bg-slate-50 rounded-lg transition-colors"
+              >
+                <Smile className="w-4.5 h-4.5" />
+              </button>
+              <button
+                type="button"
+                title="Templates Rápidos"
+                className="p-1.5 text-slate-400 hover:text-slate-600 hover:bg-slate-50 rounded-lg transition-colors"
+              >
+                <ClipboardList className="w-4.5 h-4.5" />
+              </button>
+            </div>
+
+            {/* Send button (WhatsApp style green) */}
+            <button
+              onClick={handleSend}
+              disabled={!input.trim() || isPending}
+              className="p-2 bg-[#10b981] hover:bg-[#0e9f6e] disabled:opacity-40 disabled:cursor-not-allowed text-white rounded-xl flex-shrink-0 shadow-sm transition-all flex items-center justify-center"
+            >
+              {isPending ? (
+                <Loader2 className="w-4.5 h-4.5 animate-spin" />
+              ) : (
+                <Send className="w-4.5 h-4.5" fill="white" />
+              )}
+            </button>
+          </div>
         </div>
-        <button
-          onClick={handleSend}
-          disabled={!input.trim() || sendMutation.isPending}
-          className="p-2.5 bg-blue-600 hover:bg-blue-700 disabled:opacity-40 disabled:cursor-not-allowed text-white rounded-xl flex-shrink-0 shadow-sm transition-all"
-        >
-          {sendMutation.isPending
-            ? <Loader2 className="w-5 h-5 animate-spin" />
-            : <Send className="w-5 h-5" />
-          }
-        </button>
       </div>
     </div>
   )

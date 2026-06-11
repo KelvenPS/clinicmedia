@@ -1,4 +1,4 @@
-import { Clock, CheckCircle2, UserCheck, ArrowRightCircle, RefreshCw, Loader2 } from 'lucide-react'
+import { Send, FileText, Database, Power, Pencil, Loader2 } from 'lucide-react'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { type Conversation } from '../../types/chatbot'
 import api from '../../lib/api'
@@ -9,9 +9,10 @@ interface Props {
   onUpdate: (updated: Conversation) => void
 }
 
-export default function QuickActionsBar({ conversation, currentUserId, onUpdate }: Props) {
+export default function QuickActionsBar({ conversation, onUpdate }: Props) {
   const queryClient = useQueryClient()
 
+  // Mutation to update conversation status (e.g. Encerrar)
   const updateMutation = useMutation({
     mutationFn: (patch: Partial<Conversation>) =>
       api.put(`/chatbot/conversations/${conversation.id}`, patch).then(r => r.data),
@@ -21,76 +22,85 @@ export default function QuickActionsBar({ conversation, currentUserId, onUpdate 
     },
   })
 
-  const isClosed = conversation.status === 'CLOSED'
-  const isWaiting = conversation.status === 'WAITING' || conversation.category === 'AGUARDANDO'
-  const isAssigned = conversation.assignedTo === currentUserId
+  // Mutation to send a quick template message
+  const sendMsgMutation = useMutation({
+    mutationFn: (content: string) =>
+      api.post(`/chatbot/conversations/${conversation.id}/messages`, { content }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['chatbot-messages', conversation.id] })
+      queryClient.invalidateQueries({ queryKey: ['chatbot-conversations'] })
+    },
+  })
+
+  const isPending = updateMutation.isPending || sendMsgMutation.isPending
+
+  const handleSendQuickMsg = (text: string) => {
+    if (isPending) return
+    sendMsgMutation.mutate(text)
+  }
+
+  const handleCloseChat = () => {
+    if (isPending) return
+    updateMutation.mutate({ status: 'CLOSED' })
+  }
 
   return (
-    <div className="flex items-center gap-1.5 flex-wrap">
-      {/* Assumir */}
-      {!isAssigned && !isClosed && (
-        <button
-          onClick={() => updateMutation.mutate({ assignedTo: currentUserId })}
-          disabled={updateMutation.isPending}
-          title="Assumir atendimento"
-          className="flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-medium text-blue-600 bg-blue-50 hover:bg-blue-100 border border-blue-200 rounded-lg transition-all"
-        >
-          {updateMutation.isPending ? <Loader2 className="w-3 h-3 animate-spin" /> : <UserCheck className="w-3 h-3" />}
-          <span className="hidden sm:inline">Assumir</span>
-        </button>
-      )}
+    <div className="bg-[#f4f7f6] border border-slate-200 rounded-xl px-5 py-3 mx-6 mb-4 flex items-center justify-between flex-shrink-0 shadow-sm">
+      <div className="flex items-center gap-3.5 flex-1 min-w-0">
+        <span className="text-slate-800 font-bold text-xs flex-shrink-0">Ações rápidas</span>
+        
+        {/* Row of outline buttons matching Imagem 1 */}
+        <div className="flex items-center gap-2 overflow-x-auto no-scrollbar py-0.5">
+          {/* Enviar saudação */}
+          <button
+            onClick={() => handleSendQuickMsg('Olá! Seja bem-vindo ao nosso atendimento. Como posso te ajudar hoje?')}
+            disabled={isPending}
+            className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-slate-600 bg-white hover:bg-slate-50 border border-slate-200 rounded-lg transition-all flex-shrink-0 shadow-xs"
+          >
+            <Send className="w-3 h-3 text-blue-500" />
+            <span>Enviar saudação</span>
+          </button>
 
-      {/* Transferir para fila */}
-      {!isClosed && conversation.category !== 'FILA' && (
-        <button
-          onClick={() => updateMutation.mutate({ category: 'FILA' })}
-          disabled={updateMutation.isPending}
-          title="Transferir para fila"
-          className="flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-medium text-violet-600 bg-violet-50 hover:bg-violet-100 border border-violet-200 rounded-lg transition-all"
-        >
-          {updateMutation.isPending ? <Loader2 className="w-3 h-3 animate-spin" /> : <ArrowRightCircle className="w-3 h-3" />}
-          <span className="hidden sm:inline">Fila</span>
-        </button>
-      )}
+          {/* Informar planos */}
+          <button
+            onClick={() => handleSendQuickMsg('Conheça os nossos planos disponíveis. Qual deles melhor se adapta às suas necessidades?')}
+            disabled={isPending}
+            className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-slate-600 bg-white hover:bg-slate-50 border border-slate-200 rounded-lg transition-all flex-shrink-0 shadow-xs"
+          >
+            <FileText className="w-3 h-3 text-emerald-500" />
+            <span>Informar planos</span>
+          </button>
 
-      {/* Aguardar */}
-      {!isClosed && !isWaiting && (
-        <button
-          onClick={() => updateMutation.mutate({ category: 'AGUARDANDO', status: 'WAITING' })}
-          disabled={updateMutation.isPending}
-          title="Marcar como aguardando"
-          className="flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-medium text-amber-600 bg-amber-50 hover:bg-amber-100 border border-amber-200 rounded-lg transition-all"
-        >
-          {updateMutation.isPending ? <Loader2 className="w-3 h-3 animate-spin" /> : <Clock className="w-3 h-3" />}
-          <span className="hidden sm:inline">Aguardar</span>
-        </button>
-      )}
+          {/* Coletar dados */}
+          <button
+            onClick={() => handleSendQuickMsg('Para podermos prosseguir com o seu atendimento, por favor me informe o seu nome completo e CPF.')}
+            disabled={isPending}
+            className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-slate-600 bg-white hover:bg-slate-50 border border-slate-200 rounded-lg transition-all flex-shrink-0 shadow-xs"
+          >
+            <Database className="w-3 h-3 text-indigo-500" />
+            <span>Coletar dados</span>
+          </button>
 
-      {/* Fechar */}
-      {!isClosed && (
-        <button
-          onClick={() => updateMutation.mutate({ status: 'CLOSED' })}
-          disabled={updateMutation.isPending}
-          title="Finalizar atendimento"
-          className="flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-medium text-slate-600 bg-slate-50 hover:bg-slate-100 border border-slate-200 rounded-lg transition-all"
-        >
-          {updateMutation.isPending ? <Loader2 className="w-3 h-3 animate-spin" /> : <CheckCircle2 className="w-3 h-3 text-emerald-500" />}
-          <span className="hidden sm:inline">Fechar</span>
-        </button>
-      )}
+          {/* Encerrar atendimento */}
+          <button
+            onClick={handleCloseChat}
+            disabled={isPending}
+            className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-slate-600 bg-white hover:bg-slate-50 border border-slate-200 rounded-lg transition-all flex-shrink-0 shadow-xs"
+          >
+            {isPending ? (
+              <Loader2 className="w-3 h-3 animate-spin text-slate-400" />
+            ) : (
+              <Power className="w-3 h-3 text-red-500" />
+            )}
+            <span>Encerrar atendimento</span>
+          </button>
+        </div>
+      </div>
 
-      {/* Reabrir */}
-      {isClosed && (
-        <button
-          onClick={() => updateMutation.mutate({ status: 'OPEN', category: 'ATENDIMENTO' })}
-          disabled={updateMutation.isPending}
-          title="Reabrir atendimento"
-          className="flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-medium text-emerald-600 bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 rounded-lg transition-all"
-        >
-          {updateMutation.isPending ? <Loader2 className="w-3 h-3 animate-spin" /> : <RefreshCw className="w-3 h-3" />}
-          <span className="hidden sm:inline">Reabrir</span>
-        </button>
-      )}
+      {/* Pencil edit action on right */}
+      <button className="p-1.5 text-slate-400 hover:text-slate-600 hover:bg-slate-200/50 rounded-lg flex-shrink-0 transition-all ml-2">
+        <Pencil className="w-3.5 h-3.5" />
+      </button>
     </div>
   )
 }

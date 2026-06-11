@@ -287,6 +287,18 @@ router.post('/webhook/:instanceKey', async (req: Request, res: Response) => {
       },
     })
 
+    if (!fromMe) {
+      await prisma.notification.create({
+        data: {
+          userId: instance.doctorId,
+          title: `Nova mensagem de ${pushName || contactPhone}`,
+          message: content.slice(0, 100),
+          type: 'INFO',
+          link: '/chatbot',
+        },
+      }).catch(() => {})
+    }
+
     res.status(200).json({ received: true })
   } catch (error) {
     console.error('[Webhook] Error:', error)
@@ -458,7 +470,15 @@ router.get('/conversations', async (req: AuthRequest, res: Response) => {
       include: { _count: { select: { messages: true } } },
     })
 
-    res.json(conversations)
+    const users = await prisma.user.findMany({ select: { id: true, name: true } })
+    const userMap = new Map(users.map(u => [u.id, u.name]))
+
+    const result = conversations.map(c => ({
+      ...c,
+      assignedName: c.assignedTo ? userMap.get(c.assignedTo) || null : null,
+    }))
+
+    res.json(result)
   } catch {
     res.status(500).json({ message: 'Erro interno do servidor' })
   }
@@ -485,7 +505,19 @@ router.get('/conversations/:id', async (req: AuthRequest, res: Response) => {
       return
     }
 
-    res.json(conversation)
+    let assignedName: string | null = null
+    if (conversation.assignedTo) {
+      const u = await prisma.user.findUnique({
+        where: { id: conversation.assignedTo },
+        select: { name: true },
+      })
+      assignedName = u?.name || null
+    }
+
+    res.json({
+      ...conversation,
+      assignedName,
+    })
   } catch {
     res.status(500).json({ message: 'Erro interno do servidor' })
   }
@@ -517,7 +549,19 @@ router.put('/conversations/:id', async (req: AuthRequest, res: Response) => {
       },
     })
 
-    res.json(updated)
+    let assignedName: string | null = null
+    if (updated.assignedTo) {
+      const u = await prisma.user.findUnique({
+        where: { id: updated.assignedTo },
+        select: { name: true },
+      })
+      assignedName = u?.name || null
+    }
+
+    res.json({
+      ...updated,
+      assignedName,
+    })
   } catch (error) {
     if (error instanceof z.ZodError) {
       res.status(400).json({ message: 'Dados inválidos', errors: error.errors })

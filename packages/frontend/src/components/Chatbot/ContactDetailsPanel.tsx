@@ -150,15 +150,29 @@ export default function ContactDetailsPanel({ conversation, onClose, onSwitchToT
         <div className="space-y-3.5 text-xs">
           <div className="flex items-center justify-between">
             <span className="text-slate-400 font-medium">Primeiro contato</span>
-            <span className="text-slate-700 font-semibold">12/05/2024</span>
+            <span className="text-slate-700 font-semibold">
+              {new Date(conversation.createdAt).toLocaleDateString('pt-BR')}
+            </span>
           </div>
           <div className="flex items-center justify-between">
             <span className="text-slate-400 font-medium">Último contato</span>
-            <span className="text-slate-700 font-semibold">Hoje, 09:42</span>
+            <span className="text-slate-700 font-semibold">
+              {conversation.lastMessageAt
+                ? new Date(conversation.lastMessageAt).toLocaleString('pt-BR', {
+                    day: '2-digit',
+                    month: '2-digit',
+                    year: 'numeric',
+                    hour: '2-digit',
+                    minute: '2-digit',
+                  })
+                : 'Sem contato'}
+            </span>
           </div>
           <div className="flex items-center justify-between">
             <span className="text-slate-400 font-medium">Atendimentos</span>
-            <span className="text-slate-700 font-semibold">5</span>
+            <span className="text-slate-700 font-semibold">
+              {conversation._count?.messages ?? 0}
+            </span>
           </div>
           <div className="flex items-center justify-between">
             <span className="text-slate-400 font-medium">Origem</span>
@@ -166,7 +180,9 @@ export default function ContactDetailsPanel({ conversation, onClose, onSwitchToT
           </div>
           <div className="flex items-center justify-between">
             <span className="text-slate-400 font-medium">Responsável</span>
-            <span className="text-slate-700 font-semibold">Kellen Pereira</span>
+            <span className="text-slate-700 font-semibold">
+              {conversation.assignedName || 'Não atribuído'}
+            </span>
           </div>
         </div>
       </div>

@@ -1,4 +1,4 @@
-import { Zap, LayoutDashboard, MessageSquare, Clock, ListFilter, Users, ClipboardList, GitBranch, Settings, ChevronDown } from 'lucide-react'
+import { Zap, ArrowLeft, MessageSquare, Clock, ListFilter, Users, ClipboardList, GitBranch, Settings, ChevronDown } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import { type ActivePanel, type ConversationCategory, type Conversation } from '../../types/chatbot'
@@ -10,9 +10,17 @@ interface Props {
   onSelectCategory: (cat: ConversationCategory) => void
   userName: string
   userRole: string
+  userSpecialty?: string | null
 }
 
-export default function AppSidebar({ activePanel, onSelectPanel, onSelectCategory, userName, userRole }: Props) {
+export default function AppSidebar({
+  activePanel,
+  onSelectPanel,
+  onSelectCategory,
+  userName,
+  userRole,
+  userSpecialty,
+}: Props) {
   const navigate = useNavigate()
 
   const { data: conversations } = useQuery<Conversation[]>({
@@ -36,56 +44,46 @@ export default function AppSidebar({ activePanel, onSelectPanel, onSelectCategor
 
   return (
     <aside className="w-60 bg-[#0b1420] flex flex-col h-full flex-shrink-0 text-slate-300">
-      {/* Top Header / Logo */}
-      <div className="px-6 py-5 flex items-center justify-between border-b border-white/5">
-        <div className="flex items-center gap-3">
-          <div className="w-10 h-10 bg-blue-600 rounded-full flex items-center justify-center shadow-lg shadow-blue-600/20">
-            <Zap className="w-5 h-5 text-white" fill="white" />
+      {/* Top Header / Logo + Voltar ao Menu Principal */}
+      <div className="px-6 py-5 border-b border-white/5 flex-shrink-0">
+        <div className="flex items-center justify-between mb-4">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 bg-blue-600 rounded-full flex items-center justify-center shadow-lg shadow-blue-600/20">
+              <Zap className="w-5 h-5 text-white" fill="white" />
+            </div>
+            <div>
+              <h1 className="text-white font-bold text-sm tracking-wide leading-tight">ChatBot IA</h1>
+              <p className="text-slate-500 text-xs font-normal">Plataforma</p>
+            </div>
           </div>
-          <div>
-            <h1 className="text-white font-bold text-sm tracking-wide leading-tight">ChatBot IA</h1>
-            <p className="text-slate-500 text-xs font-normal">Plataforma</p>
-          </div>
+          <button className="text-slate-400 hover:text-white transition-colors">
+            <ChevronDown className="w-4 h-4" />
+          </button>
         </div>
-        <button className="text-slate-400 hover:text-white transition-colors">
-          <ChevronDown className="w-4 h-4" />
+
+        {/* Back Button matching "Voltar ao Menu Principal" */}
+        <button
+          onClick={() => navigate('/dashboard')}
+          className="w-full flex items-center justify-center gap-2 py-2 bg-white/5 hover:bg-white/10 text-slate-300 hover:text-white border border-white/10 rounded-lg text-xs font-semibold transition-all duration-150 shadow-sm"
+        >
+          <ArrowLeft className="w-3.5 h-3.5" />
+          <span>Voltar ao Menu Principal</span>
         </button>
       </div>
 
       {/* Main Navigation */}
       <nav className="flex-1 px-4 py-6 space-y-1.5 overflow-y-auto">
-        {/* Atendimento Active shell */}
-        <button
-          onClick={() => {
-            onSelectPanel('atendimento')
-            onSelectCategory('TODOS')
-          }}
-          className={`w-full flex items-center gap-3.5 px-4 py-3 rounded-xl text-sm font-medium transition-all duration-150 ${
-            activePanel === 'atendimento'
-              ? 'bg-blue-600 text-white shadow-md shadow-blue-600/15'
-              : 'text-slate-400 hover:bg-white/5 hover:text-white'
-          }`}
-        >
-          <MessageSquare className="w-5 h-5 flex-shrink-0" />
-          <span className="flex-grow text-left">Atendimento</span>
-        </button>
-
-        {/* Dashboard Link (mocked visual) */}
-        <button
-          onClick={() => navigate('/dashboard')}
-          className="w-full flex items-center gap-3.5 px-4 py-3 rounded-xl text-sm font-medium text-slate-400 hover:bg-white/5 hover:text-white transition-all duration-150"
-        >
-          <LayoutDashboard className="w-5 h-5 flex-shrink-0" />
-          <span className="flex-grow text-left">Dashboard</span>
-        </button>
-
         {/* Categories / Lists */}
         <button
           onClick={() => {
             onSelectPanel('atendimento')
             onSelectCategory('ATENDIMENTO')
           }}
-          className="w-full flex items-center justify-between px-4 py-3 rounded-xl text-sm font-medium text-slate-400 hover:bg-white/5 hover:text-white transition-all duration-150"
+          className={`w-full flex items-center justify-between px-4 py-3 rounded-xl text-sm font-medium transition-all duration-150 ${
+            activePanel === 'atendimento' && (conversations ?? []).length > 0 && countAtendimento > 0
+              ? 'text-white'
+              : 'text-slate-400 hover:bg-white/5 hover:text-white'
+          }`}
         >
           <div className="flex items-center gap-3.5">
             <MessageSquare className="w-5 h-5 flex-shrink-0" />
@@ -195,12 +193,9 @@ export default function AppSidebar({ activePanel, onSelectPanel, onSelectCategor
           </div>
           <div className="min-w-0">
             <p className="text-white text-xs font-semibold truncate leading-tight">{userName}</p>
-            <p className="text-slate-500 text-[10px] font-normal truncate mt-0.5">{userRole || 'Administrador'}</p>
+            <p className="text-slate-500 text-[10px] font-normal truncate mt-0.5">{userSpecialty || userRole || 'Médico'}</p>
           </div>
         </div>
-        <button className="text-slate-400 hover:text-white transition-colors">
-          <ChevronDown className="w-4 h-4" />
-        </button>
       </div>
     </aside>
   )

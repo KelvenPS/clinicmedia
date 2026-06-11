@@ -123,6 +123,7 @@ export default function ChatbotIA() {
           onSelectCategory={handleSelectCategory}
           userName={user?.name ?? 'Usuário'}
           userRole={user?.role ?? ''}
+          userSpecialty={user?.specialty}
         />
       </div>
 
@@ -131,8 +132,6 @@ export default function ChatbotIA() {
         <ChatTopBar
           activePanel={activePanel}
           onOpenMobileSidebar={() => setMobileSidebarOpen(true)}
-          searchQuery={searchQuery}
-          onSearchQueryChange={setSearchQuery}
           userName={user?.name ?? 'KP'}
         />
 
@@ -148,6 +147,7 @@ export default function ChatbotIA() {
                   category={conversationCategory}
                   onCategoryChange={handleSelectCategory}
                   searchQuery={searchQuery}
+                  onSearchQueryChange={setSearchQuery}
                 />
               </div>
 

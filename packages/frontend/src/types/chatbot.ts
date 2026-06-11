@@ -31,6 +31,7 @@ export interface Conversation {
   status: ConversationStatus
   isGroup: boolean
   assignedTo: string | null
+  assignedName?: string | null
   notes: string | null
   createdAt: string
   updatedAt: string

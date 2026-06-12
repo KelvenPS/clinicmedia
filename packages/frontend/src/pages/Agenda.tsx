@@ -4,7 +4,7 @@ import {
   format, startOfWeek, addDays, addWeeks, subWeeks, isSameDay, parseISO,
 } from 'date-fns'
 import { ptBR } from 'date-fns/locale'
-import { ChevronLeft, ChevronRight, Plus, Calendar, Clock, Lock, Trash2, X, MapPin, User as UserIcon } from 'lucide-react'
+import { ChevronLeft, ChevronRight, Plus, Calendar, Clock, Lock, Trash2, X, MapPin, User as UserIcon, CalendarDays } from 'lucide-react'
 import toast from 'react-hot-toast'
 import api from '../lib/api'
 import { useAuthStore } from '../store/authStore'
@@ -273,10 +273,11 @@ export default function Agenda() {
   const handleApptMouseEnter = useCallback((e: React.MouseEvent, appt: Appointment) => {
     if (user?.role === 'SECRETARY' && appt.isBlocked) return
     if (tooltipTimer.current) clearTimeout(tooltipTimer.current)
-    // Capture rect synchronously before React clears currentTarget
-    const rect = (e.currentTarget as HTMLElement).getBoundingClientRect()
+    // clientX/Y são primitivos — seguros de capturar e usar dentro do setTimeout
+    const mx = e.clientX
+    const my = e.clientY
     tooltipTimer.current = setTimeout(() => {
-      setTooltip({ appt, x: rect.right + 8, y: rect.top })
+      setTooltip({ appt, x: mx, y: my })
     }, 300)
   }, [user])
 
@@ -601,11 +602,14 @@ export default function Agenda() {
       {/* Hover tooltip */}
       {tooltip && (
         <div
-          className="fixed z-50"
-          style={{ left: Math.min(tooltip.x, window.innerWidth - 248), top: Math.max(tooltip.y, 8) }}
+          className="fixed z-50 pointer-events-none"
+          style={{
+            left: Math.min(tooltip.x + 14, window.innerWidth - 256),
+            top: Math.min(tooltip.y + 10, window.innerHeight - 260),
+          }}
         >
           <div
-            className="w-56 bg-white border border-slate-200 rounded-xl shadow-xl p-3 space-y-2"
+            className="w-60 bg-white border border-slate-200 rounded-xl shadow-xl p-3 space-y-2 pointer-events-auto"
             onMouseEnter={() => { if (tooltipTimer.current) clearTimeout(tooltipTimer.current) }}
             onMouseLeave={handleApptMouseLeave}
           >
@@ -632,6 +636,26 @@ export default function Agenda() {
                   </span>
                 </div>
               )}
+              {tooltip.appt.createdBy && (
+                <div className="flex items-center gap-1.5">
+                  <UserIcon className="w-3 h-3 flex-shrink-0 text-slate-400" />
+                  <span className="truncate">
+                    Agendado por{' '}
+                    <span className="font-medium text-slate-700">
+                      {tooltip.appt.createdById === tooltip.appt.doctorId
+                        ? `Dr. ${tooltip.appt.createdBy.name}`
+                        : tooltip.appt.createdBy.name}
+                    </span>
+                    {tooltip.appt.createdById !== tooltip.appt.doctorId && (
+                      <span className="text-slate-400"> (Sec.)</span>
+                    )}
+                  </span>
+                </div>
+              )}
+              <div className="flex items-center gap-1.5">
+                <CalendarDays className="w-3 h-3 flex-shrink-0 text-slate-400" />
+                <span>{format(parseISO(tooltip.appt.createdAt), "dd/MM/yyyy 'às' HH:mm")}</span>
+              </div>
             </div>
             <StatusBadge status={tooltip.appt.status} />
           </div>

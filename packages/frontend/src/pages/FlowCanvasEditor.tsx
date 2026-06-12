@@ -23,6 +23,27 @@ export interface CanvasNode {
     text?: string
     options?: string[]
     systemPrompt?: string
+    // Queue-specific (all optional for backward compat — stored as JSON)
+    queueTransferType?: 'queue' | 'user' | 'first_available' | 'group'
+    queueName?: string
+    queuePriority?: 'low' | 'normal' | 'high' | 'urgent'
+    queueDepartment?: string
+    queueTags?: string[]
+    queueReason?: string
+    queueOffHoursAction?: 'close' | 'transfer' | 'ticket' | 'message'
+    queueBackup?: string
+    queueUnavailableAction?: 'stay' | 'transfer' | 'close'
+    queueMaxWait?: number
+    queueDistribution?: 'round_robin' | 'least_queue' | 'least_load' | 'manual'
+    msgInQueue?: string
+    msgUnavailable?: string
+    msgOffHours?: string
+    msgDone?: string
+    queueSendHistory?: boolean
+    queueSendVars?: boolean
+    queueSendSummary?: boolean
+    queueSendLastMessage?: boolean
+    queueAgentSummary?: string
   }
 }
 
@@ -304,6 +325,1506 @@ function NodeCard({
   )
 }
 
+// ─── Message Node Editor ──────────────────────────────────────────────────────
+
+const AVAILABLE_VARS = [
+  { name: '{{nome}}',             label: 'Nome do paciente' },
+  { name: '{{data}}',             label: 'Data da consulta' },
+  { name: '{{hora}}',             label: 'Hora da consulta' },
+  { name: '{{protocolo}}',        label: 'Protocolo de atendimento' },
+  { name: '{{patient.name}}',     label: 'Nome completo' },
+  { name: '{{patient.phone}}',    label: 'Telefone' },
+  { name: '{{appointment.date}}', label: 'Data do agendamento' },
+]
+
+const COMMON_EMOJIS = [
+  '😊','👋','✅','❗','📋','📅','🏥','💊',
+  '🔔','📞','💬','🎉','⭐','✨','🙏','💙',
+]
+
+function extractVars(text: string): string[] {
+  return [...new Set(text.match(/\{\{[^}]+\}\}/g) ?? [])]
+}
+
+function estimateReadTime(text: string): string {
+  const words = text.trim().split(/\s+/).filter(Boolean).length
+  const secs = Math.ceil((words / 200) * 60)
+  if (secs < 5)  return '< 5 seg'
+  if (secs < 60) return `${secs} seg`
+  return `${Math.ceil(secs / 60)} min`
+}
+
+function MessageNodeEditor({ node, onChange }: { node: CanvasNode; onChange: (n: CanvasNode) => void }) {
+  const [activeTab, setActiveTab]   = useState<'config' | 'vars' | 'preview' | 'insights'>('config')
+  const [showVarPicker, setShowVarPicker]   = useState(false)
+  const [showEmojiPicker, setShowEmojiPicker] = useState(false)
+  const [previewVars, setPreviewVars] = useState<Record<string, string>>({})
+  const [lastChanged, setLastChanged] = useState(new Date())
+  const textareaRef = useRef<HTMLTextAreaElement>(null)
+
+  const text = node.data.text ?? ''
+  const detectedVars = extractVars(text)
+  const charCount = text.length
+  const lineCount  = text ? text.split('\n').length : 0
+
+  function setData(patch: Partial<CanvasNode['data']>) {
+    onChange({ ...node, data: { ...node.data, ...patch } })
+  }
+
+  function handleTextChange(val: string) {
+    setData({ text: val })
+    setLastChanged(new Date())
+    if (textareaRef.current) {
+      textareaRef.current.style.height = 'auto'
+      textareaRef.current.style.height = `${textareaRef.current.scrollHeight}px`
+    }
+  }
+
+  function insertAtCursor(snippet: string) {
+    const el = textareaRef.current
+    if (!el) { setData({ text: text + snippet }); return }
+    const s = el.selectionStart
+    const e = el.selectionEnd
+    const next = text.slice(0, s) + snippet + text.slice(e)
+    setData({ text: next })
+    requestAnimationFrame(() => {
+      el.focus()
+      el.selectionStart = el.selectionEnd = s + snippet.length
+    })
+    setShowVarPicker(false)
+    setShowEmojiPicker(false)
+  }
+
+  const previewText = text.replace(/\{\{([^}]+)\}\}/g, (_m, key) => previewVars[key] || _m)
+
+  const TABS = [
+    { id: 'config',   label: 'Config' },
+    { id: 'vars',     label: 'Variáveis', badge: detectedVars.length || undefined },
+    { id: 'preview',  label: 'Preview' },
+    { id: 'insights', label: 'Insights' },
+  ] as const
+
+  return (
+    <div className="flex flex-col h-full bg-white text-slate-700">
+      {/* ── Tabs ── */}
+      <div className="flex border-b border-slate-200 text-[10px] font-bold uppercase tracking-wider text-slate-400 flex-shrink-0">
+        {TABS.map(t => (
+          <button
+            key={t.id}
+            onClick={() => setActiveTab(t.id)}
+            className={`flex-1 py-2 text-center border-b-2 transition-all relative ${activeTab === t.id ? 'border-sky-500 text-sky-600 bg-slate-50' : 'border-transparent hover:text-slate-600'}`}
+          >
+            {t.label}
+            {'badge' in t && t.badge ? (
+              <span className="absolute top-1 right-1 w-3.5 h-3.5 bg-sky-500 text-white rounded-full text-[8px] flex items-center justify-center font-bold leading-none">
+                {t.badge}
+              </span>
+            ) : null}
+          </button>
+        ))}
+      </div>
+
+      <div className="flex-1 overflow-y-auto">
+
+        {/* ══ CONFIG ══ */}
+        {activeTab === 'config' && (
+          <div className="p-4 space-y-4 animate-in fade-in duration-200">
+            {/* Block name */}
+            <div>
+              <label className="block text-[10px] font-bold uppercase tracking-wider text-slate-500 mb-1">Nome do bloco</label>
+              <input
+                value={node.data.label || 'Mensagem'}
+                onChange={e => onChange({ ...node, data: { ...node.data, label: e.target.value } })}
+                className="w-full px-3 py-2 bg-white border border-slate-200 rounded-lg text-xs text-slate-800 focus:outline-none focus:border-sky-400 focus:ring-1 focus:ring-sky-500/20"
+              />
+            </div>
+
+            {/* Enhanced message editor */}
+            <div>
+              <div className="flex items-center justify-between mb-1">
+                <label className="block text-[10px] font-bold uppercase tracking-wider text-slate-500">Mensagem</label>
+                <span className={`text-[9px] font-mono tabular-nums ${charCount > 1000 ? 'text-rose-500' : 'text-slate-400'}`}>
+                  {charCount}/1600
+                </span>
+              </div>
+
+              {/* Toolbar */}
+              <div className="flex items-center gap-1 mb-1.5 pb-1.5 border-b border-slate-100">
+                {/* Emoji */}
+                <div className="relative">
+                  <button
+                    onClick={() => { setShowEmojiPicker(v => !v); setShowVarPicker(false) }}
+                    title="Inserir emoji"
+                    className={`p-1.5 rounded-md text-slate-400 hover:text-slate-700 hover:bg-slate-100 transition-colors ${showEmojiPicker ? 'bg-slate-100 text-slate-700' : ''}`}
+                  >
+                    <Smile className="w-3.5 h-3.5" />
+                  </button>
+                  {showEmojiPicker && (
+                    <div className="absolute top-full left-0 z-50 mt-1 p-2 bg-white border border-slate-200 rounded-xl shadow-xl">
+                      <div className="grid grid-cols-8 gap-0.5">
+                        {COMMON_EMOJIS.map(em => (
+                          <button
+                            key={em}
+                            onClick={() => insertAtCursor(em)}
+                            className="w-7 h-7 flex items-center justify-center rounded hover:bg-slate-100 text-base transition-colors"
+                          >
+                            {em}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </div>
+
+                {/* Variable picker */}
+                <div className="relative">
+                  <button
+                    onClick={() => { setShowVarPicker(v => !v); setShowEmojiPicker(false) }}
+                    title="Inserir variável"
+                    className={`flex items-center gap-1 px-2 py-1 rounded-md text-[10px] font-bold text-sky-600 hover:bg-sky-50 transition-colors ${showVarPicker ? 'bg-sky-50' : ''}`}
+                  >
+                    <span className="font-mono text-[11px] leading-none">{'{ }'}</span>
+                    <span>Variável</span>
+                  </button>
+                  {showVarPicker && (
+                    <div className="absolute top-full left-0 z-50 mt-1 w-52 bg-white border border-slate-200 rounded-xl shadow-xl overflow-hidden">
+                      <div className="px-3 py-2 bg-slate-50 border-b border-slate-100">
+                        <p className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">Disponíveis no fluxo</p>
+                      </div>
+                      <div className="max-h-44 overflow-y-auto divide-y divide-slate-50">
+                        {AVAILABLE_VARS.map(v => (
+                          <button
+                            key={v.name}
+                            onClick={() => insertAtCursor(v.name)}
+                            className="w-full flex items-center gap-2 px-3 py-2 hover:bg-sky-50 text-left transition-colors"
+                          >
+                            <span className="font-mono text-[10px] text-sky-600 flex-shrink-0">{v.name}</span>
+                            <span className="text-[10px] text-slate-400 truncate">{v.label}</span>
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </div>
+
+                {/* AI improve — disabled (no endpoint) */}
+                <button
+                  disabled
+                  title="Em breve"
+                  className="ml-auto flex items-center gap-1 px-2 py-1 rounded-md text-[10px] font-bold text-slate-300 cursor-not-allowed select-none"
+                >
+                  <Sparkles className="w-3 h-3" />
+                  <span>Melhorar</span>
+                </button>
+              </div>
+
+              {/* Auto-resize textarea */}
+              <textarea
+                ref={textareaRef}
+                value={text}
+                onChange={e => handleTextChange(e.target.value)}
+                onInput={e => {
+                  const el = e.currentTarget
+                  el.style.height = 'auto'
+                  el.style.height = `${el.scrollHeight}px`
+                }}
+                placeholder={'Olá {{nome}}! 👋\n\nSeu agendamento está confirmado.\n\nAté logo!'}
+                className="w-full px-3 py-2.5 bg-white border border-slate-200 rounded-lg text-xs text-slate-800 focus:outline-none focus:border-sky-400 focus:ring-1 focus:ring-sky-500/20 leading-relaxed resize-none overflow-hidden"
+                style={{ minHeight: 120 }}
+              />
+              <p className="text-[9px] text-slate-400 mt-1 flex items-center gap-1">
+                <span className="font-mono text-sky-400">{'{{var}}'}</span>
+                substituída automaticamente · Enter para nova linha
+              </p>
+            </div>
+          </div>
+        )}
+
+        {/* ══ VARIÁVEIS ══ */}
+        {activeTab === 'vars' && (
+          <div className="p-4 space-y-3 animate-in fade-in duration-200">
+            <p className="text-[10px] text-slate-500">
+              Variáveis detectadas automaticamente na mensagem.
+            </p>
+
+            {detectedVars.length === 0 ? (
+              <div className="flex flex-col items-center gap-2 py-8 text-center">
+                <div className="w-10 h-10 rounded-xl bg-slate-100 flex items-center justify-center">
+                  <FileText className="w-5 h-5 text-slate-300" />
+                </div>
+                <p className="text-xs text-slate-400">Nenhuma variável detectada</p>
+                <p className="text-[10px] text-slate-300">
+                  Adicione <span className="font-mono text-sky-400">{'{{nome}}'}</span> na mensagem
+                </p>
+              </div>
+            ) : (
+              <div className="space-y-2">
+                {detectedVars.map(v => {
+                  const key = v.replace(/\{\{|\}\}/g, '')
+                  const known = AVAILABLE_VARS.find(a => a.name === v)
+                  const count = (text.match(new RegExp(v.replace(/[{}]/g, '\\$&'), 'g')) ?? []).length
+                  return (
+                    <div key={v} className="p-2.5 bg-slate-50 border border-slate-200 rounded-xl">
+                      <div className="flex items-center gap-2">
+                        <span className="font-mono text-[11px] text-sky-600 font-bold">{v}</span>
+                        <span className="ml-auto text-[9px] text-slate-400 bg-white border border-slate-100 px-1.5 py-0.5 rounded-full">
+                          {count}× usada
+                        </span>
+                      </div>
+                      {known && <p className="text-[10px] text-slate-500 mt-1">{known.label}</p>}
+                      <div className="flex items-center gap-2 mt-1.5">
+                        <span className="text-[9px] text-slate-400">Origem:</span>
+                        <span className="text-[9px] font-semibold text-emerald-600">Sistema</span>
+                        <span className="text-[9px] text-slate-400 ml-auto">Tipo: texto</span>
+                      </div>
+                      {!known && (
+                        <div className="mt-1.5 flex items-center gap-1">
+                          <AlertCircle className="w-3 h-3 text-amber-400 flex-shrink-0" />
+                          <span className="text-[9px] text-amber-600">Variável personalizada</span>
+                        </div>
+                      )}
+                    </div>
+                  )
+                })}
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* ══ PREVIEW ══ */}
+        {activeTab === 'preview' && (
+          <div className="p-4 space-y-4 animate-in fade-in duration-200">
+            {/* Simulate variable values */}
+            {detectedVars.length > 0 && (
+              <div className="space-y-2">
+                <p className="text-[10px] font-bold uppercase tracking-wider text-slate-500">Simular valores</p>
+                {detectedVars.map(v => {
+                  const key = v.replace(/\{\{|\}\}/g, '')
+                  return (
+                    <div key={v} className="flex items-center gap-2">
+                      <span className="font-mono text-[10px] text-sky-600 w-28 flex-shrink-0 truncate">{v}</span>
+                      <input
+                        value={previewVars[key] ?? ''}
+                        onChange={e => setPreviewVars(p => ({ ...p, [key]: e.target.value }))}
+                        placeholder="Ex: João"
+                        className="flex-1 px-2 py-1.5 bg-white border border-slate-200 rounded-lg text-[10px] text-slate-800 focus:outline-none focus:border-sky-400"
+                      />
+                    </div>
+                  )
+                })}
+              </div>
+            )}
+
+            {/* WhatsApp-style bubble */}
+            <div>
+              <p className="text-[10px] font-bold uppercase tracking-wider text-slate-500 mb-2">Preview WhatsApp</p>
+              <div className="rounded-xl overflow-hidden border border-slate-200 shadow-sm">
+                <div className="bg-[#075E54] px-3 py-2 flex items-center gap-2">
+                  <div className="w-6 h-6 rounded-full bg-emerald-300 flex-shrink-0" />
+                  <div>
+                    <p className="text-white text-[10px] font-bold leading-none">Clínica</p>
+                    <p className="text-emerald-200 text-[8px]">online</p>
+                  </div>
+                </div>
+                <div className="bg-[#e5ddd5] p-3 min-h-[100px] flex flex-col gap-2">
+                  {text.trim() ? (
+                    <div className="self-start max-w-[85%] bg-white rounded-xl rounded-tl-none px-3 py-2 shadow-sm">
+                      <p className="text-[11px] text-slate-800 whitespace-pre-wrap leading-relaxed">
+                        {previewText}
+                      </p>
+                      <p className="text-[8px] text-slate-400 text-right mt-1">
+                        {new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })} ✓✓
+                      </p>
+                    </div>
+                  ) : (
+                    <p className="text-[10px] text-slate-400 italic text-center mt-6">
+                      Digite uma mensagem na aba Config
+                    </p>
+                  )}
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* ══ INSIGHTS ══ */}
+        {activeTab === 'insights' && (
+          <div className="p-4 space-y-3 animate-in fade-in duration-200">
+            <p className="text-[10px] font-bold uppercase tracking-wider text-slate-500">Análise da mensagem</p>
+
+            <div className="grid grid-cols-2 gap-2">
+              {[
+                { icon: '💬', label: 'Caracteres', value: charCount },
+                { icon: '📄', label: 'Linhas',     value: lineCount },
+                { icon: '🔁', label: 'Variáveis',  value: detectedVars.length },
+                { icon: '⏱️', label: 'Leitura est.', value: estimateReadTime(text) },
+              ].map(s => (
+                <div key={s.label} className="p-3 bg-slate-50 border border-slate-200 rounded-xl">
+                  <div className="text-base mb-1">{s.icon}</div>
+                  <p className="text-lg font-bold text-slate-800 leading-none">{s.value}</p>
+                  <p className="text-[9px] text-slate-400 mt-0.5 uppercase tracking-wider">{s.label}</p>
+                </div>
+              ))}
+            </div>
+
+            <div className="p-2.5 bg-slate-50 border border-slate-200 rounded-xl">
+              <p className="text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1">Última alteração</p>
+              <p className="text-xs text-slate-700 font-mono">
+                {lastChanged.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit', second: '2-digit' })}
+              </p>
+            </div>
+
+            {charCount > 1000 && (
+              <div className="p-2.5 bg-amber-50 border border-amber-200 rounded-xl flex items-start gap-2">
+                <AlertCircle className="w-3.5 h-3.5 text-amber-500 flex-shrink-0 mt-0.5" />
+                <p className="text-[10px] text-amber-700 leading-relaxed">
+                  Mensagens longas podem ser divididas pelo WhatsApp. Considere usar múltiplos blocos.
+                </p>
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+    </div>
+  )
+}
+
+// ─── Menu Node Editor ─────────────────────────────────────────────────────────
+
+const MENU_EMOJIS = [
+  '1️⃣','2️⃣','3️⃣','4️⃣','5️⃣','6️⃣',
+  '✅','❌','📅','📞','💬','🏥','💊','🔔','⭐','🔄',
+]
+
+const OPTION_EMOJIS = ['1️⃣','2️⃣','3️⃣','4️⃣','5️⃣','6️⃣','✅','❌','📅','📞','💬','🏥']
+
+function MenuNodeEditor({ node, onChange }: { node: CanvasNode; onChange: (n: CanvasNode) => void }) {
+  const [activeTab, setActiveTab]         = useState<'config' | 'vars' | 'preview' | 'insights'>('config')
+  const [showQVarPicker, setShowQVarPicker]   = useState(false)
+  const [showQEmojiPicker, setShowQEmojiPicker] = useState(false)
+  const [showOptEmoji, setShowOptEmoji]    = useState<number | null>(null)
+  const [previewVars, setPreviewVars]      = useState<Record<string, string>>({})
+  const [lastChanged, setLastChanged]      = useState(new Date())
+  const questionRef = useRef<HTMLTextAreaElement>(null)
+
+  const questionText = node.data.text ?? ''
+  const options      = node.data.options ?? ['Opção 1', 'Opção 2']
+  const detectedVars = extractVars(questionText)
+  const charCount    = questionText.length
+
+  function setData(patch: Partial<CanvasNode['data']>) {
+    onChange({ ...node, data: { ...node.data, ...patch } })
+    setLastChanged(new Date())
+  }
+
+  function handleQuestionChange(val: string) {
+    setData({ text: val })
+    if (questionRef.current) {
+      questionRef.current.style.height = 'auto'
+      questionRef.current.style.height = `${questionRef.current.scrollHeight}px`
+    }
+  }
+
+  function insertInQuestion(snippet: string) {
+    const el = questionRef.current
+    if (!el) { setData({ text: questionText + snippet }); return }
+    const s = el.selectionStart
+    const e = el.selectionEnd
+    setData({ text: questionText.slice(0, s) + snippet + questionText.slice(e) })
+    requestAnimationFrame(() => {
+      el.focus()
+      el.selectionStart = el.selectionEnd = s + snippet.length
+    })
+    setShowQVarPicker(false)
+    setShowQEmojiPicker(false)
+  }
+
+  function setOption(i: number, val: string) {
+    const next = [...options]
+    next[i] = val
+    setData({ options: next })
+  }
+
+  function addOption() {
+    if (options.length >= 6) return
+    setData({ options: [...options, `Opção ${options.length + 1}`] })
+  }
+
+  function removeOption(i: number) {
+    if (options.length <= 1) return
+    setData({ options: options.filter((_, j) => j !== i) })
+  }
+
+  function prependEmoji(i: number, em: string) {
+    const current = options[i]
+    const stripped = current.replace(/^[\u{1F000}-\u{1FFFF}\u{2600}-\u{27BF}\s]+/u, '')
+    setOption(i, `${em} ${stripped.trim()}`)
+    setShowOptEmoji(null)
+  }
+
+  const previewQuestion = questionText.replace(/\{\{([^}]+)\}\}/g, (_m, k) => previewVars[k] || _m)
+
+  const TABS = [
+    { id: 'config',   label: 'Config' },
+    { id: 'vars',     label: 'Variáveis', badge: detectedVars.length || undefined },
+    { id: 'preview',  label: 'Preview' },
+    { id: 'insights', label: 'Insights' },
+  ] as const
+
+  return (
+    <div className="flex flex-col h-full bg-white text-slate-700">
+      {/* ── Tabs ── */}
+      <div className="flex border-b border-slate-200 text-[10px] font-bold uppercase tracking-wider text-slate-400 flex-shrink-0">
+        {TABS.map(t => (
+          <button
+            key={t.id}
+            onClick={() => setActiveTab(t.id)}
+            className={`flex-1 py-2 text-center border-b-2 transition-all relative ${activeTab === t.id ? 'border-amber-500 text-amber-600 bg-slate-50' : 'border-transparent hover:text-slate-600'}`}
+          >
+            {t.label}
+            {'badge' in t && t.badge ? (
+              <span className="absolute top-1 right-1 w-3.5 h-3.5 bg-amber-500 text-white rounded-full text-[8px] flex items-center justify-center font-bold leading-none">
+                {t.badge}
+              </span>
+            ) : null}
+          </button>
+        ))}
+      </div>
+
+      <div className="flex-1 overflow-y-auto">
+
+        {/* ══ CONFIG ══ */}
+        {activeTab === 'config' && (
+          <div className="p-4 space-y-4 animate-in fade-in duration-200">
+
+            {/* Block name */}
+            <div>
+              <label className="block text-[10px] font-bold uppercase tracking-wider text-slate-500 mb-1">Nome do bloco</label>
+              <input
+                value={node.data.label || 'Menu'}
+                onChange={e => onChange({ ...node, data: { ...node.data, label: e.target.value } })}
+                className="w-full px-3 py-2 bg-white border border-slate-200 rounded-lg text-xs text-slate-800 focus:outline-none focus:border-amber-400 focus:ring-1 focus:ring-amber-500/20"
+              />
+            </div>
+
+            {/* Question / Title */}
+            <div>
+              <div className="flex items-center justify-between mb-1">
+                <label className="block text-[10px] font-bold uppercase tracking-wider text-slate-500">Pergunta / Título</label>
+                <span className={`text-[9px] font-mono tabular-nums ${charCount > 500 ? 'text-rose-500' : 'text-slate-400'}`}>
+                  {charCount}/500
+                </span>
+              </div>
+
+              {/* Question toolbar */}
+              <div className="flex items-center gap-1 mb-1.5 pb-1.5 border-b border-slate-100">
+                {/* Emoji */}
+                <div className="relative">
+                  <button
+                    onClick={() => { setShowQEmojiPicker(v => !v); setShowQVarPicker(false) }}
+                    title="Inserir emoji"
+                    className={`p-1.5 rounded-md text-slate-400 hover:text-slate-700 hover:bg-slate-100 transition-colors ${showQEmojiPicker ? 'bg-slate-100 text-slate-700' : ''}`}
+                  >
+                    <Smile className="w-3.5 h-3.5" />
+                  </button>
+                  {showQEmojiPicker && (
+                    <div className="absolute top-full left-0 z-50 mt-1 p-2 bg-white border border-slate-200 rounded-xl shadow-xl">
+                      <div className="grid grid-cols-8 gap-0.5">
+                        {MENU_EMOJIS.map(em => (
+                          <button key={em} onClick={() => insertInQuestion(em)}
+                            className="w-7 h-7 flex items-center justify-center rounded hover:bg-slate-100 text-base transition-colors">
+                            {em}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </div>
+
+                {/* Var picker */}
+                <div className="relative">
+                  <button
+                    onClick={() => { setShowQVarPicker(v => !v); setShowQEmojiPicker(false) }}
+                    title="Inserir variável"
+                    className={`flex items-center gap-1 px-2 py-1 rounded-md text-[10px] font-bold text-amber-600 hover:bg-amber-50 transition-colors ${showQVarPicker ? 'bg-amber-50' : ''}`}
+                  >
+                    <span className="font-mono text-[11px] leading-none">{'{ }'}</span>
+                    <span>Variável</span>
+                  </button>
+                  {showQVarPicker && (
+                    <div className="absolute top-full left-0 z-50 mt-1 w-52 bg-white border border-slate-200 rounded-xl shadow-xl overflow-hidden">
+                      <div className="px-3 py-2 bg-slate-50 border-b border-slate-100">
+                        <p className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">Disponíveis no fluxo</p>
+                      </div>
+                      <div className="max-h-44 overflow-y-auto divide-y divide-slate-50">
+                        {AVAILABLE_VARS.map(v => (
+                          <button key={v.name} onClick={() => insertInQuestion(v.name)}
+                            className="w-full flex items-center gap-2 px-3 py-2 hover:bg-amber-50 text-left transition-colors">
+                            <span className="font-mono text-[10px] text-amber-600 flex-shrink-0">{v.name}</span>
+                            <span className="text-[10px] text-slate-400 truncate">{v.label}</span>
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              {/* Question textarea */}
+              <textarea
+                ref={questionRef}
+                value={questionText}
+                onChange={e => handleQuestionChange(e.target.value)}
+                onInput={e => {
+                  const el = e.currentTarget
+                  el.style.height = 'auto'
+                  el.style.height = `${el.scrollHeight}px`
+                }}
+                placeholder={'Como posso te ajudar hoje? 😊'}
+                className="w-full px-3 py-2.5 bg-white border border-slate-200 rounded-lg text-xs text-slate-800 focus:outline-none focus:border-amber-400 focus:ring-1 focus:ring-amber-500/20 leading-relaxed resize-none overflow-hidden"
+                style={{ minHeight: 64 }}
+              />
+              <p className="text-[9px] text-slate-400 mt-1 flex items-center gap-1">
+                <span className="font-mono text-amber-500">{'{{var}}'}</span>
+                substituída automaticamente
+              </p>
+            </div>
+
+            {/* Options */}
+            <div>
+              <div className="flex items-center justify-between mb-2">
+                <label className="block text-[10px] font-bold uppercase tracking-wider text-slate-500">
+                  Opções de resposta
+                </label>
+                <span className="text-[9px] text-slate-400">{options.length}/6</span>
+              </div>
+
+              <div className="space-y-1.5">
+                {options.map((opt, i) => (
+                  <div key={i} className="flex items-center gap-2 group">
+                    {/* Number badge */}
+                    <span className="w-5 h-5 bg-amber-500/10 text-amber-600 rounded-md flex items-center justify-center text-[10px] font-bold flex-shrink-0 border border-amber-500/20">
+                      {i + 1}
+                    </span>
+
+                    {/* Option input */}
+                    <input
+                      value={opt}
+                      onChange={e => setOption(i, e.target.value)}
+                      placeholder={`Opção ${i + 1}`}
+                      className="flex-1 px-2.5 py-1.5 bg-white border border-slate-200 rounded-lg text-xs text-slate-800 focus:outline-none focus:border-amber-400 focus:ring-1 focus:ring-amber-500/20 min-w-0"
+                    />
+
+                    {/* Emoji for option */}
+                    <div className="relative flex-shrink-0">
+                      <button
+                        onClick={() => setShowOptEmoji(showOptEmoji === i ? null : i)}
+                        title="Emoji"
+                        className="p-1 rounded text-slate-300 hover:text-amber-500 transition-colors opacity-0 group-hover:opacity-100"
+                      >
+                        <Smile className="w-3 h-3" />
+                      </button>
+                      {showOptEmoji === i && (
+                        <div className="absolute top-full right-0 z-50 mt-1 p-2 bg-white border border-slate-200 rounded-xl shadow-xl">
+                          <div className="grid grid-cols-6 gap-0.5">
+                            {OPTION_EMOJIS.map(em => (
+                              <button key={em} onClick={() => prependEmoji(i, em)}
+                                className="w-7 h-7 flex items-center justify-center rounded hover:bg-slate-100 text-base transition-colors">
+                                {em}
+                              </button>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Delete option */}
+                    <button
+                      onClick={() => removeOption(i)}
+                      disabled={options.length <= 1}
+                      className="p-1 text-slate-300 hover:text-rose-500 transition-colors flex-shrink-0 disabled:opacity-0 disabled:pointer-events-none opacity-0 group-hover:opacity-100"
+                    >
+                      <X className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
+                ))}
+              </div>
+
+              {/* Add option */}
+              {options.length < 6 && (
+                <button
+                  onClick={addOption}
+                  className="mt-2 flex items-center gap-1.5 text-[10px] font-bold text-amber-500 hover:text-amber-600 transition-colors"
+                >
+                  <Plus className="w-3 h-3" />
+                  Adicionar opção
+                </button>
+              )}
+
+              {options.length === 6 && (
+                <p className="mt-1.5 text-[9px] text-slate-400 flex items-center gap-1">
+                  <Info className="w-3 h-3" />
+                  Máximo de 6 opções atingido
+                </p>
+              )}
+            </div>
+          </div>
+        )}
+
+        {/* ══ VARIÁVEIS ══ */}
+        {activeTab === 'vars' && (
+          <div className="p-4 space-y-3 animate-in fade-in duration-200">
+            <p className="text-[10px] text-slate-500">
+              Variáveis detectadas na pergunta do menu.
+            </p>
+
+            {detectedVars.length === 0 ? (
+              <div className="flex flex-col items-center gap-2 py-8 text-center">
+                <div className="w-10 h-10 rounded-xl bg-slate-100 flex items-center justify-center">
+                  <FileText className="w-5 h-5 text-slate-300" />
+                </div>
+                <p className="text-xs text-slate-400">Nenhuma variável detectada</p>
+                <p className="text-[10px] text-slate-300">
+                  Adicione <span className="font-mono text-amber-400">{'{{nome}}'}</span> na pergunta
+                </p>
+              </div>
+            ) : (
+              <div className="space-y-2">
+                {detectedVars.map(v => {
+                  const known = AVAILABLE_VARS.find(a => a.name === v)
+                  const count = (questionText.match(new RegExp(v.replace(/[{}]/g, '\\$&'), 'g')) ?? []).length
+                  return (
+                    <div key={v} className="p-2.5 bg-slate-50 border border-slate-200 rounded-xl">
+                      <div className="flex items-center gap-2">
+                        <span className="font-mono text-[11px] text-amber-600 font-bold">{v}</span>
+                        <span className="ml-auto text-[9px] text-slate-400 bg-white border border-slate-100 px-1.5 py-0.5 rounded-full">
+                          {count}× usada
+                        </span>
+                      </div>
+                      {known && <p className="text-[10px] text-slate-500 mt-1">{known.label}</p>}
+                      <div className="flex items-center gap-2 mt-1.5">
+                        <span className="text-[9px] text-slate-400">Origem:</span>
+                        <span className="text-[9px] font-semibold text-emerald-600">Sistema</span>
+                        <span className="text-[9px] text-slate-400 ml-auto">Tipo: texto</span>
+                      </div>
+                      {!known && (
+                        <div className="mt-1.5 flex items-center gap-1">
+                          <AlertCircle className="w-3 h-3 text-amber-400 flex-shrink-0" />
+                          <span className="text-[9px] text-amber-600">Variável personalizada</span>
+                        </div>
+                      )}
+                    </div>
+                  )
+                })}
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* ══ PREVIEW ══ */}
+        {activeTab === 'preview' && (
+          <div className="p-4 space-y-4 animate-in fade-in duration-200">
+            {/* Simulate vars in question */}
+            {detectedVars.length > 0 && (
+              <div className="space-y-2">
+                <p className="text-[10px] font-bold uppercase tracking-wider text-slate-500">Simular valores</p>
+                {detectedVars.map(v => {
+                  const key = v.replace(/\{\{|\}\}/g, '')
+                  return (
+                    <div key={v} className="flex items-center gap-2">
+                      <span className="font-mono text-[10px] text-amber-600 w-28 flex-shrink-0 truncate">{v}</span>
+                      <input
+                        value={previewVars[key] ?? ''}
+                        onChange={e => setPreviewVars(p => ({ ...p, [key]: e.target.value }))}
+                        placeholder="Ex: João"
+                        className="flex-1 px-2 py-1.5 bg-white border border-slate-200 rounded-lg text-[10px] text-slate-800 focus:outline-none focus:border-amber-400"
+                      />
+                    </div>
+                  )
+                })}
+              </div>
+            )}
+
+            {/* WhatsApp preview */}
+            <div>
+              <p className="text-[10px] font-bold uppercase tracking-wider text-slate-500 mb-2">Preview WhatsApp</p>
+              <div className="rounded-xl overflow-hidden border border-slate-200 shadow-sm">
+                {/* Header */}
+                <div className="bg-[#075E54] px-3 py-2 flex items-center gap-2">
+                  <div className="w-6 h-6 rounded-full bg-emerald-300 flex-shrink-0" />
+                  <div>
+                    <p className="text-white text-[10px] font-bold leading-none">Clínica</p>
+                    <p className="text-emerald-200 text-[8px]">online</p>
+                  </div>
+                </div>
+                {/* Chat area */}
+                <div className="bg-[#e5ddd5] p-3 space-y-2">
+                  {/* Question bubble */}
+                  {questionText.trim() ? (
+                    <div className="self-start max-w-[85%] bg-white rounded-xl rounded-tl-none px-3 py-2 shadow-sm">
+                      <p className="text-[11px] text-slate-800 whitespace-pre-wrap leading-relaxed">
+                        {previewQuestion}
+                      </p>
+                      <p className="text-[8px] text-slate-400 text-right mt-1">
+                        {new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })} ✓✓
+                      </p>
+                    </div>
+                  ) : (
+                    <p className="text-[10px] text-slate-400 italic text-center mt-2">
+                      Digite uma pergunta na aba Config
+                    </p>
+                  )}
+
+                  {/* Options as numbered list */}
+                  {options.length > 0 && (
+                    <div className="bg-white rounded-xl rounded-tl-none shadow-sm overflow-hidden">
+                      {options.map((opt, i) => (
+                        <div
+                          key={i}
+                          className={`flex items-center gap-2 px-3 py-2 text-[11px] text-slate-700 ${i < options.length - 1 ? 'border-b border-slate-100' : ''}`}
+                        >
+                          <span className="w-5 h-5 rounded-full bg-amber-100 text-amber-700 text-[9px] font-bold flex items-center justify-center flex-shrink-0">
+                            {i + 1}
+                          </span>
+                          <span className="truncate">{opt || `Opção ${i + 1}`}</span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* ══ INSIGHTS ══ */}
+        {activeTab === 'insights' && (
+          <div className="p-4 space-y-3 animate-in fade-in duration-200">
+            <p className="text-[10px] font-bold uppercase tracking-wider text-slate-500">Análise do menu</p>
+
+            <div className="grid grid-cols-2 gap-2">
+              {[
+                { icon: '🔢', label: 'Opções',       value: options.length },
+                { icon: '💬', label: 'Chars pergunta', value: charCount },
+                { icon: '🔁', label: 'Variáveis',    value: detectedVars.length },
+                { icon: '⏱️', label: 'Leitura est.',  value: estimateReadTime(questionText) },
+              ].map(s => (
+                <div key={s.label} className="p-3 bg-slate-50 border border-slate-200 rounded-xl">
+                  <div className="text-base mb-1">{s.icon}</div>
+                  <p className="text-lg font-bold text-slate-800 leading-none">{s.value}</p>
+                  <p className="text-[9px] text-slate-400 mt-0.5 uppercase tracking-wider">{s.label}</p>
+                </div>
+              ))}
+            </div>
+
+            {/* Options overview */}
+            <div className="p-2.5 bg-slate-50 border border-slate-200 rounded-xl space-y-1.5">
+              <p className="text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-2">Resumo das opções</p>
+              {options.map((opt, i) => (
+                <div key={i} className="flex items-center gap-2">
+                  <span className="w-4 h-4 rounded bg-amber-100 text-amber-600 text-[9px] font-bold flex items-center justify-center flex-shrink-0">
+                    {i + 1}
+                  </span>
+                  <span className="text-[10px] text-slate-600 truncate flex-1">{opt || `Opção ${i + 1}`}</span>
+                  <span className="text-[9px] text-slate-400 flex-shrink-0">{opt.length}c</span>
+                </div>
+              ))}
+            </div>
+
+            <div className="p-2.5 bg-slate-50 border border-slate-200 rounded-xl">
+              <p className="text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1">Última alteração</p>
+              <p className="text-xs text-slate-700 font-mono">
+                {lastChanged.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit', second: '2-digit' })}
+              </p>
+            </div>
+
+            {options.length < 2 && (
+              <div className="p-2.5 bg-amber-50 border border-amber-200 rounded-xl flex items-start gap-2">
+                <AlertCircle className="w-3.5 h-3.5 text-amber-500 flex-shrink-0 mt-0.5" />
+                <p className="text-[10px] text-amber-700 leading-relaxed">
+                  Um menu precisa de ao menos 2 opções para funcionar corretamente.
+                </p>
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+    </div>
+  )
+}
+
+// ─── Queue Node Editor ────────────────────────────────────────────────────────
+
+// Shared rich-textarea used for each message field inside the Queue editor
+function RichTextarea({
+  label, value, onChange, placeholder, accentColor = 'cyan',
+}: {
+  label: string
+  value: string
+  onChange: (v: string) => void
+  placeholder?: string
+  accentColor?: 'cyan' | 'sky' | 'amber'
+}) {
+  const [showEmoji, setShowEmoji] = useState(false)
+  const [showVars, setShowVars]   = useState(false)
+  const ref = useRef<HTMLTextAreaElement>(null)
+  const charCount = value.length
+
+  const focusClass =
+    accentColor === 'amber' ? 'focus:border-amber-400 focus:ring-amber-500/20'
+    : accentColor === 'sky'  ? 'focus:border-sky-400 focus:ring-sky-500/20'
+    : 'focus:border-cyan-400 focus:ring-cyan-500/20'
+
+  const varColor =
+    accentColor === 'amber' ? 'text-amber-600 hover:bg-amber-50'
+    : accentColor === 'sky'  ? 'text-sky-600 hover:bg-sky-50'
+    : 'text-cyan-600 hover:bg-cyan-50'
+
+  function insert(snippet: string) {
+    const el = ref.current
+    if (!el) { onChange(value + snippet); return }
+    const s = el.selectionStart, e = el.selectionEnd
+    const next = value.slice(0, s) + snippet + value.slice(e)
+    onChange(next)
+    requestAnimationFrame(() => { el.focus(); el.selectionStart = el.selectionEnd = s + snippet.length })
+    setShowEmoji(false); setShowVars(false)
+  }
+
+  return (
+    <div>
+      <div className="flex items-center justify-between mb-1">
+        <label className="text-[10px] font-bold uppercase tracking-wider text-slate-500">{label}</label>
+        <span className={`text-[9px] font-mono tabular-nums ${charCount > 500 ? 'text-rose-500' : 'text-slate-400'}`}>{charCount}/800</span>
+      </div>
+      {/* Toolbar */}
+      <div className="flex items-center gap-1 mb-1.5 pb-1.5 border-b border-slate-100">
+        <div className="relative">
+          <button onClick={() => { setShowEmoji(v => !v); setShowVars(false) }}
+            className={`p-1.5 rounded-md text-slate-400 hover:text-slate-700 hover:bg-slate-100 transition-colors ${showEmoji ? 'bg-slate-100' : ''}`}>
+            <Smile className="w-3.5 h-3.5" />
+          </button>
+          {showEmoji && (
+            <div className="absolute top-full left-0 z-50 mt-1 p-2 bg-white border border-slate-200 rounded-xl shadow-xl">
+              <div className="grid grid-cols-8 gap-0.5">
+                {COMMON_EMOJIS.map(em => (
+                  <button key={em} onClick={() => insert(em)} className="w-7 h-7 flex items-center justify-center rounded hover:bg-slate-100 text-base transition-colors">{em}</button>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+        <div className="relative">
+          <button onClick={() => { setShowVars(v => !v); setShowEmoji(false) }}
+            className={`flex items-center gap-1 px-2 py-1 rounded-md text-[10px] font-bold transition-colors ${varColor} ${showVars ? 'bg-opacity-10' : ''}`}>
+            <span className="font-mono text-[11px] leading-none">{'{ }'}</span>
+            <span>Var</span>
+          </button>
+          {showVars && (
+            <div className="absolute top-full left-0 z-50 mt-1 w-52 bg-white border border-slate-200 rounded-xl shadow-xl overflow-hidden">
+              <div className="px-3 py-2 bg-slate-50 border-b border-slate-100">
+                <p className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">Disponíveis no fluxo</p>
+              </div>
+              <div className="max-h-40 overflow-y-auto divide-y divide-slate-50">
+                {AVAILABLE_VARS.map(v => (
+                  <button key={v.name} onClick={() => insert(v.name)} className="w-full flex items-center gap-2 px-3 py-2 hover:bg-slate-50 text-left transition-colors">
+                    <span className="font-mono text-[10px] text-cyan-600 flex-shrink-0">{v.name}</span>
+                    <span className="text-[10px] text-slate-400 truncate">{v.label}</span>
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+      </div>
+      <textarea
+        ref={ref}
+        value={value}
+        onChange={e => onChange(e.target.value)}
+        onInput={e => { const el = e.currentTarget; el.style.height = 'auto'; el.style.height = `${el.scrollHeight}px` }}
+        placeholder={placeholder}
+        className={`w-full px-3 py-2.5 bg-white border border-slate-200 rounded-lg text-xs text-slate-800 focus:outline-none focus:ring-1 leading-relaxed resize-none overflow-hidden ${focusClass}`}
+        style={{ minHeight: 72 }}
+      />
+    </div>
+  )
+}
+
+const TRANSFER_TYPES = [
+  { id: 'queue',          label: 'Transferir para Fila',          icon: '📋' },
+  { id: 'user',           label: 'Transferir para Usuário',       icon: '👤' },
+  { id: 'first_available',label: 'Primeiro Atendente Disponível', icon: '⚡' },
+  { id: 'group',          label: 'Grupo de Atendimento',          icon: '👥' },
+] as const
+
+const PRIORITY_OPTS = [
+  { id: 'low',    label: 'Baixa',   color: 'bg-slate-100 text-slate-600 border-slate-200' },
+  { id: 'normal', label: 'Normal',  color: 'bg-blue-50 text-blue-600 border-blue-200' },
+  { id: 'high',   label: 'Alta',    color: 'bg-amber-50 text-amber-600 border-amber-200' },
+  { id: 'urgent', label: 'Urgente', color: 'bg-rose-50 text-rose-600 border-rose-200' },
+] as const
+
+const DIST_OPTS = [
+  { id: 'round_robin', label: 'Round Robin — distribuição sequencial' },
+  { id: 'least_queue', label: 'Menor Fila — atendente com menos tickets' },
+  { id: 'least_load',  label: 'Menor Carga — por tempo de atendimento' },
+  { id: 'manual',      label: 'Manual — atribuição pelo supervisor' },
+] as const
+
+const TRANSFER_VARS = [
+  { name: '{{fila_destino}}',        desc: 'Nome da fila selecionada' },
+  { name: '{{status_transferencia}}',desc: 'Status atual da transferência' },
+  { name: '{{protocolo}}',           desc: 'Número de protocolo gerado' },
+  { name: '{{departamento}}',        desc: 'Departamento de destino' },
+  { name: '{{motivo_transferencia}}',desc: 'Motivo registrado' },
+]
+
+function QueueNodeEditor({ node, onChange }: { node: CanvasNode; onChange: (n: CanvasNode) => void }) {
+  const [activeTab, setActiveTab] = useState<'config' | 'regras' | 'msgs' | 'vars' | 'preview' | 'info'>('config')
+  const [tagInput, setTagInput]   = useState('')
+  const [lastChanged, setLastChanged] = useState(new Date())
+
+  const d = node.data
+
+  function setData(patch: Partial<CanvasNode['data']>) {
+    onChange({ ...node, data: { ...node.data, ...patch } })
+    setLastChanged(new Date())
+  }
+
+  const tags = d.queueTags ?? []
+  function addTag() {
+    const t = tagInput.trim().toLowerCase().replace(/\s+/g, '_')
+    if (!t || tags.includes(t)) return
+    setData({ queueTags: [...tags, t] })
+    setTagInput('')
+  }
+
+  const transferType = d.queueTransferType ?? 'queue'
+  const priority     = d.queuePriority ?? 'normal'
+  const priorityMeta = PRIORITY_OPTS.find(p => p.id === priority)!
+
+  const TABS = [
+    { id: 'config',  label: 'Config' },
+    { id: 'regras',  label: 'Regras' },
+    { id: 'msgs',    label: 'Msgs' },
+    { id: 'vars',    label: 'Vars' },
+    { id: 'preview', label: 'Preview' },
+    { id: 'info',    label: 'Info' },
+  ] as const
+
+  return (
+    <div className="flex flex-col h-full bg-white text-slate-700">
+
+      {/* ── Tabs ── */}
+      <div className="flex border-b border-slate-200 flex-shrink-0">
+        {TABS.map(t => (
+          <button
+            key={t.id}
+            onClick={() => setActiveTab(t.id)}
+            className={`flex-1 py-2 text-center border-b-2 text-[9px] font-bold uppercase tracking-wider transition-all ${activeTab === t.id ? 'border-cyan-500 text-cyan-600 bg-slate-50' : 'border-transparent text-slate-400 hover:text-slate-600'}`}
+          >
+            {t.label}
+          </button>
+        ))}
+      </div>
+
+      <div className="flex-1 overflow-y-auto">
+
+        {/* ══ CONFIG ══ */}
+        {activeTab === 'config' && (
+          <div className="p-4 space-y-5 animate-in fade-in duration-200">
+
+            {/* Block name */}
+            <div>
+              <label className="block text-[10px] font-bold uppercase tracking-wider text-slate-500 mb-1">Nome do bloco</label>
+              <input
+                value={d.label || 'Transferir Fila'}
+                onChange={e => onChange({ ...node, data: { ...d, label: e.target.value } })}
+                className="w-full px-3 py-2 bg-white border border-slate-200 rounded-lg text-xs text-slate-800 focus:outline-none focus:border-cyan-400 focus:ring-1 focus:ring-cyan-500/20"
+              />
+            </div>
+
+            {/* Transfer type */}
+            <div>
+              <label className="block text-[10px] font-bold uppercase tracking-wider text-slate-500 mb-2">Tipo de transferência</label>
+              <div className="space-y-1.5">
+                {TRANSFER_TYPES.map(tt => (
+                  <label key={tt.id} className={`flex items-center gap-2.5 p-2.5 rounded-xl border cursor-pointer transition-all ${transferType === tt.id ? 'border-cyan-400 bg-cyan-50/60' : 'border-slate-200 hover:border-slate-300 hover:bg-slate-50'}`}>
+                    <input
+                      type="radio"
+                      name="transferType"
+                      value={tt.id}
+                      checked={transferType === tt.id}
+                      onChange={() => setData({ queueTransferType: tt.id })}
+                      className="accent-cyan-600 flex-shrink-0"
+                    />
+                    <span className="text-base leading-none">{tt.icon}</span>
+                    <span className={`text-xs font-medium ${transferType === tt.id ? 'text-cyan-700' : 'text-slate-600'}`}>{tt.label}</span>
+                  </label>
+                ))}
+              </div>
+            </div>
+
+            {/* Queue name */}
+            <div>
+              <label className="block text-[10px] font-bold uppercase tracking-wider text-slate-500 mb-1">
+                {transferType === 'queue' ? 'Fila de destino' : transferType === 'user' ? 'Usuário destino' : transferType === 'group' ? 'Grupo de atendimento' : 'Destino'}
+              </label>
+              <input
+                value={d.queueName ?? ''}
+                onChange={e => setData({ queueName: e.target.value })}
+                placeholder={transferType === 'queue' ? 'Ex: Agendamento, Recepção...' : transferType === 'user' ? 'Ex: João Silva' : 'Ex: Equipe Comercial'}
+                className="w-full px-3 py-2 bg-white border border-slate-200 rounded-lg text-xs text-slate-800 focus:outline-none focus:border-cyan-400 focus:ring-1 focus:ring-cyan-500/20"
+              />
+            </div>
+
+            {/* Priority */}
+            <div>
+              <label className="block text-[10px] font-bold uppercase tracking-wider text-slate-500 mb-2">Prioridade</label>
+              <div className="grid grid-cols-2 gap-1.5">
+                {PRIORITY_OPTS.map(p => (
+                  <button
+                    key={p.id}
+                    onClick={() => setData({ queuePriority: p.id })}
+                    className={`px-3 py-1.5 rounded-lg border text-xs font-semibold transition-all ${priority === p.id ? p.color + ' ring-1 ring-offset-1 ring-current' : 'bg-white text-slate-500 border-slate-200 hover:border-slate-300'}`}
+                  >
+                    {p.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* Department */}
+            <div>
+              <label className="block text-[10px] font-bold uppercase tracking-wider text-slate-500 mb-1">Departamento</label>
+              <input
+                value={d.queueDepartment ?? ''}
+                onChange={e => setData({ queueDepartment: e.target.value })}
+                placeholder="Ex: Comercial, Suporte, Recepção..."
+                className="w-full px-3 py-2 bg-white border border-slate-200 rounded-lg text-xs text-slate-800 focus:outline-none focus:border-cyan-400 focus:ring-1 focus:ring-cyan-500/20"
+              />
+            </div>
+
+            {/* Tags */}
+            <div>
+              <label className="block text-[10px] font-bold uppercase tracking-wider text-slate-500 mb-1.5">Tags</label>
+              {tags.length > 0 && (
+                <div className="flex flex-wrap gap-1.5 mb-2">
+                  {tags.map(tag => (
+                    <span key={tag} className="flex items-center gap-1 px-2 py-0.5 bg-cyan-50 border border-cyan-200 text-cyan-700 text-[10px] font-semibold rounded-full">
+                      {tag}
+                      <button onClick={() => setData({ queueTags: tags.filter(t => t !== tag) })} className="hover:text-rose-500 transition-colors leading-none">×</button>
+                    </span>
+                  ))}
+                </div>
+              )}
+              <div className="flex gap-1.5">
+                <input
+                  value={tagInput}
+                  onChange={e => setTagInput(e.target.value)}
+                  onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); addTag() } }}
+                  placeholder="agendamento, urgente..."
+                  className="flex-1 px-2.5 py-1.5 bg-white border border-slate-200 rounded-lg text-xs text-slate-800 focus:outline-none focus:border-cyan-400"
+                />
+                <button onClick={addTag} className="px-2.5 py-1.5 bg-cyan-50 hover:bg-cyan-100 border border-cyan-200 text-cyan-700 rounded-lg text-xs font-bold transition-colors">
+                  <Plus className="w-3.5 h-3.5" />
+                </button>
+              </div>
+              <p className="text-[9px] text-slate-400 mt-1">Enter para adicionar · max 10 tags</p>
+            </div>
+
+            {/* Reason */}
+            <div>
+              <label className="block text-[10px] font-bold uppercase tracking-wider text-slate-500 mb-1">Motivo da transferência</label>
+              <input
+                value={d.queueReason ?? ''}
+                onChange={e => setData({ queueReason: e.target.value })}
+                placeholder="Ex: Cliente solicitou atendimento humano"
+                className="w-full px-3 py-2 bg-white border border-slate-200 rounded-lg text-xs text-slate-800 focus:outline-none focus:border-cyan-400 focus:ring-1 focus:ring-cyan-500/20"
+              />
+            </div>
+          </div>
+        )}
+
+        {/* ══ REGRAS ══ */}
+        {activeTab === 'regras' && (
+          <div className="p-4 space-y-5 animate-in fade-in duration-200">
+
+            {/* Off-hours action */}
+            <div>
+              <label className="block text-[10px] font-bold uppercase tracking-wider text-slate-500 mb-2">Fora do horário de atendimento</label>
+              <div className="space-y-1.5">
+                {[
+                  { id: 'close',    label: 'Encerrar atendimento',       icon: '🔴' },
+                  { id: 'transfer', label: 'Transferir para outra fila', icon: '↗️' },
+                  { id: 'ticket',   label: 'Abrir ticket / agendamento', icon: '🎫' },
+                  { id: 'message',  label: 'Enviar mensagem personalizada', icon: '💬' },
+                ].map(opt => {
+                  const active = (d.queueOffHoursAction ?? 'message') === opt.id
+                  return (
+                    <label key={opt.id} className={`flex items-center gap-2.5 p-2.5 rounded-xl border cursor-pointer transition-all ${active ? 'border-cyan-400 bg-cyan-50/60' : 'border-slate-200 hover:border-slate-300 hover:bg-slate-50'}`}>
+                      <input type="radio" name="offHours" value={opt.id} checked={active}
+                        onChange={() => setData({ queueOffHoursAction: opt.id as CanvasNode['data']['queueOffHoursAction'] })}
+                        className="accent-cyan-600 flex-shrink-0" />
+                      <span className="text-sm leading-none">{opt.icon}</span>
+                      <span className={`text-xs font-medium ${active ? 'text-cyan-700' : 'text-slate-600'}`}>{opt.label}</span>
+                    </label>
+                  )
+                })}
+              </div>
+            </div>
+
+            {/* Backup queue */}
+            <div>
+              <label className="block text-[10px] font-bold uppercase tracking-wider text-slate-500 mb-1">Fila de backup</label>
+              <p className="text-[10px] text-slate-400 mb-1.5">Usada quando a fila principal está indisponível</p>
+              <div className="grid grid-cols-2 gap-2">
+                <div>
+                  <p className="text-[9px] font-bold text-slate-400 uppercase mb-1">Principal</p>
+                  <div className="px-2.5 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-xs text-slate-600 font-mono truncate">
+                    {d.queueName || '—'}
+                  </div>
+                </div>
+                <div>
+                  <p className="text-[9px] font-bold text-slate-400 uppercase mb-1">Backup</p>
+                  <input
+                    value={d.queueBackup ?? ''}
+                    onChange={e => setData({ queueBackup: e.target.value })}
+                    placeholder="Ex: Recepção"
+                    className="w-full px-2.5 py-1.5 bg-white border border-slate-200 rounded-lg text-xs text-slate-800 focus:outline-none focus:border-cyan-400"
+                  />
+                </div>
+              </div>
+            </div>
+
+            {/* Unavailable agent */}
+            <div>
+              <label className="block text-[10px] font-bold uppercase tracking-wider text-slate-500 mb-2">Atendente indisponível</label>
+              <div className="space-y-1.5">
+                {[
+                  { id: 'stay',     label: 'Permanecer na fila'          },
+                  { id: 'transfer', label: 'Encaminhar para fila backup' },
+                  { id: 'close',    label: 'Encerrar atendimento'        },
+                ].map(opt => {
+                  const active = (d.queueUnavailableAction ?? 'stay') === opt.id
+                  return (
+                    <label key={opt.id} className={`flex items-center gap-2.5 px-3 py-2 rounded-xl border cursor-pointer transition-all ${active ? 'border-cyan-400 bg-cyan-50/60' : 'border-slate-200 hover:border-slate-300 hover:bg-slate-50'}`}>
+                      <input type="radio" name="unavailable" value={opt.id} checked={active}
+                        onChange={() => setData({ queueUnavailableAction: opt.id as CanvasNode['data']['queueUnavailableAction'] })}
+                        className="accent-cyan-600 flex-shrink-0" />
+                      <span className={`text-xs font-medium ${active ? 'text-cyan-700' : 'text-slate-600'}`}>{opt.label}</span>
+                    </label>
+                  )
+                })}
+              </div>
+            </div>
+
+            {/* Max wait */}
+            <div>
+              <label className="block text-[10px] font-bold uppercase tracking-wider text-slate-500 mb-1">Tempo máximo de espera</label>
+              <div className="flex items-center gap-2">
+                <input
+                  type="number"
+                  min={1}
+                  max={120}
+                  value={d.queueMaxWait ?? 15}
+                  onChange={e => setData({ queueMaxWait: Number(e.target.value) })}
+                  className="w-20 px-2.5 py-1.5 bg-white border border-slate-200 rounded-lg text-xs text-slate-800 focus:outline-none focus:border-cyan-400 text-center font-mono"
+                />
+                <span className="text-xs text-slate-500">minutos</span>
+              </div>
+            </div>
+
+            {/* Distribution strategy */}
+            <div>
+              <label className="block text-[10px] font-bold uppercase tracking-wider text-slate-500 mb-1">Estratégia de distribuição</label>
+              <div className="space-y-1.5">
+                {DIST_OPTS.map(opt => {
+                  const active = (d.queueDistribution ?? 'round_robin') === opt.id
+                  return (
+                    <label key={opt.id} className={`flex items-start gap-2.5 p-2.5 rounded-xl border cursor-pointer transition-all ${active ? 'border-cyan-400 bg-cyan-50/60' : 'border-slate-200 hover:border-slate-300 hover:bg-slate-50'}`}>
+                      <input type="radio" name="dist" value={opt.id} checked={active}
+                        onChange={() => setData({ queueDistribution: opt.id as CanvasNode['data']['queueDistribution'] })}
+                        className="accent-cyan-600 flex-shrink-0 mt-0.5" />
+                      <span className={`text-[11px] font-medium leading-snug ${active ? 'text-cyan-700' : 'text-slate-600'}`}>{opt.label}</span>
+                    </label>
+                  )
+                })}
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* ══ MENSAGENS ══ */}
+        {activeTab === 'msgs' && (
+          <div className="p-4 space-y-5 animate-in fade-in duration-200">
+            <p className="text-[10px] text-slate-500">Mensagens exibidas ao cliente durante o processo de transferência.</p>
+
+            <RichTextarea
+              label="Antes da transferência"
+              value={d.text ?? ''}
+              onChange={v => setData({ text: v })}
+              placeholder={'Perfeito! Vou transferir você para nossa equipe. Aguarde um instante. 😊'}
+            />
+            <RichTextarea
+              label="Entrou na fila"
+              value={d.msgInQueue ?? ''}
+              onChange={v => setData({ msgInQueue: v })}
+              placeholder={'Você entrou na fila de {{fila_destino}}.\nEm breve um atendente assumirá a conversa.'}
+            />
+            <RichTextarea
+              label="Fila indisponível"
+              value={d.msgUnavailable ?? ''}
+              onChange={v => setData({ msgUnavailable: v })}
+              placeholder={'No momento não há atendentes disponíveis.\nTente novamente em alguns minutos.'}
+            />
+            <RichTextarea
+              label="Fora do horário"
+              value={d.msgOffHours ?? ''}
+              onChange={v => setData({ msgOffHours: v })}
+              placeholder={'Nosso horário de atendimento é das 08h às 18h.\nRetornaremos no próximo período útil.'}
+            />
+            <RichTextarea
+              label="Transferência concluída"
+              value={d.msgDone ?? ''}
+              onChange={v => setData({ msgDone: v })}
+              placeholder={'Seu atendimento foi direcionado para nossa equipe. ✅'}
+            />
+          </div>
+        )}
+
+        {/* ══ VARIÁVEIS ══ */}
+        {activeTab === 'vars' && (
+          <div className="p-4 space-y-4 animate-in fade-in duration-200">
+
+            {/* Transfer vars reference */}
+            <div>
+              <p className="text-[10px] font-bold uppercase tracking-wider text-slate-500 mb-2">Dados da transferência</p>
+              <div className="space-y-1.5">
+                {TRANSFER_VARS.map(v => (
+                  <div key={v.name} className="flex items-center gap-2 p-2 bg-slate-50 border border-slate-200 rounded-xl">
+                    <span className="font-mono text-[10px] text-cyan-600 font-bold flex-shrink-0">{v.name}</span>
+                    <span className="text-[10px] text-slate-400 truncate">{v.desc}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            {/* Context options */}
+            <div>
+              <p className="text-[10px] font-bold uppercase tracking-wider text-slate-500 mb-2">Contexto para o atendente</p>
+              <div className="space-y-1.5">
+                {[
+                  { key: 'queueSendHistory',     label: 'Enviar histórico da conversa',        checked: d.queueSendHistory ?? true },
+                  { key: 'queueSendVars',         label: 'Enviar variáveis coletadas',          checked: d.queueSendVars ?? true },
+                  { key: 'queueSendSummary',      label: 'Enviar resumo do fluxo percorrido',   checked: d.queueSendSummary ?? false },
+                  { key: 'queueSendLastMessage',  label: 'Enviar última mensagem do cliente',   checked: d.queueSendLastMessage ?? true },
+                ].map(opt => (
+                  <label key={opt.key} className="flex items-center gap-2.5 px-3 py-2.5 rounded-xl border border-slate-200 hover:bg-slate-50 cursor-pointer transition-colors">
+                    <input
+                      type="checkbox"
+                      checked={opt.checked}
+                      onChange={e => setData({ [opt.key]: e.target.checked } as Partial<CanvasNode['data']>)}
+                      className="accent-cyan-600"
+                    />
+                    <span className="text-xs text-slate-600 font-medium">{opt.label}</span>
+                  </label>
+                ))}
+              </div>
+            </div>
+
+            {/* Agent summary */}
+            <div>
+              <label className="block text-[10px] font-bold uppercase tracking-wider text-slate-500 mb-1">Resumo para o atendente</label>
+              <p className="text-[10px] text-slate-400 mb-1.5">Entregue junto ao atendimento para contextualizar o agente</p>
+              <textarea
+                value={d.queueAgentSummary ?? ''}
+                onChange={e => setData({ queueAgentSummary: e.target.value })}
+                onInput={e => { const el = e.currentTarget; el.style.height = 'auto'; el.style.height = `${el.scrollHeight}px` }}
+                placeholder="Ex: Cliente deseja realizar agendamento de consulta cardiológica."
+                className="w-full px-3 py-2.5 bg-white border border-slate-200 rounded-lg text-xs text-slate-800 focus:outline-none focus:border-cyan-400 focus:ring-1 focus:ring-cyan-500/20 resize-none overflow-hidden leading-relaxed"
+                style={{ minHeight: 72 }}
+              />
+            </div>
+          </div>
+        )}
+
+        {/* ══ PREVIEW ══ */}
+        {activeTab === 'preview' && (
+          <div className="p-4 space-y-4 animate-in fade-in duration-200">
+
+            {/* Client view */}
+            <div>
+              <p className="text-[10px] font-bold uppercase tracking-wider text-slate-500 mb-2">Visão do cliente</p>
+              <div className="rounded-xl overflow-hidden border border-slate-200 shadow-sm">
+                <div className="bg-[#075E54] px-3 py-2 flex items-center gap-2">
+                  <div className="w-6 h-6 rounded-full bg-emerald-300 flex-shrink-0" />
+                  <div>
+                    <p className="text-white text-[10px] font-bold leading-none">Clínica</p>
+                    <p className="text-emerald-200 text-[8px]">online</p>
+                  </div>
+                </div>
+                <div className="bg-[#e5ddd5] p-3 space-y-2 min-h-[80px]">
+                  {/* Before transfer message */}
+                  {(d.text || d.queueName) ? (
+                    <>
+                      {d.text && (
+                        <div className="self-start max-w-[85%] bg-white rounded-xl rounded-tl-none px-3 py-2 shadow-sm">
+                          <p className="text-[11px] text-slate-800 whitespace-pre-wrap leading-relaxed">{d.text}</p>
+                          <p className="text-[8px] text-slate-400 text-right mt-1">{new Date().toLocaleTimeString('pt-BR',{hour:'2-digit',minute:'2-digit'})} ✓✓</p>
+                        </div>
+                      )}
+                      {d.queueName && (
+                        <div className="bg-white rounded-xl shadow-sm overflow-hidden max-w-[85%]">
+                          <div className="px-3 py-2 bg-cyan-50 border-b border-cyan-100">
+                            <p className="text-[10px] font-bold text-cyan-700">📋 Fila: {d.queueName}</p>
+                          </div>
+                          <div className="px-3 py-2 space-y-1">
+                            <div className="flex justify-between text-[10px]">
+                              <span className="text-slate-500">Posição:</span>
+                              <span className="font-bold text-slate-700">—</span>
+                            </div>
+                            <div className="flex justify-between text-[10px]">
+                              <span className="text-slate-500">Tempo est.:</span>
+                              <span className="font-bold text-slate-700">{d.queueMaxWait ?? 15} min</span>
+                            </div>
+                            <div className="flex justify-between text-[10px]">
+                              <span className="text-slate-500">Prioridade:</span>
+                              <span className={`font-bold ${priority === 'urgent' ? 'text-rose-600' : priority === 'high' ? 'text-amber-600' : 'text-slate-700'}`}>
+                                {priorityMeta.label}
+                              </span>
+                            </div>
+                          </div>
+                        </div>
+                      )}
+                    </>
+                  ) : (
+                    <p className="text-[10px] text-slate-400 italic text-center mt-4">Configure a fila e a mensagem na aba Config</p>
+                  )}
+                </div>
+              </div>
+            </div>
+
+            {/* Agent view */}
+            <div>
+              <p className="text-[10px] font-bold uppercase tracking-wider text-slate-500 mb-2">Visão do atendente</p>
+              <div className="bg-slate-900 rounded-xl p-3 space-y-2.5 text-[10px]">
+                <div className="flex items-center gap-2 pb-2 border-b border-white/10">
+                  <div className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+                  <span className="text-emerald-400 font-bold text-[10px] uppercase tracking-wider">Novo atendimento</span>
+                </div>
+                {[
+                  { label: 'Origem',      value: 'Chatbot' },
+                  { label: 'Fila',        value: d.queueName || '—' },
+                  { label: 'Prioridade',  value: priorityMeta.label },
+                  { label: 'Depto.',      value: d.queueDepartment || '—' },
+                  { label: 'Motivo',      value: d.queueReason || '—' },
+                ].map(row => (
+                  <div key={row.label} className="flex gap-2">
+                    <span className="text-slate-500 w-20 flex-shrink-0">{row.label}:</span>
+                    <span className="text-white font-medium truncate">{row.value}</span>
+                  </div>
+                ))}
+                {d.queueAgentSummary && (
+                  <div className="pt-2 border-t border-white/10">
+                    <p className="text-slate-500 mb-1">Resumo:</p>
+                    <p className="text-slate-300 leading-relaxed">{d.queueAgentSummary}</p>
+                  </div>
+                )}
+                {tags.length > 0 && (
+                  <div className="flex flex-wrap gap-1 pt-1">
+                    {tags.map(tag => (
+                      <span key={tag} className="px-1.5 py-0.5 bg-cyan-900/40 text-cyan-400 rounded text-[9px] font-mono">{tag}</span>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* ══ INFO (INSIGHTS) ══ */}
+        {activeTab === 'info' && (
+          <div className="p-4 space-y-4 animate-in fade-in duration-200">
+            <p className="text-[10px] font-bold uppercase tracking-wider text-slate-500">Resumo da configuração</p>
+
+            {/* Config summary cards */}
+            <div className="grid grid-cols-2 gap-2">
+              {[
+                { icon: '📋', label: 'Fila',       value: d.queueName || 'Não definida' },
+                { icon: '⚡', label: 'Prioridade',  value: priorityMeta.label },
+                { icon: '🏢', label: 'Depto.',      value: d.queueDepartment || '—' },
+                { icon: '⏱️', label: 'Tempo máx.',  value: `${d.queueMaxWait ?? 15} min` },
+              ].map(s => (
+                <div key={s.label} className="p-3 bg-slate-50 border border-slate-200 rounded-xl">
+                  <div className="text-base mb-1">{s.icon}</div>
+                  <p className="text-xs font-bold text-slate-800 leading-tight truncate">{s.value}</p>
+                  <p className="text-[9px] text-slate-400 mt-0.5 uppercase tracking-wider">{s.label}</p>
+                </div>
+              ))}
+            </div>
+
+            {/* Tags */}
+            {tags.length > 0 && (
+              <div className="p-2.5 bg-slate-50 border border-slate-200 rounded-xl">
+                <p className="text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-2">Tags configuradas</p>
+                <div className="flex flex-wrap gap-1.5">
+                  {tags.map(tag => (
+                    <span key={tag} className="px-2 py-0.5 bg-cyan-50 border border-cyan-200 text-cyan-700 text-[10px] font-semibold rounded-full">{tag}</span>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* Fallback & rules summary */}
+            <div className="p-2.5 bg-slate-50 border border-slate-200 rounded-xl space-y-2 text-[10px]">
+              <p className="font-bold text-slate-500 uppercase tracking-wider">Regras ativas</p>
+              {[
+                { label: 'Fora do horário',    value: { close:'Encerrar', transfer:'Transferir', ticket:'Ticket', message:'Mensagem' }[d.queueOffHoursAction ?? 'message'] },
+                { label: 'Atendente ausente',  value: { stay:'Aguardar na fila', transfer:'Fila backup', close:'Encerrar' }[d.queueUnavailableAction ?? 'stay'] },
+                { label: 'Fila backup',        value: d.queueBackup || 'Não configurada' },
+                { label: 'Distribuição',       value: { round_robin:'Round Robin', least_queue:'Menor Fila', least_load:'Menor Carga', manual:'Manual' }[d.queueDistribution ?? 'round_robin'] },
+              ].map(r => (
+                <div key={r.label} className="flex gap-2">
+                  <span className="text-slate-400 w-28 flex-shrink-0">{r.label}:</span>
+                  <span className="text-slate-700 font-medium">{r.value}</span>
+                </div>
+              ))}
+            </div>
+
+            {/* Messages summary */}
+            <div className="p-2.5 bg-slate-50 border border-slate-200 rounded-xl space-y-1.5 text-[10px]">
+              <p className="font-bold text-slate-500 uppercase tracking-wider mb-2">Mensagens configuradas</p>
+              {[
+                { label: 'Antes da transferência', value: d.text },
+                { label: 'Entrou na fila',         value: d.msgInQueue },
+                { label: 'Fila indisponível',      value: d.msgUnavailable },
+                { label: 'Fora do horário',        value: d.msgOffHours },
+                { label: 'Transferência concluída',value: d.msgDone },
+              ].map(m => (
+                <div key={m.label} className="flex items-center gap-2">
+                  <span className={`w-2 h-2 rounded-full flex-shrink-0 ${m.value ? 'bg-emerald-400' : 'bg-slate-300'}`} />
+                  <span className="text-slate-500 flex-1 truncate">{m.label}</span>
+                  <span className={`font-semibold ${m.value ? 'text-emerald-600' : 'text-slate-400'}`}>{m.value ? 'OK' : '—'}</span>
+                </div>
+              ))}
+            </div>
+
+            {/* Last changed */}
+            <div className="p-2.5 bg-slate-50 border border-slate-200 rounded-xl">
+              <p className="text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1">Última alteração</p>
+              <p className="text-xs text-slate-700 font-mono">
+                {lastChanged.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit', second: '2-digit' })}
+              </p>
+            </div>
+
+            {/* Metrics — hidden (no endpoint available) */}
+          </div>
+        )}
+      </div>
+    </div>
+  )
+}
+
 // ─── Property editor ──────────────────────────────────────────────────────────
 
 interface PropEditorProps {
@@ -312,6 +1833,10 @@ interface PropEditorProps {
 }
 
 function PropEditor({ node, onChange }: PropEditorProps) {
+  if (node.type === 'message') return <MessageNodeEditor node={node} onChange={onChange} />
+  if (node.type === 'menu')    return <MenuNodeEditor    node={node} onChange={onChange} />
+  if (node.type === 'queue')   return <QueueNodeEditor   node={node} onChange={onChange} />
+
   const [activeTab, setActiveTab] = useState<'config' | 'advanced' | 'vars' | 'logs' | 'history'>('config')
   const cfg = NODE_CFG[node.type] || NODE_CFG.message
 
@@ -357,79 +1882,6 @@ function PropEditor({ node, onChange }: PropEditorProps) {
                 className="w-full px-3 py-2 bg-white border border-slate-200 rounded-lg text-xs text-slate-800 focus:outline-none focus:border-cyan-550 focus:ring-1 focus:ring-cyan-500/20"
               />
             </div>
-
-            {(node.type === 'message' || node.type === 'queue') && (
-              <div>
-                <label className="block text-[10px] font-bold uppercase tracking-wider text-slate-500 mb-1">
-                  Texto da Mensagem
-                </label>
-                <textarea
-                  value={node.data.text ?? ''}
-                  onChange={e => setData({ text: e.target.value })}
-                  rows={5}
-                  placeholder="Digite o conteúdo da mensagem..."
-                  className="w-full px-3 py-2 bg-white border border-slate-200 rounded-lg text-xs text-slate-800 resize-none focus:outline-none focus:border-cyan-550 focus:ring-1 focus:ring-cyan-500/20"
-                />
-                <p className="text-[9px] text-slate-400 mt-1">Variáveis como {"{{nome}}"} são substituídas dinamicamente.</p>
-              </div>
-            )}
-
-            {node.type === 'menu' && (
-              <div className="space-y-3">
-                <div>
-                  <label className="block text-[10px] font-bold uppercase tracking-wider text-slate-500 mb-1">
-                    Pergunta / Título
-                  </label>
-                  <textarea
-                    value={node.data.text ?? ''}
-                    onChange={e => setData({ text: e.target.value })}
-                    rows={2}
-                    placeholder="Ex: Como posso te ajudar hoje?"
-                    className="w-full px-3 py-2 bg-white border border-slate-200 rounded-lg text-xs text-slate-800 resize-none focus:outline-none focus:border-cyan-550 focus:ring-1 focus:ring-cyan-500/20"
-                  />
-                </div>
-                <div>
-                  <label className="block text-[10px] font-bold uppercase tracking-wider text-slate-500 mb-1">
-                    Opções de Resposta
-                  </label>
-                  <div className="space-y-1.5">
-                    {(node.data.options ?? ['Opção 1', 'Opção 2']).map((opt, i) => (
-                      <div key={i} className="flex items-center gap-2">
-                        <span className="w-5 h-5 bg-amber-500/5 text-amber-600 rounded-md flex items-center justify-center text-[10px] font-bold flex-shrink-0 border border-amber-500/10">{i + 1}</span>
-                        <input
-                          value={opt}
-                          onChange={e => {
-                            const opts = [...(node.data.options ?? [])]
-                            opts[i] = e.target.value
-                            setData({ options: opts })
-                          }}
-                          className="flex-1 px-2.5 py-1.5 bg-white border border-slate-200 rounded-lg text-xs text-slate-800 focus:outline-none focus:border-amber-500"
-                        />
-                        {(node.data.options?.length ?? 0) > 1 && (
-                          <button
-                            onClick={() => {
-                              const opts = (node.data.options ?? []).filter((_, j) => j !== i)
-                              setData({ options: opts })
-                            }}
-                            className="p-1 text-slate-400 hover:text-rose-500 transition-colors"
-                          >
-                            <X className="w-3.5 h-3.5" />
-                          </button>
-                        )}
-                      </div>
-                    ))}
-                    {(node.data.options?.length ?? 0) < 6 && (
-                      <button
-                        onClick={() => setData({ options: [...(node.data.options ?? []), `Opção ${(node.data.options?.length ?? 0) + 1}`] })}
-                        className="flex items-center gap-1 text-[10px] text-amber-500 hover:text-amber-600 font-bold mt-1"
-                      >
-                        <Plus className="w-3 h-3" /> Adicionar opção
-                      </button>
-                    )}
-                  </div>
-                </div>
-              </div>
-            )}
 
             {node.type === 'ai' && (
               <div>

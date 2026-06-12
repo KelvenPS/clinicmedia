@@ -273,8 +273,9 @@ export default function Agenda() {
   const handleApptMouseEnter = useCallback((e: React.MouseEvent, appt: Appointment) => {
     if (user?.role === 'SECRETARY' && appt.isBlocked) return
     if (tooltipTimer.current) clearTimeout(tooltipTimer.current)
+    // Capture rect synchronously before React clears currentTarget
+    const rect = (e.currentTarget as HTMLElement).getBoundingClientRect()
     tooltipTimer.current = setTimeout(() => {
-      const rect = (e.currentTarget as HTMLElement).getBoundingClientRect()
       setTooltip({ appt, x: rect.right + 8, y: rect.top })
     }, 300)
   }, [user])

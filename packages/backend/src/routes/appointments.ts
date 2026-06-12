@@ -167,12 +167,27 @@ router.post('/', async (req: AuthRequest, res) => {
   }
 })
 
+const appointmentUpdateSchema = z.object({
+  patientId: z.string().optional(),
+  doctorId: z.string().optional(),
+  title: z.string().min(2).optional(),
+  date: z.string().optional(),
+  duration: z.number().optional(),
+  status: z.enum(['SCHEDULED', 'CONFIRMED', 'COMPLETED', 'CANCELLED', 'NO_SHOW']).optional(),
+  notes: z.string().optional().nullable(),
+  type: z.string().optional().nullable(),
+  value: z.number().optional().nullable(),
+  isBlocked: z.boolean().optional(),
+  roomId: z.string().optional().nullable(),
+})
+
 router.put('/:id', async (req: AuthRequest, res) => {
   try {
     const { id } = req.params
-    const data = { ...req.body }
+    const parsed = appointmentUpdateSchema.parse(req.body)
+    const data: Record<string, unknown> = { ...parsed }
 
-    if (data.date) data.date = new Date(data.date)
+    if (data.date) data.date = new Date(data.date as string)
 
     const existing = await prisma.appointment.findUnique({ where: { id }, select: { doctorId: true } })
     if (!existing) {

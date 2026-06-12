@@ -148,6 +148,7 @@ model Patient {
 model HealthPlan {
   id              String   @id @default(uuid())
   doctorId        String?
+  roomId          String?
   name            String
   type            PlanType @default(PARTICULAR)
   customTypeName  String?
@@ -159,6 +160,7 @@ model HealthPlan {
   updatedAt       DateTime @updatedAt
 
   doctor       User?         @relation("DoctorHealthPlans", fields: [doctorId], references: [id])
+  room         Room?         @relation("RoomHealthPlans", fields: [roomId], references: [id])
   patientPlans PatientPlan[]
 }
 
@@ -295,6 +297,10 @@ model Room {
   id         String   @id @default(uuid())
   doctorId   String
   name       String
+  logradouro String?
+  cep        String?
+  numero     String?
+  cidade     String?
   daysOfWeek Json     @default("[]")
   startTime  String
   endTime    String
@@ -305,6 +311,7 @@ model Room {
 
   doctor      User            @relation("DoctorRooms", fields: [doctorId], references: [id])
   secretaries RoomSecretary[]
+  healthPlans HealthPlan[]    @relation("RoomHealthPlans")
 }
 
 model RoomSecretary {

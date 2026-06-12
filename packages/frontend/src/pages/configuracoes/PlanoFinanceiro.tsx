@@ -3,10 +3,10 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { z } from 'zod'
-import { Plus, Edit2, CreditCard, Users, CheckCircle, XCircle, Percent, DollarSign, Info } from 'lucide-react'
+import { Plus, Edit2, CreditCard, Users, CheckCircle, XCircle, Percent, DollarSign, Info, MapPin } from 'lucide-react'
 import toast from 'react-hot-toast'
 import api from '../../lib/api'
-import type { HealthPlan } from '../../types'
+import type { HealthPlan, Room } from '../../types'
 import Modal from '../../components/ui/Modal'
 
 const PLAN_TYPES = [
@@ -46,11 +46,12 @@ const schema = z.object({
   description: z.string().optional(),
   discountPercent: z.coerce.number().min(0).max(100).optional().or(z.literal('')),
   defaultValue: z.coerce.number().min(0).optional().or(z.literal('')),
+  roomId: z.string().optional().nullable(),
 })
 
 type FormData = z.infer<typeof schema>
 
-function PlanForm({ plan, onSubmit, loading }: { plan: HealthPlan | null; onSubmit: (d: FormData) => void; loading: boolean }) {
+function PlanForm({ plan, rooms, onSubmit, loading }: { plan: HealthPlan | null; rooms: Room[]; onSubmit: (d: FormData) => void; loading: boolean }) {
   const { register, handleSubmit, formState: { errors }, watch } = useForm<FormData>({
     resolver: zodResolver(schema),
     defaultValues: {
@@ -60,6 +61,7 @@ function PlanForm({ plan, onSubmit, loading }: { plan: HealthPlan | null; onSubm
       description: plan?.description || '',
       discountPercent: plan?.discountPercent ?? '',
       defaultValue: plan?.defaultValue ?? '',
+      roomId: plan?.roomId || '',
     },
   })
 
@@ -161,6 +163,26 @@ function PlanForm({ plan, onSubmit, loading }: { plan: HealthPlan | null; onSubm
         </div>
       )}
 
+      {rooms.length > 0 && (
+        <div>
+          <label className="label flex items-center gap-1">
+            <MapPin className="w-3.5 h-3.5 text-slate-400" />
+            Sala vinculada
+          </label>
+          <select {...register('roomId')} className="input-field">
+            <option value="">Sem sala vinculada (todas as salas)</option>
+            {rooms.map(r => (
+              <option key={r.id} value={r.id}>
+                {r.name}{r.cidade ? ` — ${r.cidade}` : ''}
+              </option>
+            ))}
+          </select>
+          <p className="text-xs text-slate-400 mt-1">
+            Selecione a sala onde este plano é aceito. O paciente verá a sala ao escolher este plano.
+          </p>
+        </div>
+      )}
+
       <div>
         <label className="label">Descrição do Plano</label>
         <textarea
@@ -198,6 +220,11 @@ export default function PlanoFinanceiro() {
   const { data: plans = [] } = useQuery<HealthPlan[]>({
     queryKey: ['health-plans-all'],
     queryFn: () => api.get('/health-plans/all').then(r => r.data),
+  })
+
+  const { data: rooms = [] } = useQuery<Room[]>({
+    queryKey: ['rooms'],
+    queryFn: () => api.get('/rooms').then(r => r.data),
   })
 
   const saveMutation = useMutation({
@@ -343,6 +370,12 @@ export default function PlanoFinanceiro() {
                         <Users className="w-3 h-3" />
                         {plan._count?.patientPlans ?? 0} vínculos
                       </span>
+                      {plan.room && (
+                        <span className="text-xs text-indigo-600 flex items-center gap-1">
+                          <MapPin className="w-3 h-3" />
+                          {plan.room.name}
+                        </span>
+                      )}
                     </div>
                   </div>
                   <div className="flex items-center gap-1 flex-shrink-0 opacity-0 group-hover:opacity-100 transition-opacity duration-150">
@@ -408,6 +441,7 @@ export default function PlanoFinanceiro() {
       >
         <PlanForm
           plan={editPlan}
+          rooms={rooms}
           onSubmit={(data) => saveMutation.mutate(data as unknown as FormData)}
           loading={saveMutation.isPending}
         />

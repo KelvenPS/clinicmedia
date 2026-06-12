@@ -3,7 +3,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { useForm, Controller } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { z } from 'zod'
-import { Plus, Edit2, MapPin, Clock, Users, CheckCircle, XCircle } from 'lucide-react'
+import { Plus, Edit2, MapPin, Clock, Users, CheckCircle, XCircle, Building2 } from 'lucide-react'
 import toast from 'react-hot-toast'
 import api from '../../lib/api'
 import type { Room, DoctorSecretary } from '../../types'
@@ -19,14 +19,15 @@ const DAYS = [
   { value: 7, label: 'Dom' },
 ]
 
-const COLORS = ['#3b82f6', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6', '#ec4899', '#06b6d4']
-
 const schema = z.object({
   name: z.string().min(1, 'Nome obrigatório'),
+  logradouro: z.string().optional(),
+  cep: z.string().optional(),
+  numero: z.string().optional(),
+  cidade: z.string().optional(),
   daysOfWeek: z.array(z.number()).min(1, 'Selecione ao menos um dia'),
   startTime: z.string().min(1, 'Horário inicial obrigatório'),
   endTime: z.string().min(1, 'Horário final obrigatório'),
-  color: z.string().optional(),
   secretaryIds: z.array(z.string()).optional(),
 })
 
@@ -38,20 +39,22 @@ function RoomForm({ room, secretaries, onSubmit, loading }: {
   onSubmit: (d: FormData) => void
   loading: boolean
 }) {
-  const { register, handleSubmit, formState: { errors }, control, watch, setValue } = useForm<FormData>({
+  const { register, handleSubmit, formState: { errors }, watch, setValue } = useForm<FormData>({
     resolver: zodResolver(schema),
     defaultValues: {
       name: room?.name || '',
+      logradouro: room?.logradouro || '',
+      cep: room?.cep || '',
+      numero: room?.numero || '',
+      cidade: room?.cidade || '',
       daysOfWeek: room?.daysOfWeek || [1, 2, 3, 4, 5],
       startTime: room?.startTime || '07:00',
       endTime: room?.endTime || '18:00',
-      color: room?.color || COLORS[0],
       secretaryIds: room?.secretaries?.map(s => s.secretaryId) || [],
     },
   })
 
   const watchDays = watch('daysOfWeek')
-  const watchColor = watch('color')
   const watchSecIds = watch('secretaryIds') || []
 
   const toggleDay = (day: number) => {
@@ -71,18 +74,38 @@ function RoomForm({ room, secretaries, onSubmit, loading }: {
         {errors.name && <p className="text-xs text-red-500 mt-1">{errors.name.message}</p>}
       </div>
 
-      <div>
-        <label className="label">Cor de identificação</label>
-        <div className="flex gap-2 mt-1">
-          {COLORS.map(c => (
-            <button
-              key={c}
-              type="button"
-              onClick={() => setValue('color', c)}
-              className={`w-7 h-7 rounded-full border-2 transition-all ${watchColor === c ? 'border-slate-800 scale-110' : 'border-transparent'}`}
-              style={{ backgroundColor: c }}
-            />
-          ))}
+      {/* Address fields */}
+      <div className="space-y-3">
+        <label className="label flex items-center gap-1.5">
+          <MapPin className="w-3.5 h-3.5 text-slate-400" />
+          Endereço
+        </label>
+        <div>
+          <input
+            {...register('logradouro')}
+            className="input-field"
+            placeholder="Logradouro (Rua, Av., Al...)"
+          />
+        </div>
+        <div className="grid grid-cols-2 gap-3">
+          <input
+            {...register('cep')}
+            className="input-field"
+            placeholder="CEP"
+            maxLength={9}
+          />
+          <input
+            {...register('numero')}
+            className="input-field"
+            placeholder="Número"
+          />
+        </div>
+        <div>
+          <input
+            {...register('cidade')}
+            className="input-field"
+            placeholder="Cidade / UF"
+          />
         </div>
       </div>
 
@@ -122,7 +145,7 @@ function RoomForm({ room, secretaries, onSubmit, loading }: {
 
       {secretaries.length > 0 && (
         <div>
-          <label className="label">Secretárias vinculadas a esta sala</label>
+          <label className="label">Secretária vinculada a esta sala</label>
           <div className="space-y-2 mt-1">
             {secretaries.map(s => (
               <label key={s.id} className="flex items-center gap-3 p-3 border border-slate-200 rounded-lg cursor-pointer hover:bg-slate-50">
@@ -192,6 +215,12 @@ export default function Salas() {
   const dayLabel = (days: number[]) =>
     DAYS.filter(d => days.includes(d.value)).map(d => d.label).join(', ')
 
+  const addressLine = (room: Room) => {
+    const parts = [room.logradouro, room.numero].filter(Boolean).join(', ')
+    const city = room.cidade || ''
+    return [parts, city].filter(Boolean).join(' — ') || null
+  }
+
   return (
     <div className="max-w-3xl space-y-6 page-stagger">
       <div className="flex items-start justify-between">
@@ -207,7 +236,7 @@ export default function Salas() {
 
       {rooms.length === 0 ? (
         <div className="card text-center py-12 animate-stagger-2">
-          <MapPin className="w-10 h-10 text-slate-300 mx-auto mb-3 animate-float" />
+          <Building2 className="w-10 h-10 text-slate-300 mx-auto mb-3 animate-float" />
           <p className="text-slate-400">Nenhuma sala cadastrada</p>
           <button onClick={() => setModalOpen(true)} className="text-blue-600 text-sm font-medium mt-2 hover:underline">
             Criar primeira sala
@@ -217,16 +246,21 @@ export default function Salas() {
         <div className="space-y-3">
           {rooms.map(room => (
             <div key={room.id} className={`card flex items-center gap-4 ${!room.active ? 'opacity-60' : ''}`}>
-              <div
-                className="w-3 h-12 rounded-full flex-shrink-0"
-                style={{ backgroundColor: room.color || '#3b82f6' }}
-              />
+              <div className="w-10 h-10 bg-blue-50 border border-blue-100 rounded-xl flex items-center justify-center flex-shrink-0">
+                <Building2 className="w-5 h-5 text-blue-600" />
+              </div>
               <div className="flex-1 min-w-0">
                 <div className="flex items-center gap-2">
                   <p className="font-semibold text-slate-900">{room.name}</p>
                   {!room.active && <span className="text-xs bg-slate-100 text-slate-500 px-2 py-0.5 rounded-full">Inativa</span>}
                 </div>
                 <div className="flex flex-wrap items-center gap-3 mt-1 text-xs text-slate-500">
+                  {addressLine(room) && (
+                    <span className="flex items-center gap-1">
+                      <MapPin className="w-3 h-3" />
+                      {addressLine(room)}
+                    </span>
+                  )}
                   <span className="flex items-center gap-1">
                     <Clock className="w-3 h-3" />
                     {room.startTime} – {room.endTime}
@@ -261,9 +295,9 @@ export default function Salas() {
 
       <div className="card bg-blue-50 border-blue-200 text-sm text-blue-700 space-y-1">
         <p className="font-semibold text-blue-900">Como funciona</p>
-        <p>• Cada sala tem seus próprios dias e horários de atendimento</p>
+        <p>• Cada sala tem seus próprios dias, horários e endereço de atendimento</p>
         <p>• Ao vincular uma secretária a uma sala, ela verá apenas os horários daquela sala na agenda</p>
-        <p>• Um médico pode ter várias salas em dias ou horários diferentes</p>
+        <p>• Planos de saúde podem ser vinculados a salas específicas para melhor organização</p>
       </div>
 
       <Modal

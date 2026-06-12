@@ -44,6 +44,8 @@ export interface HealthPlan {
   description?: string | null
   discountPercent?: number | null
   defaultValue?: number | null
+  roomId?: string | null
+  room?: { id: string; name: string; logradouro?: string | null; cidade?: string | null } | null
   active: boolean
   createdAt: string
   _count?: { patientPlans: number }
@@ -198,6 +200,10 @@ export interface Room {
   id: string
   doctorId: string
   name: string
+  logradouro?: string | null
+  cep?: string | null
+  numero?: string | null
+  cidade?: string | null
   daysOfWeek: number[]
   startTime: string
   endTime: string

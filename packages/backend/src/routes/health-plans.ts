@@ -13,6 +13,7 @@ const planSchema = z.object({
   description: z.string().optional(),
   discountPercent: z.coerce.number().min(0).max(100).optional(),
   defaultValue: z.coerce.number().min(0).optional(),
+  roomId: z.string().optional().nullable(),
 })
 
 /**
@@ -56,6 +57,7 @@ router.get('/', async (req: AuthRequest, res: Response) => {
       },
       include: {
         _count: { select: { patientPlans: true } },
+        room: { select: { id: true, name: true, logradouro: true, cidade: true } },
       },
       orderBy: [{ type: 'asc' }, { name: 'asc' }],
     })
@@ -81,6 +83,7 @@ router.get('/all', async (req: AuthRequest, res: Response) => {
       },
       include: {
         _count: { select: { patientPlans: true } },
+        room: { select: { id: true, name: true, logradouro: true, cidade: true } },
       },
       orderBy: [{ type: 'asc' }, { name: 'asc' }],
     })

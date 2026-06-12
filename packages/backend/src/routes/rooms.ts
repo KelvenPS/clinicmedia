@@ -8,6 +8,10 @@ router.use(authenticate)
 
 const roomSchema = z.object({
   name: z.string().min(1, 'Nome obrigatório'),
+  logradouro: z.string().optional(),
+  cep: z.string().optional(),
+  numero: z.string().optional(),
+  cidade: z.string().optional(),
   daysOfWeek: z.array(z.number().min(1).max(7)).default([]),
   startTime: z.string().regex(/^\d{2}:\d{2}$/, 'Formato HH:MM'),
   endTime: z.string().regex(/^\d{2}:\d{2}$/, 'Formato HH:MM'),

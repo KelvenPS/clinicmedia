@@ -4,7 +4,7 @@ import { zodResolver } from '@hookform/resolvers/zod'
 import { z } from 'zod'
 import { format, differenceInYears, parseISO } from 'date-fns'
 import { useQuery } from '@tanstack/react-query'
-import { Plus, Trash2, CreditCard, ArrowRight } from 'lucide-react'
+import { Plus, Trash2, CreditCard, ArrowRight, MapPin } from 'lucide-react'
 import api from '../../lib/api'
 import type { Patient, HealthPlan } from '../../types'
 
@@ -277,6 +277,24 @@ export default function PatientForm({ patient, onSubmit, loading }: Props) {
                       </div>
                     </div>
                   )}
+
+                  {/* Room info linked to this plan */}
+                  {(() => {
+                    const hp = healthPlans.find(p => p.id === plan.healthPlanId)
+                    return hp?.room ? (
+                      <div className="flex items-center gap-2 px-3 py-2 bg-indigo-50 border border-indigo-200 rounded-lg">
+                        <MapPin className="w-3.5 h-3.5 text-indigo-500 flex-shrink-0" />
+                        <div className="flex-1 min-w-0">
+                          <p className="text-xs font-medium text-indigo-800">Atendimento em: {hp.room.name}</p>
+                          {(hp.room.logradouro || hp.room.cidade) && (
+                            <p className="text-xs text-indigo-600 truncate">
+                              {[hp.room.logradouro, hp.room.cidade].filter(Boolean).join(' — ')}
+                            </p>
+                          )}
+                        </div>
+                      </div>
+                    ) : null
+                  })()}
 
                   {isConvenio && (
                     <div>

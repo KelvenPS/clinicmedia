@@ -69,6 +69,8 @@ export default function AppointmentForm({
   // Returns flow state
   const [wantsReturns, setWantsReturns] = useState<boolean | null>(null)
   const [returnsCount, setReturnsCount] = useState<number>(5)
+  // Block repeat state
+  const [blockRepeatCount, setBlockRepeatCount] = useState<number>(1)
 
   const watchPatient = watch('patientId')
   const watchType = watch('type')
@@ -131,14 +133,16 @@ export default function AppointmentForm({
     }
   }, [watchType, watchPatient, selectedAppType, primaryPlan, appointment, setValue])
 
-  // Sync repeatCount with returns flow decisions
+  // Sync repeatCount with returns flow or block repeat
   useEffect(() => {
-    if (wantsReturns === true) {
+    if (watchBlocked) {
+      setValue('repeatCount', blockRepeatCount)
+    } else if (wantsReturns === true) {
       setValue('repeatCount', returnsCount)
     } else {
       setValue('repeatCount', 1)
     }
-  }, [wantsReturns, returnsCount, setValue])
+  }, [wantsReturns, returnsCount, watchBlocked, blockRepeatCount, setValue])
 
   // Repasse calculation info
   const repasseInfo = (() => {
@@ -150,8 +154,10 @@ export default function AppointmentForm({
 
   const fmt = (v: number) => v.toFixed(2).replace('.', ',')
 
-  // Whether to show the returns flow (only for new appointments with a hasReturns type)
+  // Returns flow: for new appointments with a hasReturns type (allowed even when blocked)
   const showReturnsFlow = !appointment && !!selectedAppType?.hasReturns && !watchBlocked
+  // Block repeat: simple repeat picker for blocked slots (no type required)
+  const showBlockRepeat = !appointment && !!watchBlocked
 
   return (
     <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
@@ -365,6 +371,57 @@ export default function AppointmentForm({
         </div>
       )}
 
+      {/* ── Block repeat flow ── */}
+      {showBlockRepeat && (
+        <div className="rounded-xl border-2 border-amber-300 bg-amber-50 overflow-hidden">
+          <div className="flex items-center gap-3 px-4 py-3 bg-amber-100 border-b border-amber-200">
+            <RefreshCw className="w-4 h-4 text-amber-700 flex-shrink-0" />
+            <p className="text-sm font-semibold text-amber-800">
+              Replicar este bloqueio para outras semanas
+            </p>
+          </div>
+          <div className="px-4 py-3 space-y-3">
+            <p className="text-xs text-amber-700 font-medium">Quantas semanas deseja bloquear?</p>
+            <div className="flex flex-wrap gap-2">
+              {[1, 2, 4, 8].map(n => (
+                <button
+                  key={n}
+                  type="button"
+                  onClick={() => setBlockRepeatCount(n)}
+                  className={`w-14 h-10 rounded-xl text-sm font-bold border-2 transition-all ${
+                    blockRepeatCount === n
+                      ? 'bg-amber-600 border-amber-600 text-white shadow-md scale-105'
+                      : 'bg-white border-amber-200 text-amber-700 hover:border-amber-400'
+                  }`}
+                >
+                  {n === 1 ? '1×' : `${n}×`}
+                </button>
+              ))}
+              <input
+                type="number"
+                min={1}
+                max={50}
+                placeholder="Outro"
+                value={[1, 2, 4, 8].includes(blockRepeatCount) ? '' : blockRepeatCount}
+                onChange={e => {
+                  const v = parseInt(e.target.value)
+                  if (!isNaN(v) && v >= 1 && v <= 50) setBlockRepeatCount(v)
+                }}
+                className="w-20 h-10 rounded-xl border-2 border-amber-200 text-sm text-center font-semibold text-amber-700 focus:border-amber-500 focus:outline-none focus:ring-2 focus:ring-amber-200"
+              />
+            </div>
+            {blockRepeatCount > 1 && (
+              <div className="flex items-center gap-2 p-2.5 bg-amber-100 rounded-lg">
+                <RefreshCw className="w-3.5 h-3.5 text-amber-600 flex-shrink-0" />
+                <p className="text-xs text-amber-700">
+                  Serão criados <strong>{blockRepeatCount} bloqueios semanais</strong> a partir da data selecionada.
+                </p>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
       {/* Repasse info */}
       {repasseInfo && !watchBlocked && (
         <div className="flex items-center gap-3 px-4 py-3 bg-emerald-50 border border-emerald-200 rounded-xl">
@@ -427,9 +484,11 @@ export default function AppointmentForm({
             </span>
           ) : appointment
             ? 'Atualizar Consulta'
-            : wantsReturns === true
-              ? `Agendar ${returnsCount} Consultas`
-              : 'Agendar Consulta'
+            : watchBlocked && blockRepeatCount > 1
+              ? `Bloquear ${blockRepeatCount} Semanas`
+              : wantsReturns === true
+                ? `Agendar ${returnsCount} Consultas`
+                : 'Agendar Consulta'
           }
         </button>
         {onDelete && (

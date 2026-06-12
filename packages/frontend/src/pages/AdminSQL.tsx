@@ -489,13 +489,23 @@ export default function AdminSQL() {
             <span className="ml-auto text-xs text-slate-600">Ctrl+Enter para executar</span>
           </div>
 
+          {/* PostgreSQL tip */}
+          <div className="border-b border-white/10 px-4 py-2.5 bg-slate-800/60 flex items-start gap-2">
+            <Info className="w-3.5 h-3.5 text-violet-400 flex-shrink-0 mt-0.5" />
+            <p className="text-xs text-slate-400 leading-relaxed">
+              Nomes de tabela são <span className="text-violet-300 font-semibold">case-sensitive</span> no PostgreSQL — use sempre aspas duplas.{' '}
+              <span className="font-mono text-emerald-400">SELECT * FROM "TBLUSUARIO" LIMIT 10</span>
+              {' '}· Clique na tabela na sidebar para gerar a query automaticamente.
+            </p>
+          </div>
+
           {/* Textarea */}
           <textarea
             value={query}
             onChange={e => setQuery(e.target.value)}
             onKeyDown={handleKeyDown}
             spellCheck={false}
-            placeholder="SELECT * FROM &quot;User&quot; LIMIT 10;"
+            placeholder={'SELECT * FROM "TBLUSUARIO" LIMIT 10;'}
             className="w-full bg-slate-900 text-slate-100 font-mono text-sm px-4 py-4 outline-none resize-vertical placeholder:text-slate-600 leading-relaxed"
             style={{ minHeight: 160 }}
           />

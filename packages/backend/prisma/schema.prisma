@@ -104,6 +104,8 @@ model User {
   healthPlans         HealthPlan[]        @relation("DoctorHealthPlans")
   appointmentTypes    AppointmentType[]   @relation("DoctorAppointmentTypes")
   sqlLogs             SqlQueryLog[]       @relation("AdminSqlLogs")
+
+  @@map("TBLUSUARIO")
 }
 
 model DoctorSecretary {
@@ -117,6 +119,7 @@ model DoctorSecretary {
   secretary User @relation("SecretaryOf", fields: [secretaryId], references: [id])
 
   @@unique([doctorId, secretaryId])
+  @@map("TBLMEDICOSECRETARIA")
 }
 
 model Patient {
@@ -143,6 +146,7 @@ model Patient {
   assessments    Assessment[]
 
   @@index([doctorId])
+  @@map("TBLPACIENTE")
 }
 
 model HealthPlan {
@@ -162,6 +166,8 @@ model HealthPlan {
   doctor       User?         @relation("DoctorHealthPlans", fields: [doctorId], references: [id])
   room         Room?         @relation("RoomHealthPlans", fields: [roomId], references: [id])
   patientPlans PatientPlan[]
+
+  @@map("TBLPLANOSAUDE")
 }
 
 model PatientPlan {
@@ -178,6 +184,7 @@ model PatientPlan {
   healthPlan HealthPlan @relation(fields: [healthPlanId], references: [id])
 
   @@unique([patientId, healthPlanId])
+  @@map("TBLPACIENTEPLANO")
 }
 
 model AppointmentBlock {
@@ -189,6 +196,8 @@ model AppointmentBlock {
   createdAt DateTime @default(now())
 
   doctor User @relation("DoctorBlocks", fields: [doctorId], references: [id])
+
+  @@map("TBLBLOQUEIOAGENDA")
 }
 
 model MedicalRecord {
@@ -204,6 +213,8 @@ model MedicalRecord {
 
   patient Patient @relation(fields: [patientId], references: [id])
   doctor  User    @relation("DoctorRecords", fields: [doctorId], references: [id])
+
+  @@map("TBLPRONTUARIO")
 }
 
 model Assessment {
@@ -223,6 +234,8 @@ model Assessment {
 
   patient Patient @relation(fields: [patientId], references: [id])
   doctor  User    @relation("DoctorAssessments", fields: [doctorId], references: [id])
+
+  @@map("TBLAVALIACAO")
 }
 
 model Appointment {
@@ -250,6 +263,7 @@ model Appointment {
 
   @@index([doctorId])
   @@index([doctorId, date])
+  @@map("TBLAGENDAMENTO")
 }
 
 model AppointmentType {
@@ -263,6 +277,8 @@ model AppointmentType {
   updatedAt  DateTime @updatedAt
 
   doctor    User?    @relation("DoctorAppointmentTypes", fields: [doctorId], references: [id])
+
+  @@map("TBLTIPOAGENDAMENTO")
 }
 
 model SqlQueryLog {
@@ -276,6 +292,8 @@ model SqlQueryLog {
   createdAt  DateTime @default(now())
 
   admin      User     @relation("AdminSqlLogs", fields: [adminId], references: [id])
+
+  @@map("TBLLOGSQL")
 }
 
 model Transaction {
@@ -293,6 +311,8 @@ model Transaction {
 
   doctor      User         @relation(fields: [doctorId], references: [id])
   appointment Appointment? @relation(fields: [appointmentId], references: [id])
+
+  @@map("TBLTRANSACAO")
 }
 
 model Room {
@@ -315,6 +335,8 @@ model Room {
   secretaries RoomSecretary[]
   healthPlans HealthPlan[]    @relation("RoomHealthPlans")
   appointments Appointment[]  @relation("RoomAppointments")
+
+  @@map("TBLSALA")
 }
 
 model RoomSecretary {
@@ -327,6 +349,7 @@ model RoomSecretary {
   secretary User @relation("SecretaryRooms", fields: [secretaryId], references: [id])
 
   @@unique([roomId, secretaryId])
+  @@map("TBLSALASECRETARIA")
 }
 
 model DocumentTemplate {
@@ -340,6 +363,8 @@ model DocumentTemplate {
   updatedAt DateTime @updatedAt
 
   doctor    User     @relation("DoctorDocuments", fields: [doctorId], references: [id])
+
+  @@map("TBLMODELODOCUMENTO")
 }
 
 model Notification {
@@ -353,6 +378,8 @@ model Notification {
   createdAt DateTime @default(now())
 
   user      User     @relation("UserNotifications", fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("TBLNOTIFICACAO")
 }
 
 model PaymentMethod {
@@ -366,6 +393,8 @@ model PaymentMethod {
   updatedAt    DateTime @updatedAt
 
   doctor       User     @relation("DoctorPaymentMethods", fields: [doctorId], references: [id])
+
+  @@map("TBLFORMAPAGAMENTO")
 }
 
 model Integration {
@@ -383,6 +412,7 @@ model Integration {
   webhookLogs WebhookLog[]
 
   @@index([doctorId])
+  @@map("TBLINTEGRACAO")
 }
 
 model WebhookLog {
@@ -400,6 +430,7 @@ model WebhookLog {
   integration   Integration @relation(fields: [integrationId], references: [id], onDelete: Cascade)
 
   @@index([integrationId])
+  @@map("TBLLOGWEBHOOK")
 }
 
 model DoctorSubscription {
@@ -421,6 +452,8 @@ model DoctorSubscription {
 
   doctor             User                  @relation("DoctorSubscription", fields: [doctorId], references: [id])
   payments           SubscriptionPayment[] @relation("SubPayments")
+
+  @@map("TBLASSINATURA")
 }
 
 model SubscriptionPayment {
@@ -441,6 +474,7 @@ model SubscriptionPayment {
 
   @@index([doctorId])
   @@index([mpPaymentId])
+  @@map("TBLPAGAMENTOASSINATURA")
 }
 
 // ─── WhatsApp / Chatbot Module ────────────────────────────────────────────────
@@ -506,6 +540,8 @@ model WhatsAppInstance {
   conversations Conversation[]
   flows         ChatbotFlow[]
   settings      ChatbotSettings?
+
+  @@map("TBLWHATSAPPINSTANCIA")
 }
 
 model Conversation {
@@ -530,6 +566,7 @@ model Conversation {
 
   @@index([instanceId])
   @@index([category])
+  @@map("TBLCONVERSA")
 }
 
 model Message {
@@ -546,6 +583,7 @@ model Message {
   conversation Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
 
   @@index([conversationId])
+  @@map("TBLMENSAGEM")
 }
 
 model ChatbotFlow {
@@ -566,6 +604,7 @@ model ChatbotFlow {
   instance WhatsAppInstance @relation(fields: [instanceId], references: [id], onDelete: Cascade)
 
   @@index([instanceId])
+  @@map("TBLCHATBOTFLUXO")
 }
 
 model ChatbotTemplate {
@@ -579,6 +618,8 @@ model ChatbotTemplate {
   isGlobal    Boolean  @default(true)
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
+
+  @@map("TBLCHATBOTMODELO")
 }
 
 model ChatbotSettings {
@@ -599,4 +640,6 @@ model ChatbotSettings {
   updatedAt            DateTime @updatedAt
 
   instance WhatsAppInstance @relation(fields: [instanceId], references: [id], onDelete: Cascade)
+
+  @@map("TBLCHATBOTCONFIG")
 }

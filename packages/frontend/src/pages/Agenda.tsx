@@ -1,4 +1,5 @@
-import { useState, useRef, useCallback } from 'react'
+import { useState, useRef, useCallback, useEffect } from 'react'
+import { createPortal } from 'react-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import {
   format, startOfWeek, addDays, addWeeks, subWeeks, isSameDay, parseISO,
@@ -154,6 +155,7 @@ export default function Agenda() {
   const [filterDoctorId, setFilterDoctorId] = useState('')
   const [tooltip, setTooltip] = useState<TooltipState | null>(null)
   const tooltipTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const tooltipRef = useRef<HTMLDivElement>(null)
   const mouseCoords = useRef({ x: 0, y: 0 })
 
   const weekStart = startOfWeek(currentWeek, { weekStartsOn: 1 })
@@ -282,12 +284,11 @@ export default function Agenda() {
 
   const handleApptMouseMove = useCallback((e: React.MouseEvent) => {
     mouseCoords.current = { x: e.clientX, y: e.clientY }
-    const tooltipEl = document.getElementById('appointment-tooltip')
-    if (tooltipEl) {
-      const left = Math.min(e.clientX + 14, window.innerWidth - 256)
+    if (tooltipRef.current) {
+      const left = Math.min(e.clientX + 14, window.innerWidth - 260)
       const top = Math.min(e.clientY + 10, window.innerHeight - 260)
-      tooltipEl.style.left = `${left}px`
-      tooltipEl.style.top = `${top}px`
+      tooltipRef.current.style.left = `${left}px`
+      tooltipRef.current.style.top = `${top}px`
     }
   }, [])
 
@@ -610,13 +611,13 @@ export default function Agenda() {
         )}
       </div>
 
-      {/* Hover tooltip */}
-      {tooltip && (
+      {/* Hover tooltip — rendered via portal to escape transform/overflow ancestors */}
+      {tooltip && createPortal(
         <div
-          id="appointment-tooltip"
-          className="fixed z-50 pointer-events-none"
+          ref={tooltipRef}
+          className="fixed z-[9999] pointer-events-none"
           style={{
-            left: Math.min(tooltip.x + 14, window.innerWidth - 256),
+            left: Math.min(tooltip.x + 14, window.innerWidth - 260),
             top: Math.min(tooltip.y + 10, window.innerHeight - 260),
           }}
         >
@@ -671,7 +672,8 @@ export default function Agenda() {
             </div>
             <StatusBadge status={tooltip.appt.status} />
           </div>
-        </div>
+        </div>,
+        document.body
       )}
 
       <Modal

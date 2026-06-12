@@ -491,11 +491,13 @@ export default function AdminSQL() {
 
           {/* PostgreSQL tip */}
           <div className="border-b border-white/10 px-4 py-2.5 bg-slate-800/60 flex items-start gap-2">
-            <Info className="w-3.5 h-3.5 text-violet-400 flex-shrink-0 mt-0.5" />
+            <Info className="w-3.5 h-3.5 text-emerald-400 flex-shrink-0 mt-0.5" />
             <p className="text-xs text-slate-400 leading-relaxed">
-              Nomes de tabela são <span className="text-violet-300 font-semibold">case-sensitive</span> no PostgreSQL — use sempre aspas duplas.{' '}
-              <span className="font-mono text-emerald-400">SELECT * FROM "TBLUSUARIO" LIMIT 10</span>
-              {' '}· Clique na tabela na sidebar para gerar a query automaticamente.
+              Tabelas <span className="font-mono text-violet-300">TBL*</span> são auto-cotadas pelo servidor — escreva com ou sem aspas:{' '}
+              <span className="font-mono text-emerald-400">SELECT * FROM TBLSALA</span>
+              {' '}ou{' '}
+              <span className="font-mono text-emerald-400">SELECT * FROM "TBLSALA"</span>
+              {' '}· Clique na tabela na sidebar para gerar a query.
             </p>
           </div>
 

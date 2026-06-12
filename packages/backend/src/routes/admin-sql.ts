@@ -9,6 +9,16 @@ router.use(requireRole('ADMIN'))
 const MAX_QUERY_LENGTH = 10_000
 const QUERY_TIMEOUT_MS = 30_000
 
+// Auto-wrap TBL* identifiers in double quotes so the user can write
+// SELECT * FROM TBLSALA (without quotes) and it works correctly.
+// The regex matches already-quoted occurrences first (leaves them alone),
+// then matches unquoted ones and wraps them.
+function autoQuoteTblIdentifiers(sql: string): string {
+  return sql.replace(/"TBL[A-Z]+"|\bTBL[A-Z]+\b/g, (match) =>
+    match.startsWith('"') ? match : `"${match}"`
+  )
+}
+
 // ─── POST /api/admin/sql/execute ─────────────────────────────────────────────
 router.post('/execute', async (req: AuthRequest, res: Response) => {
   const { query, allowWrites = false } = req.body as {
@@ -42,6 +52,9 @@ router.post('/execute', async (req: AuthRequest, res: Response) => {
     )
   }
 
+  // Auto-quote TBL* identifiers so the user can write TBLSALA or "TBLSALA" interchangeably
+  const effectiveQuery = autoQuoteTblIdentifiers(query)
+
   const startMs = Date.now()
   let rows: unknown[] = []
   let success = false
@@ -49,7 +62,7 @@ router.post('/execute', async (req: AuthRequest, res: Response) => {
 
   try {
     const result = await Promise.race([
-      prisma.$queryRawUnsafe<unknown[]>(query),
+      prisma.$queryRawUnsafe<unknown[]>(effectiveQuery),
       new Promise<never>((_, reject) =>
         setTimeout(() => reject(new Error('Query timeout (30s)')), QUERY_TIMEOUT_MS),
       ),

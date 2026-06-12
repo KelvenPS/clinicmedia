@@ -154,6 +154,7 @@ export default function Agenda() {
   const [filterDoctorId, setFilterDoctorId] = useState('')
   const [tooltip, setTooltip] = useState<TooltipState | null>(null)
   const tooltipTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const mouseCoords = useRef({ x: 0, y: 0 })
 
   const weekStart = startOfWeek(currentWeek, { weekStartsOn: 1 })
   const weekDays = Array.from({ length: 7 }, (_, i) => addDays(weekStart, i))
@@ -273,13 +274,22 @@ export default function Agenda() {
   const handleApptMouseEnter = useCallback((e: React.MouseEvent, appt: Appointment) => {
     if (user?.role === 'SECRETARY' && appt.isBlocked) return
     if (tooltipTimer.current) clearTimeout(tooltipTimer.current)
-    // clientX/Y são primitivos — seguros de capturar e usar dentro do setTimeout
-    const mx = e.clientX
-    const my = e.clientY
+    mouseCoords.current = { x: e.clientX, y: e.clientY }
     tooltipTimer.current = setTimeout(() => {
-      setTooltip({ appt, x: mx, y: my })
+      setTooltip({ appt, x: mouseCoords.current.x, y: mouseCoords.current.y })
     }, 300)
   }, [user])
+
+  const handleApptMouseMove = useCallback((e: React.MouseEvent) => {
+    mouseCoords.current = { x: e.clientX, y: e.clientY }
+    const tooltipEl = document.getElementById('appointment-tooltip')
+    if (tooltipEl) {
+      const left = Math.min(e.clientX + 14, window.innerWidth - 256)
+      const top = Math.min(e.clientY + 10, window.innerHeight - 260)
+      tooltipEl.style.left = `${left}px`
+      tooltipEl.style.top = `${top}px`
+    }
+  }, [])
 
   const handleApptMouseLeave = useCallback(() => {
     if (tooltipTimer.current) clearTimeout(tooltipTimer.current)
@@ -527,6 +537,7 @@ export default function Agenda() {
                         className={`absolute rounded-md border-l-4 px-1.5 py-0.5 text-white shadow-sm z-10 overflow-hidden transition-all ${colorClass} ${isSecretaryBlocked ? 'cursor-not-allowed opacity-80' : 'cursor-pointer hover:brightness-95'}`}
                         onClick={e => handleApptClick(e, appt)}
                         onMouseEnter={e => handleApptMouseEnter(e, appt)}
+                        onMouseMove={handleApptMouseMove}
                         onMouseLeave={handleApptMouseLeave}
                       >
                         <p className="text-xs font-bold leading-tight truncate">
@@ -602,6 +613,7 @@ export default function Agenda() {
       {/* Hover tooltip */}
       {tooltip && (
         <div
+          id="appointment-tooltip"
           className="fixed z-50 pointer-events-none"
           style={{
             left: Math.min(tooltip.x + 14, window.innerWidth - 256),

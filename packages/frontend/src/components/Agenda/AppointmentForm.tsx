@@ -3,8 +3,8 @@ import { useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { z } from 'zod'
 import { format } from 'date-fns'
-import { Trash2, ArrowRight, Info, RefreshCw, Check, X } from 'lucide-react'
-import type { Appointment, User, Patient, AuthUser, AppointmentType } from '../../types'
+import { Trash2, ArrowRight, Info, RefreshCw, Check, X, MapPin } from 'lucide-react'
+import type { Appointment, User, Patient, AuthUser, AppointmentType, Room } from '../../types'
 
 const DURATIONS = [
   { value: 30, label: '30 min' },
@@ -27,6 +27,7 @@ const schema = z.object({
   value: z.coerce.number().optional(),
   notes: z.string().optional(),
   isBlocked: z.boolean().optional(),
+  roomId: z.string().optional().nullable(),
   repeatCount: z.coerce.number().int().min(1).max(50).optional(),
 })
 
@@ -38,6 +39,7 @@ interface Props {
   doctors: User[]
   patients: Patient[]
   appointmentTypes: AppointmentType[]
+  rooms: Room[]
   currentUser: AuthUser | null
   onSubmit: (data: FormData) => void
   onDelete?: () => void
@@ -50,6 +52,7 @@ export default function AppointmentForm({
   doctors,
   patients,
   appointmentTypes,
+  rooms,
   currentUser,
   onSubmit,
   onDelete,
@@ -63,14 +66,13 @@ export default function AppointmentForm({
       doctorId: currentUser?.role === 'DOCTOR' ? currentUser.id : '',
       isBlocked: false,
       repeatCount: 1,
+      roomId: '',
     },
   })
 
   // Returns flow state
   const [wantsReturns, setWantsReturns] = useState<boolean | null>(null)
   const [returnsCount, setReturnsCount] = useState<number>(5)
-  // Block repeat state
-  const [blockRepeatCount, setBlockRepeatCount] = useState<number>(1)
 
   const watchPatient = watch('patientId')
   const watchType = watch('type')
@@ -99,6 +101,7 @@ export default function AppointmentForm({
       setValue('value', appointment.value || undefined)
       setValue('notes', appointment.notes || '')
       setValue('isBlocked', appointment.isBlocked ?? false)
+      setValue('roomId', appointment.roomId || '')
     } else if (defaultDate) {
       setValue('date', format(defaultDate, "yyyy-MM-dd'T'HH:mm"))
     } else {
@@ -124,6 +127,13 @@ export default function AppointmentForm({
     }
   }, [selectedPatient, appointment, setValue])
 
+  // Auto-populate room from the patient's primary health plan
+  useEffect(() => {
+    if (!appointment && primaryPlan?.healthPlan?.roomId) {
+      setValue('roomId', primaryPlan.healthPlan.roomId)
+    }
+  }, [watchPatient, primaryPlan, appointment, setValue])
+
   // Auto-calculate value when type or patient changes
   useEffect(() => {
     if (!appointment && selectedAppType?.baseValue) {
@@ -133,16 +143,14 @@ export default function AppointmentForm({
     }
   }, [watchType, watchPatient, selectedAppType, primaryPlan, appointment, setValue])
 
-  // Sync repeatCount with returns flow or block repeat
+  // Sync repeatCount with returns flow
   useEffect(() => {
-    if (watchBlocked) {
-      setValue('repeatCount', blockRepeatCount)
-    } else if (wantsReturns === true) {
+    if (wantsReturns === true) {
       setValue('repeatCount', returnsCount)
     } else {
       setValue('repeatCount', 1)
     }
-  }, [wantsReturns, returnsCount, watchBlocked, blockRepeatCount, setValue])
+  }, [wantsReturns, returnsCount, setValue])
 
   // Repasse calculation info
   const repasseInfo = (() => {
@@ -154,10 +162,8 @@ export default function AppointmentForm({
 
   const fmt = (v: number) => v.toFixed(2).replace('.', ',')
 
-  // Returns flow: for new appointments with a hasReturns type (allowed even when blocked)
+  // Returns flow only for new, non-blocked appointments with a hasReturns type
   const showReturnsFlow = !appointment && !!selectedAppType?.hasReturns && !watchBlocked
-  // Block repeat: simple repeat picker for blocked slots (no type required)
-  const showBlockRepeat = !appointment && !!watchBlocked
 
   return (
     <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
@@ -172,12 +178,12 @@ export default function AppointmentForm({
           </div>
           <div className="flex-1">
             <p className={`font-semibold text-sm ${watchBlocked ? 'text-amber-800' : 'text-slate-700'}`}>
-              {watchBlocked ? 'Horário Bloqueado' : 'Bloquear Horário'}
+              {watchBlocked ? 'Horário Bloqueado para a Secretária' : 'Bloquear para a Secretária'}
             </p>
             <p className="text-xs text-slate-500">
               {watchBlocked
-                ? 'Secretária verá este slot como "Bloqueado"'
-                : 'Clique para bloquear este horário para a secretária'
+                ? 'A secretária verá este slot como "Bloqueado". Não é possível replicar bloqueios.'
+                : 'Clique para bloquear este horário. Só vale para esta data.'
               }
             </p>
           </div>
@@ -284,10 +290,27 @@ export default function AppointmentForm({
         </div>
       </div>
 
+      {/* Room selector */}
+      {rooms.length > 0 && (
+        <div>
+          <label className="label flex items-center gap-1.5">
+            <MapPin className="w-3.5 h-3.5 text-slate-400" />
+            Local de atendimento
+          </label>
+          <select {...register('roomId')} className="input-field">
+            <option value="">Sem sala definida</option>
+            {rooms.map(r => (
+              <option key={r.id} value={r.id}>
+                {r.name}{r.cidade ? ` — ${r.cidade}` : ''}
+              </option>
+            ))}
+          </select>
+        </div>
+      )}
+
       {/* ── Returns flow ── */}
       {showReturnsFlow && (
         <div className="rounded-xl border-2 border-violet-300 bg-violet-50 overflow-hidden">
-          {/* Header alert */}
           <div className="flex items-center gap-3 px-4 py-3 bg-violet-100 border-b border-violet-200">
             <RefreshCw className="w-4 h-4 text-violet-600 flex-shrink-0" />
             <p className="text-sm font-semibold text-violet-800">
@@ -296,7 +319,6 @@ export default function AppointmentForm({
           </div>
 
           <div className="px-4 py-3 space-y-3">
-            {/* SIM / NÃO */}
             <div className="flex gap-2">
               <button
                 type="button"
@@ -324,7 +346,6 @@ export default function AppointmentForm({
               </button>
             </div>
 
-            {/* Return count picker */}
             {wantsReturns === true && (
               <div className="space-y-2 pt-1 animate-in fade-in slide-in-from-top-2 duration-200">
                 <p className="text-xs font-semibold text-violet-700">
@@ -345,7 +366,6 @@ export default function AppointmentForm({
                       {n}
                     </button>
                   ))}
-                  {/* Custom input */}
                   <input
                     type="number"
                     min={1}
@@ -365,57 +385,6 @@ export default function AppointmentForm({
                     Serão criados <strong>{returnsCount} agendamentos</strong> semanais a partir da data selecionada.
                   </p>
                 </div>
-              </div>
-            )}
-          </div>
-        </div>
-      )}
-
-      {/* ── Block repeat flow ── */}
-      {showBlockRepeat && (
-        <div className="rounded-xl border-2 border-amber-300 bg-amber-50 overflow-hidden">
-          <div className="flex items-center gap-3 px-4 py-3 bg-amber-100 border-b border-amber-200">
-            <RefreshCw className="w-4 h-4 text-amber-700 flex-shrink-0" />
-            <p className="text-sm font-semibold text-amber-800">
-              Replicar este bloqueio para outras semanas
-            </p>
-          </div>
-          <div className="px-4 py-3 space-y-3">
-            <p className="text-xs text-amber-700 font-medium">Quantas semanas deseja bloquear?</p>
-            <div className="flex flex-wrap gap-2">
-              {[1, 2, 4, 8].map(n => (
-                <button
-                  key={n}
-                  type="button"
-                  onClick={() => setBlockRepeatCount(n)}
-                  className={`w-14 h-10 rounded-xl text-sm font-bold border-2 transition-all ${
-                    blockRepeatCount === n
-                      ? 'bg-amber-600 border-amber-600 text-white shadow-md scale-105'
-                      : 'bg-white border-amber-200 text-amber-700 hover:border-amber-400'
-                  }`}
-                >
-                  {n === 1 ? '1×' : `${n}×`}
-                </button>
-              ))}
-              <input
-                type="number"
-                min={1}
-                max={50}
-                placeholder="Outro"
-                value={[1, 2, 4, 8].includes(blockRepeatCount) ? '' : blockRepeatCount}
-                onChange={e => {
-                  const v = parseInt(e.target.value)
-                  if (!isNaN(v) && v >= 1 && v <= 50) setBlockRepeatCount(v)
-                }}
-                className="w-20 h-10 rounded-xl border-2 border-amber-200 text-sm text-center font-semibold text-amber-700 focus:border-amber-500 focus:outline-none focus:ring-2 focus:ring-amber-200"
-              />
-            </div>
-            {blockRepeatCount > 1 && (
-              <div className="flex items-center gap-2 p-2.5 bg-amber-100 rounded-lg">
-                <RefreshCw className="w-3.5 h-3.5 text-amber-600 flex-shrink-0" />
-                <p className="text-xs text-amber-700">
-                  Serão criados <strong>{blockRepeatCount} bloqueios semanais</strong> a partir da data selecionada.
-                </p>
               </div>
             )}
           </div>
@@ -484,11 +453,9 @@ export default function AppointmentForm({
             </span>
           ) : appointment
             ? 'Atualizar Consulta'
-            : watchBlocked && blockRepeatCount > 1
-              ? `Bloquear ${blockRepeatCount} Semanas`
-              : wantsReturns === true
-                ? `Agendar ${returnsCount} Consultas`
-                : 'Agendar Consulta'
+            : wantsReturns === true
+              ? `Agendar ${returnsCount} Consultas`
+              : 'Agendar Consulta'
           }
         </button>
         {onDelete && (

@@ -95,6 +95,7 @@ export interface Appointment {
   patientId: string
   doctorId: string
   createdById: string
+  roomId?: string | null
   title: string
   date: string
   duration: number
@@ -107,6 +108,7 @@ export interface Appointment {
   patient: { id: string; name: string; phone: string }
   doctor: { id: string; name: string; specialty?: string | null; crm?: string | null }
   createdBy?: { id: string; name: string }
+  room?: { id: string; name: string; logradouro?: string | null; cidade?: string | null } | null
 }
 
 export interface Transaction {

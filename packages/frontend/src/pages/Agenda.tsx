@@ -1,10 +1,10 @@
-import { useState } from 'react'
+import { useState, useRef, useCallback } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import {
   format, startOfWeek, addDays, addWeeks, subWeeks, isSameDay, parseISO,
 } from 'date-fns'
 import { ptBR } from 'date-fns/locale'
-import { ChevronLeft, ChevronRight, Plus, Calendar, Clock, Lock, Trash2, X } from 'lucide-react'
+import { ChevronLeft, ChevronRight, Plus, Calendar, Clock, Lock, Trash2, X, MapPin, User as UserIcon } from 'lucide-react'
 import toast from 'react-hot-toast'
 import api from '../lib/api'
 import { useAuthStore } from '../store/authStore'
@@ -137,6 +137,12 @@ function BlockForm({
   )
 }
 
+interface TooltipState {
+  appt: Appointment
+  x: number
+  y: number
+}
+
 export default function Agenda() {
   const { user } = useAuthStore()
   const qc = useQueryClient()
@@ -146,6 +152,8 @@ export default function Agenda() {
   const [selectedAppt, setSelectedAppt] = useState<Appointment | null>(null)
   const [selectedSlot, setSelectedSlot] = useState<{ date: Date } | null>(null)
   const [filterDoctorId, setFilterDoctorId] = useState('')
+  const [tooltip, setTooltip] = useState<TooltipState | null>(null)
+  const tooltipTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   const weekStart = startOfWeek(currentWeek, { weekStartsOn: 1 })
   const weekDays = Array.from({ length: 7 }, (_, i) => addDays(weekStart, i))
@@ -190,9 +198,8 @@ export default function Agenda() {
   })
 
   const { data: myRooms = [] } = useQuery<Room[]>({
-    queryKey: ['my-rooms'],
+    queryKey: ['rooms'],
     queryFn: () => api.get('/rooms').then(r => r.data),
-    enabled: user?.role === 'SECRETARY',
   })
 
   // For secretaries: restrict to room schedule
@@ -257,10 +264,25 @@ export default function Agenda() {
     e.stopPropagation()
     // Secretary cannot see details of blocked appointments
     if (user?.role === 'SECRETARY' && appt.isBlocked) return
+    setTooltip(null)
     setSelectedAppt(appt)
     setSelectedSlot(null)
     setModalOpen(true)
   }
+
+  const handleApptMouseEnter = useCallback((e: React.MouseEvent, appt: Appointment) => {
+    if (user?.role === 'SECRETARY' && appt.isBlocked) return
+    if (tooltipTimer.current) clearTimeout(tooltipTimer.current)
+    tooltipTimer.current = setTimeout(() => {
+      const rect = (e.currentTarget as HTMLElement).getBoundingClientRect()
+      setTooltip({ appt, x: rect.right + 8, y: rect.top })
+    }, 300)
+  }, [user])
+
+  const handleApptMouseLeave = useCallback(() => {
+    if (tooltipTimer.current) clearTimeout(tooltipTimer.current)
+    tooltipTimer.current = setTimeout(() => setTooltip(null), 150)
+  }, [])
 
   const activeSlots = roomSchedule
     ? buildTimeSlots(roomSchedule.startHour, roomSchedule.endHour)
@@ -502,6 +524,8 @@ export default function Agenda() {
                         style={{ top: top + 1, height: height - 2, left: 2, right: 2 }}
                         className={`absolute rounded-md border-l-4 px-1.5 py-0.5 text-white shadow-sm z-10 overflow-hidden transition-all ${colorClass} ${isSecretaryBlocked ? 'cursor-not-allowed opacity-80' : 'cursor-pointer hover:brightness-95'}`}
                         onClick={e => handleApptClick(e, appt)}
+                        onMouseEnter={e => handleApptMouseEnter(e, appt)}
+                        onMouseLeave={handleApptMouseLeave}
                       >
                         <p className="text-xs font-bold leading-tight truncate">
                           {isSecretaryBlocked ? (
@@ -573,6 +597,46 @@ export default function Agenda() {
         )}
       </div>
 
+      {/* Hover tooltip */}
+      {tooltip && (
+        <div
+          className="fixed z-50"
+          style={{ left: Math.min(tooltip.x, window.innerWidth - 248), top: Math.max(tooltip.y, 8) }}
+        >
+          <div
+            className="w-56 bg-white border border-slate-200 rounded-xl shadow-xl p-3 space-y-2"
+            onMouseEnter={() => { if (tooltipTimer.current) clearTimeout(tooltipTimer.current) }}
+            onMouseLeave={handleApptMouseLeave}
+          >
+            <div className="flex items-center gap-2">
+              <div className={`w-2.5 h-2.5 rounded-full flex-shrink-0 ${getApptColor(tooltip.appt.status, tooltip.appt.isBlocked).split(' ')[0]}`} />
+              <p className="font-semibold text-slate-900 text-sm leading-tight truncate">{tooltip.appt.patient.name}</p>
+            </div>
+            <div className="space-y-1.5 text-xs text-slate-500">
+              <div className="flex items-center gap-1.5">
+                <Clock className="w-3 h-3 flex-shrink-0 text-slate-400" />
+                <span>{format(parseISO(tooltip.appt.date), 'HH:mm')} · {tooltip.appt.duration}min</span>
+              </div>
+              {tooltip.appt.type && (
+                <div className="flex items-center gap-1.5">
+                  <UserIcon className="w-3 h-3 flex-shrink-0 text-slate-400" />
+                  <span className="truncate">{tooltip.appt.type}</span>
+                </div>
+              )}
+              {tooltip.appt.room && (
+                <div className="flex items-center gap-1.5">
+                  <MapPin className="w-3 h-3 flex-shrink-0 text-slate-400" />
+                  <span className="truncate">
+                    {tooltip.appt.room.name}{tooltip.appt.room.cidade ? ` — ${tooltip.appt.room.cidade}` : ''}
+                  </span>
+                </div>
+              )}
+            </div>
+            <StatusBadge status={tooltip.appt.status} />
+          </div>
+        </div>
+      )}
+
       <Modal
         isOpen={modalOpen}
         onClose={() => { setModalOpen(false); setSelectedAppt(null) }}
@@ -585,9 +649,9 @@ export default function Agenda() {
           doctors={doctors}
           patients={patients}
           appointmentTypes={appointmentTypes}
+          rooms={myRooms}
           currentUser={user}
           onSubmit={data => {
-            // Convert local datetime string to UTC ISO before sending to the backend.
             const payload = {
               ...data,
               date: new Date(data.date as string).toISOString(),

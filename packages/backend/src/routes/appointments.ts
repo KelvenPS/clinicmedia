@@ -18,6 +18,8 @@ const appointmentSchema = z.object({
   notes: z.string().optional(),
   type: z.string().optional(),
   value: z.number().optional(),
+  isBlocked: z.boolean().optional(),
+  roomId: z.string().optional().nullable(),
   repeatCount: z.number().int().min(1).max(50).optional(),
 })
 
@@ -63,6 +65,7 @@ router.get('/', async (req: AuthRequest, res) => {
         patient: { select: { id: true, name: true, phone: true } },
         doctor: { select: { id: true, name: true, specialty: true, crm: true } },
         createdBy: { select: { id: true, name: true } },
+        room: { select: { id: true, name: true, logradouro: true, cidade: true } },
       },
       orderBy: { date: 'asc' },
     })
@@ -77,6 +80,9 @@ router.post('/', async (req: AuthRequest, res) => {
   try {
     const data = appointmentSchema.parse(req.body)
     const { repeatCount, ...apptData } = data
+
+    // When blocked, disallow replication — force single occurrence
+    const effectiveRepeatCount = apptData.isBlocked ? 1 : (repeatCount && repeatCount > 1 ? repeatCount : 1)
 
     // DOCTOR cannot create an appointment assigned to another professional.
     if (req.user!.role === 'DOCTOR') {
@@ -95,7 +101,7 @@ router.post('/', async (req: AuthRequest, res) => {
     }
 
     const baseDate = new Date(apptData.date)
-    const totalOccurrences = repeatCount && repeatCount > 1 ? repeatCount : 1
+    const totalOccurrences = effectiveRepeatCount
 
     // Build all dates: base + weekly repeats
     const dates: Date[] = []
@@ -121,6 +127,7 @@ router.post('/', async (req: AuthRequest, res) => {
             patient: { select: { id: true, name: true, phone: true } },
             doctor: { select: { id: true, name: true, specialty: true } },
             createdBy: { select: { id: true, name: true } },
+            room: { select: { id: true, name: true, logradouro: true, cidade: true } },
           },
         })
       )
@@ -195,6 +202,7 @@ router.put('/:id', async (req: AuthRequest, res) => {
       include: {
         patient: { select: { id: true, name: true, phone: true } },
         doctor: { select: { id: true, name: true, specialty: true } },
+        room: { select: { id: true, name: true, logradouro: true, cidade: true } },
       },
     })
 
@@ -318,6 +326,7 @@ router.get('/today', async (req: AuthRequest, res) => {
       include: {
         patient: { select: { id: true, name: true, phone: true } },
         doctor: { select: { id: true, name: true, specialty: true } },
+        room: { select: { id: true, name: true, logradouro: true, cidade: true } },
       },
       orderBy: { date: 'asc' },
     })

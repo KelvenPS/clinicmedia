@@ -230,6 +230,7 @@ model Appointment {
   patientId   String
   doctorId    String
   createdById String
+  roomId      String?
   title       String
   date        DateTime
   duration    Int               @default(30)
@@ -244,6 +245,7 @@ model Appointment {
   patient     Patient      @relation(fields: [patientId], references: [id])
   doctor      User         @relation("DoctorAppointments", fields: [doctorId], references: [id])
   createdBy   User         @relation("CreatedByAppointments", fields: [createdById], references: [id])
+  room        Room?        @relation("RoomAppointments", fields: [roomId], references: [id])
   transaction Transaction?
 
   @@index([doctorId])
@@ -312,6 +314,7 @@ model Room {
   doctor      User            @relation("DoctorRooms", fields: [doctorId], references: [id])
   secretaries RoomSecretary[]
   healthPlans HealthPlan[]    @relation("RoomHealthPlans")
+  appointments Appointment[]  @relation("RoomAppointments")
 }
 
 model RoomSecretary {

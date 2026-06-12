@@ -713,6 +713,7 @@ router.post('/flows', async (req: AuthRequest, res: Response) => {
 
     res.status(201).json(flow)
   } catch (error) {
+    console.error('Error in POST /flows:', error)
     if (error instanceof z.ZodError) {
       res.status(400).json({ message: 'Dados inválidos', errors: error.errors })
       return
@@ -774,6 +775,7 @@ router.put('/flows/:id', async (req: AuthRequest, res: Response) => {
 
     res.json(updated)
   } catch (error) {
+    console.error('Error in PUT /flows/:id:', error)
     if (error instanceof z.ZodError) {
       res.status(400).json({ message: 'Dados inválidos', errors: error.errors })
       return

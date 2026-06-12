@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
+import toast from 'react-hot-toast'
 import { type ActivePanel, type ConversationCategory, type Conversation, type Flow, type Template } from '../types/chatbot'
 import api from '../lib/api'
 import { useAuthStore } from '../store/authStore'
@@ -34,10 +35,15 @@ export default function ChatbotIA() {
   const saveFlowMutation = useMutation({
     mutationFn: ({ id, name, nodes, edges, active }: { id: string; name: string; nodes: CanvasNode[]; edges: CanvasEdge[]; active?: boolean }) =>
       api.put(`/chatbot/flows/${id}`, { name, nodes, edges, ...(active !== undefined && { active }) }),
-    onSuccess: () => {
+    onSuccess: (res) => {
       queryClient.invalidateQueries({ queryKey: ['chatbot-flows'] })
-      setCanvasFlow(null)
+      toast.success('Fluxo salvo com sucesso!')
+      setCanvasFlow(res.data as Flow)
     },
+    onError: (err: any) => {
+      console.error('Erro ao salvar fluxo:', err)
+      toast.error('Erro ao salvar o fluxo: ' + (err.response?.data?.message || err.message))
+    }
   })
 
   function handleUseTemplate(tpl: Template) {
@@ -86,7 +92,7 @@ export default function ChatbotIA() {
   // Canvas full-screen mode
   if (canvasFlow) {
     return (
-      <div className="flex h-screen bg-slate-900 overflow-hidden">
+      <div className="flex h-screen bg-slate-50 overflow-hidden">
         <div className="flex-1 overflow-hidden">
           <FlowCanvasEditor
             flowId={canvasFlow.id}

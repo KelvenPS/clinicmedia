@@ -524,17 +524,20 @@ enum FlowTrigger {
 }
 
 model WhatsAppInstance {
-  id          String         @id @default(uuid())
-  doctorId    String         @unique
-  instanceKey String         @unique @default(uuid())
-  status      InstanceStatus @default(DISCONNECTED)
-  qrCode      String?        @db.Text
-  phoneNumber String?
-  displayName String?
-  webhookUrl  String?
-  active      Boolean        @default(true)
-  createdAt   DateTime       @default(now())
-  updatedAt   DateTime       @updatedAt
+  id              String         @id @default(uuid())
+  doctorId        String         @unique
+  instanceKey     String         @unique @default(uuid())
+  status          InstanceStatus @default(DISCONNECTED)
+  qrCode          String?        @db.Text
+  qrCodeExpiresAt DateTime?
+  phoneNumber     String?
+  displayName     String?
+  webhookUrl      String?
+  active          Boolean        @default(true)
+  connectedAt     DateTime?
+  disconnectedAt  DateTime?
+  createdAt       DateTime       @default(now())
+  updatedAt       DateTime       @updatedAt
 
   doctor        User             @relation("DoctorWhatsApp", fields: [doctorId], references: [id])
   conversations Conversation[]

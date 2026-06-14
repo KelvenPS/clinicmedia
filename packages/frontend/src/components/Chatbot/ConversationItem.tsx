@@ -1,4 +1,4 @@
-import { MessageCircle } from 'lucide-react'
+import { Bot, MessageCircle } from 'lucide-react'
 import {
   type Conversation,
   avatarGradient,
@@ -12,71 +12,90 @@ interface Props {
   onClick: () => void
 }
 
+// Left border + background accent per category
+const CATEGORY_ACCENT: Record<string, { border: string; selectedBg: string; dot: string }> = {
+  ATENDIMENTO: { border: 'border-l-blue-500',   selectedBg: 'bg-blue-50/60',   dot: 'bg-blue-500' },
+  AGUARDANDO:  { border: 'border-l-amber-400',  selectedBg: 'bg-amber-50/60',  dot: 'bg-amber-400' },
+  FILA:        { border: 'border-l-violet-500', selectedBg: 'bg-violet-50/60', dot: 'bg-violet-500' },
+  GRUPOS:      { border: 'border-l-emerald-500',selectedBg: 'bg-emerald-50/60',dot: 'bg-emerald-500' },
+}
+
+const BADGE: Record<string, { text: string; cls: string }> = {
+  ATENDIMENTO: { text: 'Atendimento', cls: 'bg-blue-100 text-blue-700' },
+  AGUARDANDO:  { text: 'Aguardando',  cls: 'bg-amber-100 text-amber-700' },
+  FILA:        { text: 'Fila',        cls: 'bg-violet-100 text-violet-700' },
+  GRUPOS:      { text: 'Grupo',       cls: 'bg-emerald-100 text-emerald-700' },
+  OPEN:        { text: 'Aberto',      cls: 'bg-emerald-100 text-emerald-700' },
+  CLOSED:      { text: 'Finalizado',  cls: 'bg-slate-100 text-slate-500' },
+  WAITING:     { text: 'Aguardando',  cls: 'bg-amber-100 text-amber-700' },
+  BOT:         { text: 'Bot',         cls: 'bg-violet-100 text-violet-700' },
+}
+
 export default function ConversationItem({ conversation, isSelected, onClick }: Props) {
   const name = conversation.contactName ?? conversation.contactPhone
   const hasUnread = conversation.unreadCount > 0
+  const isBot = conversation.status === 'BOT' || conversation.category === 'FILA'
+  const isAguardando = conversation.category === 'AGUARDANDO' || conversation.status === 'WAITING'
 
-  // Determine badge label and classes
-  let badgeText = 'Aberto'
-  let badgeClass = 'bg-[#e6f7ed] text-[#10b981]' // Aberto (green)
+  const accent = CATEGORY_ACCENT[conversation.category] ?? CATEGORY_ACCENT['ATENDIMENTO']
 
-  if (conversation.status === 'WAITING' || conversation.category === 'AGUARDANDO') {
-    badgeText = 'Aguardando'
-    badgeClass = 'bg-[#fffbeb] text-[#d97706]' // Aguardando (amber)
-  } else if (conversation.status === 'CLOSED') {
-    badgeText = 'Finalizado'
-    badgeClass = 'bg-[#f0f2f5] text-[#6b7280]' // Finalizado (grey/slate)
-  } else if (conversation.status === 'BOT') {
-    badgeText = 'Bot'
-    badgeClass = 'bg-[#f3e8ff] text-[#7c3aed]' // Bot (violet)
-  }
+  // Badge: prefer category, fall back to status
+  const badge = BADGE[conversation.category] ?? BADGE[conversation.status] ?? BADGE['OPEN']
 
   return (
     <button
       onClick={onClick}
-      className={`w-full flex items-start gap-3.5 px-4 py-4 text-left border-b border-slate-100 transition-all ${
+      className={`w-full flex items-start gap-3.5 px-4 py-3.5 text-left border-b border-slate-100/80 transition-all border-l-[3px] ${
         isSelected
-          ? 'bg-[#f4f7f6] border-l-[3px] border-l-[#10b981]'
-          : 'bg-white hover:bg-slate-50 border-l-[3px] border-l-transparent'
+          ? `${accent.border} ${accent.selectedBg}`
+          : `border-l-transparent bg-white hover:bg-slate-50`
       }`}
     >
-      {/* Avatar with WhatsApp Badge overlay */}
+      {/* Avatar */}
       <div className="relative flex-shrink-0">
         <div className={`w-10 h-10 rounded-full bg-gradient-to-br ${avatarGradient(name)} flex items-center justify-center shadow-sm`}>
           <span className="text-white text-xs font-bold">{getInitials(name)}</span>
         </div>
-        
-        {/* WhatsApp Icon Overlay */}
-        <div className="absolute -bottom-1 -right-1 bg-white rounded-full p-0.5 shadow-sm border border-slate-100">
-          <MessageCircle className="w-3.5 h-3.5 text-emerald-500 fill-emerald-500" />
-        </div>
+
+        {/* Status dot overlay */}
+        {isAguardando ? (
+          <span className="absolute -bottom-0.5 -right-0.5 w-3.5 h-3.5 rounded-full bg-amber-400 border-2 border-white animate-pulse" />
+        ) : isBot ? (
+          <div className="absolute -bottom-0.5 -right-0.5 w-4 h-4 rounded-full bg-violet-500 border-2 border-white flex items-center justify-center">
+            <Bot className="w-2 h-2 text-white" />
+          </div>
+        ) : (
+          <div className="absolute -bottom-1 -right-1 bg-white rounded-full p-0.5 shadow-sm border border-slate-100">
+            <MessageCircle className="w-3.5 h-3.5 text-emerald-500 fill-emerald-500" />
+          </div>
+        )}
       </div>
 
-      {/* Info column */}
+      {/* Info */}
       <div className="flex-grow min-w-0">
-        {/* Row 1: Name and Time */}
-        <div className="flex items-center justify-between mb-1">
-          <span className={`text-sm truncate font-semibold text-slate-800 ${hasUnread ? 'text-slate-900 font-bold' : ''}`}>
+        {/* Row 1: Name + time */}
+        <div className="flex items-center justify-between mb-0.5">
+          <span className={`text-sm truncate ${hasUnread ? 'font-bold text-slate-900' : 'font-semibold text-slate-800'}`}>
             {name}
           </span>
-          <span className="text-[11px] text-slate-400 font-medium flex-shrink-0 ml-1">
+          <span className="text-[11px] text-slate-400 font-medium flex-shrink-0 ml-2">
             {formatTime(conversation.lastMessageAt)}
           </span>
         </div>
 
-        {/* Row 2: Message preview and Status badge */}
+        {/* Row 2: Preview + badge + unread */}
         <div className="flex items-center justify-between gap-2">
-          <p className={`text-xs truncate text-slate-500 flex-grow ${hasUnread ? 'text-slate-800 font-medium' : ''}`}>
+          <p className={`text-xs truncate flex-grow ${hasUnread ? 'text-slate-700 font-medium' : 'text-slate-500'}`}>
             {conversation.lastMessage ?? 'Sem mensagens'}
           </p>
-          
+
           <div className="flex items-center gap-1.5 flex-shrink-0">
-            <span className={`text-[10px] px-2 py-0.5 rounded-md font-bold ${badgeClass}`}>
-              {badgeText}
+            <span className={`text-[10px] px-1.5 py-0.5 rounded-md font-semibold leading-none ${badge.cls}`}>
+              {badge.text}
             </span>
             {hasUnread && (
-              <span className="text-[9px] bg-blue-600 text-white px-1.5 py-0.5 rounded-full font-bold min-w-[16px] text-center leading-none">
-                {conversation.unreadCount}
+              <span className="min-w-[18px] h-[18px] px-1 flex items-center justify-center text-[9px] bg-blue-600 text-white rounded-full font-bold leading-none">
+                {conversation.unreadCount > 99 ? '99+' : conversation.unreadCount}
               </span>
             )}
           </div>

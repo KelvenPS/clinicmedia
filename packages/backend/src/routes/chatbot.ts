@@ -201,6 +201,74 @@ router.post('/webhook/:instanceKey', async (req: Request, res: Response) => {
       return
     }
 
+    // ── QR Code atualizado pela Evolution API ──────────────────────────────────
+    const eventType = body?.event ?? body?.type ?? ''
+
+    if (eventType === 'QRCODE_UPDATED' || eventType === 'qrcode.updated') {
+      const qrBase64 =
+        body?.data?.qrcode?.base64 ??
+        body?.data?.base64 ??
+        body?.qrcode?.base64 ??
+        null
+      if (qrBase64) {
+        await prisma.whatsAppInstance.update({
+          where: { instanceKey },
+          data: {
+            qrCode: qrBase64,
+            qrCodeExpiresAt: new Date(Date.now() + 55_000),
+            status: 'CONNECTING',
+          },
+        })
+      }
+      res.status(200).json({ received: true })
+      return
+    }
+
+    // ── Atualização de status de conexão ──────────────────────────────────────
+    if (
+      eventType === 'CONNECTION_UPDATE' ||
+      eventType === 'connection.update' ||
+      eventType === 'status.instance'
+    ) {
+      const state: string =
+        body?.data?.state ??
+        body?.data?.connection ??
+        body?.state ??
+        ''
+
+      if (state === 'open' || state === 'CONNECTED') {
+        await prisma.whatsAppInstance.update({
+          where: { instanceKey },
+          data: {
+            status: 'CONNECTED',
+            qrCode: null,
+            qrCodeExpiresAt: null,
+            connectedAt: new Date(),
+            phoneNumber: body?.data?.phone ?? body?.data?.wuid?.replace('@s.whatsapp.net', '') ?? instance.phoneNumber,
+            displayName: body?.data?.pushName ?? instance.displayName,
+          },
+        })
+      } else if (state === 'close' || state === 'DISCONNECTED') {
+        await prisma.whatsAppInstance.update({
+          where: { instanceKey },
+          data: {
+            status: 'DISCONNECTED',
+            qrCode: null,
+            qrCodeExpiresAt: null,
+            disconnectedAt: new Date(),
+          },
+        })
+      } else if (state === 'connecting' || state === 'CONNECTING') {
+        await prisma.whatsAppInstance.update({
+          where: { instanceKey },
+          data: { status: 'CONNECTING' },
+        })
+      }
+      res.status(200).json({ received: true })
+      return
+    }
+
+    // ── Mensagem recebida (MESSAGES_UPSERT ou payload direto) ─────────────────
     const data = body?.data ?? body
     const key = data?.key ?? {}
     const remoteJid: string = key?.remoteJid ?? data?.remoteJid ?? ''
@@ -260,6 +328,9 @@ router.post('/webhook/:instanceKey', async (req: Request, res: Response) => {
           lastMessage: content,
           lastMessageAt: new Date(),
           unreadCount: fromMe ? 0 : 1,
+          // Mensagem entrante nova → aguardando resposta do agente
+          status: fromMe ? 'OPEN' : 'WAITING',
+          category: fromMe ? 'ATENDIMENTO' : 'AGUARDANDO',
         },
       })
     } else {
@@ -365,18 +436,142 @@ router.delete('/instance', async (req: AuthRequest, res: Response) => {
   }
 })
 
+// ─── Connect: inicia conexão com Evolution API ────────────────────────────────
+
+router.post('/instance/connect', async (req: AuthRequest, res: Response) => {
+  try {
+    const userId = req.user!.userId
+    const instance = await resolveOrCreateInstance(userId)
+
+    const evolutionUrl = process.env.EVOLUTION_API_URL
+    const evolutionKey = process.env.EVOLUTION_API_KEY ?? ''
+
+    if (!evolutionUrl) {
+      // Evolution API não configurada — apenas marca como CONNECTING para testar fluxo
+      await prisma.whatsAppInstance.update({
+        where: { id: instance.id },
+        data: { status: 'CONNECTING' },
+      })
+      res.json({
+        status: 'NO_EVOLUTION_API',
+        message: 'Configure EVOLUTION_API_URL no .env para habilitar a conexão real com WhatsApp.',
+        instanceKey: instance.instanceKey,
+      })
+      return
+    }
+
+    // Detecta URL base da aplicação para montar o webhook
+    const proto = req.headers['x-forwarded-proto'] ?? req.protocol
+    const host  = req.headers['x-forwarded-host']  ?? req.get('host')
+    const appUrl = process.env.APP_URL ?? `${proto}://${host}`
+    const webhookUrl = `${appUrl}/api/chatbot/webhook/${instance.instanceKey}`
+
+    // Chama Evolution API para criar/reconectar instância
+    const evRes = await fetch(`${evolutionUrl}/instance/create`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', apikey: evolutionKey },
+      body: JSON.stringify({
+        instanceName: instance.instanceKey,
+        qrcode: true,
+        webhook: webhookUrl,
+        webhookByEvents: true,
+        events: ['QRCODE_UPDATED', 'CONNECTION_UPDATE', 'MESSAGES_UPSERT'],
+      }),
+    })
+
+    const evData: Record<string, unknown> = evRes.ok ? await evRes.json() as Record<string, unknown> : {}
+
+    const updates: Record<string, unknown> = {
+      status: 'CONNECTING',
+      webhookUrl,
+    }
+
+    // Se a Evolution API já devolveu o QR diretamente
+    const immediateQr =
+      (evData?.qrcode as Record<string, unknown>)?.base64 ??
+      (evData?.base64 as string) ??
+      null
+    if (immediateQr) {
+      updates.qrCode = immediateQr
+      updates.qrCodeExpiresAt = new Date(Date.now() + 55_000)
+    }
+
+    await prisma.whatsAppInstance.update({ where: { id: instance.id }, data: updates as Parameters<typeof prisma.whatsAppInstance.update>[0]['data'] })
+    res.json({ status: 'CONNECTING', instanceKey: instance.instanceKey })
+  } catch (err) {
+    console.error('[/instance/connect]', err)
+    res.status(500).json({ message: 'Erro ao iniciar conexão com WhatsApp' })
+  }
+})
+
+// ─── Status: polling do QR code e estado da conexão ─────────────────────────
+
+router.get('/instance/status', async (req: AuthRequest, res: Response) => {
+  try {
+    const instance = await resolveInstance(req.user!.userId)
+    if (!instance) {
+      res.json({ status: 'NONE' })
+      return
+    }
+
+    const now = new Date()
+    const qrExpired = instance.qrCodeExpiresAt ? instance.qrCodeExpiresAt < now : false
+
+    // Se o QR está expirado, tenta buscar um novo na Evolution API
+    if (qrExpired && instance.status === 'CONNECTING') {
+      const evolutionUrl = process.env.EVOLUTION_API_URL
+      const evolutionKey = process.env.EVOLUTION_API_KEY ?? ''
+      if (evolutionUrl) {
+        try {
+          const evRes = await fetch(
+            `${evolutionUrl}/instance/qrcode/${instance.instanceKey}?image=true`,
+            { headers: { apikey: evolutionKey } },
+          )
+          if (evRes.ok) {
+            const evData = await evRes.json() as Record<string, unknown>
+            const freshQr = (evData?.base64 as string) ?? null
+            if (freshQr) {
+              await prisma.whatsAppInstance.update({
+                where: { id: instance.id },
+                data: { qrCode: freshQr, qrCodeExpiresAt: new Date(Date.now() + 55_000) },
+              })
+              res.json({ status: instance.status, qrCode: freshQr, qrCodeExpired: false })
+              return
+            }
+          }
+        } catch { /* Evolution API indisponível */ }
+      }
+    }
+
+    res.json({
+      status: instance.status,
+      qrCode: qrExpired ? null : instance.qrCode,
+      qrCodeExpired: qrExpired,
+      phoneNumber: instance.phoneNumber,
+      displayName: instance.displayName,
+      connectedAt: instance.connectedAt,
+    })
+  } catch {
+    res.status(500).json({ message: 'Erro interno do servidor' })
+  }
+})
+
+// ─── QR Code (compat) ────────────────────────────────────────────────────────
+
 router.get('/instance/qr', async (req: AuthRequest, res: Response) => {
   try {
     const instance = await resolveInstance(req.user!.userId)
     if (!instance) {
-      res.status(404).json({ message: 'Instância não encontrada. Crie uma instância primeiro.' })
+      res.status(404).json({ message: 'Instância não encontrada. Inicie a conexão primeiro.' })
       return
     }
+    const now = new Date()
+    const qrExpired = instance.qrCodeExpiresAt ? instance.qrCodeExpiresAt < now : false
     res.json({
-      status: 'SIMULATED',
-      message: 'Integração com Evolution API em desenvolvimento. Configure seu webhook URL nas configurações.',
+      status: instance.status,
+      qrCode: qrExpired ? null : instance.qrCode,
+      qrCodeExpired: qrExpired,
       instanceKey: instance.instanceKey,
-      instanceStatus: instance.status,
     })
   } catch {
     res.status(500).json({ message: 'Erro interno do servidor' })
@@ -390,9 +585,24 @@ router.post('/instance/disconnect', async (req: AuthRequest, res: Response) => {
       res.status(404).json({ message: 'Instância não encontrada' })
       return
     }
+    const evolutionUrl = process.env.EVOLUTION_API_URL
+    const evolutionKey = process.env.EVOLUTION_API_KEY ?? ''
+    if (evolutionUrl) {
+      fetch(`${evolutionUrl}/instance/logout/${instance.instanceKey}`, {
+        method: 'DELETE',
+        headers: { apikey: evolutionKey },
+      }).catch(() => {})
+    }
+
     const updated = await prisma.whatsAppInstance.update({
       where: { id: instance.id },
-      data: { status: 'DISCONNECTED', qrCode: null, phoneNumber: null },
+      data: {
+        status: 'DISCONNECTED',
+        qrCode: null,
+        qrCodeExpiresAt: null,
+        phoneNumber: null,
+        disconnectedAt: new Date(),
+      },
     })
     res.json(updated)
   } catch {
@@ -586,7 +796,17 @@ router.post('/conversations/:id/read', async (req: AuthRequest, res: Response) =
       return
     }
 
-    const updated = await prisma.conversation.update({ where: { id }, data: { unreadCount: 0 } })
+    // Abrir conversa → zerar não lidos e mover de AGUARDANDO para ATENDIMENTO
+    const updated = await prisma.conversation.update({
+      where: { id },
+      data: {
+        unreadCount: 0,
+        ...(existing.category === 'AGUARDANDO' && {
+          category: 'ATENDIMENTO',
+          status: 'OPEN',
+        }),
+      },
+    })
     res.json(updated)
   } catch {
     res.status(500).json({ message: 'Erro interno do servidor' })
@@ -655,9 +875,18 @@ router.post('/conversations/:id/messages', async (req: AuthRequest, res: Respons
       },
     })
 
+    // Quando agente responde manualmente, mover de AGUARDANDO → ATENDIMENTO
     await prisma.conversation.update({
       where: { id },
-      data: { lastMessage: data.content, lastMessageAt: new Date() },
+      data: {
+        lastMessage: data.content,
+        lastMessageAt: new Date(),
+        ...(conversation.category === 'AGUARDANDO' && {
+          category: 'ATENDIMENTO',
+          status: 'OPEN',
+          unreadCount: 0,
+        }),
+      },
     })
 
     res.status(201).json(message)

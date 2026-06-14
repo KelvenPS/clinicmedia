@@ -84,10 +84,22 @@ export interface ChatbotInstance {
   instanceKey: string
   status: 'CONNECTED' | 'DISCONNECTED' | 'CONNECTING'
   qrCode: string | null
+  qrCodeExpiresAt: string | null
   phoneNumber: string | null
   displayName: string | null
   webhookUrl: string | null
   active: boolean
+  connectedAt: string | null
+  disconnectedAt: string | null
+}
+
+export interface InstanceStatus {
+  status: 'NONE' | 'CONNECTED' | 'DISCONNECTED' | 'CONNECTING'
+  qrCode: string | null
+  qrCodeExpired: boolean
+  phoneNumber: string | null
+  displayName: string | null
+  connectedAt: string | null
 }
 
 export interface ChatbotSettings {

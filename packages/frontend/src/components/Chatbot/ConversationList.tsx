@@ -60,30 +60,70 @@ export default function ConversationList({
     if (conv.unreadCount > 0) readMutation.mutate(conv.id)
   }
 
-  const tabs: { key: ConversationCategory; label: string; count: number }[] = [
-    { key: 'TODOS', label: 'Todos', count: countTodos },
-    { key: 'AGUARDANDO', label: 'Aguardando', count: countAguardando },
-    { key: 'FILA', label: 'Filas', count: countFila },
+  // Unread totals per tab for attention indicators
+  const unreadAguardando = allConversations?.filter(c => c.category === 'AGUARDANDO' && c.unreadCount > 0).length ?? 0
+  const unreadFila = allConversations?.filter(c => c.category === 'FILA' && c.unreadCount > 0).length ?? 0
+
+  const tabs: {
+    key: ConversationCategory
+    label: string
+    count: number
+    activeBorder: string
+    activeText: string
+    activeBadge: string
+    alertCount?: number
+  }[] = [
+    {
+      key: 'TODOS',
+      label: 'Todos',
+      count: countTodos,
+      activeBorder: 'border-blue-600',
+      activeText: 'text-blue-600',
+      activeBadge: 'bg-blue-50 text-blue-600',
+    },
+    {
+      key: 'AGUARDANDO',
+      label: 'Aguardando',
+      count: countAguardando,
+      activeBorder: 'border-amber-500',
+      activeText: 'text-amber-600',
+      activeBadge: 'bg-amber-50 text-amber-600',
+      alertCount: unreadAguardando,
+    },
+    {
+      key: 'FILA',
+      label: 'Fila',
+      count: countFila,
+      activeBorder: 'border-violet-600',
+      activeText: 'text-violet-600',
+      activeBadge: 'bg-violet-50 text-violet-600',
+      alertCount: unreadFila,
+    },
   ]
 
   return (
     <div className="w-full lg:w-80 xl:w-[360px] flex-shrink-0 border-r border-slate-200 bg-white flex flex-col h-full">
-      {/* Title Header with ONLY search/lupa icon - matches Imagem 3 request */}
+      {/* Title Header */}
       <div className="px-5 py-4 flex items-center justify-between border-b border-slate-100 flex-shrink-0">
-        <h2 className="text-[#1e293b] font-bold text-lg">Atendimentos</h2>
-        <div className="flex items-center text-slate-500">
-          <button
-            onClick={() => setShowSearch(prev => !prev)}
-            className={`p-1.5 hover:text-slate-800 rounded-lg hover:bg-slate-100 transition-all ${
-              showSearch ? 'text-blue-600 bg-slate-50' : ''
-            }`}
-          >
-            <Search className="w-4.5 h-4.5" />
-          </button>
+        <div className="flex items-center gap-2.5">
+          <h2 className="text-[#1e293b] font-bold text-lg">Atendimentos</h2>
+          {unreadAguardando > 0 && (
+            <span className="px-1.5 py-0.5 bg-amber-100 text-amber-700 text-[10px] font-bold rounded-full leading-none animate-pulse">
+              {unreadAguardando} novo{unreadAguardando > 1 ? 's' : ''}
+            </span>
+          )}
         </div>
+        <button
+          onClick={() => setShowSearch(prev => !prev)}
+          className={`p-1.5 hover:text-slate-800 rounded-lg hover:bg-slate-100 transition-all ${
+            showSearch ? 'text-blue-600 bg-slate-50' : 'text-slate-500'
+          }`}
+        >
+          <Search className="w-4.5 h-4.5" />
+        </button>
       </div>
 
-      {/* Toggled Search Input - matches WhatsApp Web search list UX */}
+      {/* Search Input */}
       {showSearch && (
         <div className="px-4 py-2 border-b border-slate-100 bg-slate-50/50 flex-shrink-0">
           <div className="relative">
@@ -99,26 +139,30 @@ export default function ConversationList({
         </div>
       )}
 
-      {/* Tabs list - matches Imagem 1 */}
-      <div className="flex border-b border-slate-150 flex-shrink-0 px-4">
+      {/* Tabs */}
+      <div className="flex border-b border-slate-150 flex-shrink-0 px-2">
         {tabs.map(tab => {
           const isActive = category === tab.key
           return (
             <button
               key={tab.key}
               onClick={() => onCategoryChange(tab.key)}
-              className={`flex items-center gap-1.5 px-3 py-3 border-b-2 font-medium text-xs transition-all relative ${
+              className={`relative flex items-center gap-1.5 px-3 py-3 border-b-2 font-medium text-xs transition-all ${
                 isActive
-                  ? 'border-blue-600 text-blue-600 font-semibold'
+                  ? `${tab.activeBorder} ${tab.activeText} font-semibold`
                   : 'border-transparent text-slate-500 hover:text-slate-700'
               }`}
             >
               <span>{tab.label}</span>
-              <span className={`px-1.5 py-0.5 rounded-full text-[10px] font-medium leading-none ${
-                isActive ? 'bg-blue-50 text-blue-600' : 'bg-slate-100 text-slate-500'
+              <span className={`px-1.5 py-0.5 rounded-full text-[10px] font-semibold leading-none ${
+                isActive ? tab.activeBadge : 'bg-slate-100 text-slate-500'
               }`}>
                 {tab.count}
               </span>
+              {/* Pulse dot for unread alerts on inactive tab */}
+              {!isActive && (tab.alertCount ?? 0) > 0 && (
+                <span className="absolute top-2 right-0.5 w-2 h-2 rounded-full bg-amber-400 animate-pulse" />
+              )}
             </button>
           )
         })}

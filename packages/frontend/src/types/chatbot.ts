@@ -25,6 +25,7 @@ export interface Conversation {
   contactPhone: string
   contactAvatar: string | null
   lastMessage: string | null
+  lastMessageSender: string | null
   lastMessageAt: string | null
   unreadCount: number
   category: 'ATENDIMENTO' | 'AGUARDANDO' | 'FILA' | 'GRUPOS'
@@ -42,9 +43,11 @@ export interface Conversation {
 export interface Message {
   id: string
   conversationId: string
+  waMessageId: string | null
   content: string
   fromMe: boolean
   isBot: boolean
+  senderName: string | null
   timestamp: string
   type: MessageType
   mediaUrl: string | null

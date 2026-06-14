@@ -1,3 +1,4 @@
+import { useState } from 'react'
 import { Bot, MessageCircle, Users } from 'lucide-react'
 import {
   type Conversation,
@@ -13,11 +14,11 @@ interface Props {
 }
 
 // Left border + background accent per category
-const CATEGORY_ACCENT: Record<string, { border: string; selectedBg: string; dot: string }> = {
-  ATENDIMENTO: { border: 'border-l-blue-500',   selectedBg: 'bg-blue-50/60',   dot: 'bg-blue-500' },
-  AGUARDANDO:  { border: 'border-l-amber-400',  selectedBg: 'bg-amber-50/60',  dot: 'bg-amber-400' },
-  FILA:        { border: 'border-l-violet-500', selectedBg: 'bg-violet-50/60', dot: 'bg-violet-500' },
-  GRUPOS:      { border: 'border-l-emerald-500',selectedBg: 'bg-emerald-50/60',dot: 'bg-emerald-500' },
+const CATEGORY_ACCENT: Record<string, { border: string; selectedBg: string }> = {
+  ATENDIMENTO: { border: 'border-l-blue-500',    selectedBg: 'bg-blue-50/60' },
+  AGUARDANDO:  { border: 'border-l-amber-400',   selectedBg: 'bg-amber-50/60' },
+  FILA:        { border: 'border-l-violet-500',  selectedBg: 'bg-violet-50/60' },
+  GRUPOS:      { border: 'border-l-emerald-500', selectedBg: 'bg-emerald-50/60' },
 }
 
 const BADGE: Record<string, { text: string; cls: string }> = {
@@ -31,7 +32,18 @@ const BADGE: Record<string, { text: string; cls: string }> = {
   BOT:         { text: 'Bot',         cls: 'bg-violet-100 text-violet-700' },
 }
 
+// Returns color class based on how long ago the last message was
+function slaDotColor(lastMessageAt: string | null, hasUnread: boolean): string {
+  if (!hasUnread || !lastMessageAt) return ''
+  const mins = (Date.now() - new Date(lastMessageAt).getTime()) / 60000
+  if (mins < 5)  return 'ring-2 ring-emerald-400'
+  if (mins < 30) return 'ring-2 ring-amber-400'
+  return 'ring-2 ring-rose-400'
+}
+
 export default function ConversationItem({ conversation, isSelected, onClick }: Props) {
+  const [imgError, setImgError] = useState(false)
+
   const name = conversation.contactName ?? conversation.contactPhone
   const hasUnread = conversation.unreadCount > 0
   const isGroup = conversation.isGroup || conversation.category === 'GRUPOS'
@@ -39,9 +51,14 @@ export default function ConversationItem({ conversation, isSelected, onClick }: 
   const isAguardando = !isGroup && (conversation.category === 'AGUARDANDO' || conversation.status === 'WAITING')
 
   const accent = CATEGORY_ACCENT[conversation.category] ?? CATEGORY_ACCENT['ATENDIMENTO']
+  const badge  = BADGE[conversation.category] ?? BADGE[conversation.status] ?? BADGE['OPEN']
 
-  // Badge: prefer category, fall back to status
-  const badge = BADGE[conversation.category] ?? BADGE[conversation.status] ?? BADGE['OPEN']
+  // For groups, prefix the preview with the sender's name
+  const preview = isGroup && conversation.lastMessageSender
+    ? `${conversation.lastMessageSender}: ${conversation.lastMessage ?? ''}`
+    : (conversation.lastMessage ?? 'Sem mensagens')
+
+  const showPhoto = !!conversation.contactAvatar && !imgError
 
   return (
     <button
@@ -49,16 +66,25 @@ export default function ConversationItem({ conversation, isSelected, onClick }: 
       className={`w-full flex items-start gap-3.5 px-4 py-3.5 text-left border-b border-slate-100/80 transition-all border-l-[3px] ${
         isSelected
           ? `${accent.border} ${accent.selectedBg}`
-          : `border-l-transparent bg-white hover:bg-slate-50`
+          : 'border-l-transparent bg-white hover:bg-slate-50'
       }`}
     >
       {/* Avatar */}
-      <div className="relative flex-shrink-0">
-        <div className={`w-10 h-10 rounded-full bg-gradient-to-br ${avatarGradient(name)} flex items-center justify-center shadow-sm`}>
-          <span className="text-white text-xs font-bold">{getInitials(name)}</span>
-        </div>
+      <div className={`relative flex-shrink-0 ${slaDotColor(conversation.lastMessageAt, hasUnread)} rounded-full`}>
+        {showPhoto ? (
+          <img
+            src={conversation.contactAvatar!}
+            alt={name}
+            className="w-10 h-10 rounded-full object-cover shadow-sm"
+            onError={() => setImgError(true)}
+          />
+        ) : (
+          <div className={`w-10 h-10 rounded-full bg-gradient-to-br ${avatarGradient(name)} flex items-center justify-center shadow-sm`}>
+            <span className="text-white text-xs font-bold">{getInitials(name)}</span>
+          </div>
+        )}
 
-        {/* Status dot overlay */}
+        {/* Status badge overlay */}
         {isGroup ? (
           <div className="absolute -bottom-0.5 -right-0.5 w-4 h-4 rounded-full bg-emerald-500 border-2 border-white flex items-center justify-center">
             <Users className="w-2 h-2 text-white" />
@@ -91,7 +117,7 @@ export default function ConversationItem({ conversation, isSelected, onClick }: 
         {/* Row 2: Preview + badge + unread */}
         <div className="flex items-center justify-between gap-2">
           <p className={`text-xs truncate flex-grow ${hasUnread ? 'text-slate-700 font-medium' : 'text-slate-500'}`}>
-            {conversation.lastMessage ?? 'Sem mensagens'}
+            {preview}
           </p>
 
           <div className="flex items-center gap-1.5 flex-shrink-0">

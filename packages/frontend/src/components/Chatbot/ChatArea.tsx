@@ -46,7 +46,7 @@ export default function ChatArea({
         onToggleDetails={onToggleDetails}
         onUpdateConversation={onUpdateConversation}
       />
-      <MessageList conversationId={conversation.id} />
+      <MessageList conversationId={conversation.id} isGroup={conversation.isGroup} />
       <MessageComposer conversationId={conversation.id} />
       <QuickActionsBar
         conversation={conversation}

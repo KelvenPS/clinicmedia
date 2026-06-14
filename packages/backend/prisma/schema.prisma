@@ -557,9 +557,10 @@ model Conversation {
   category      ConversationCategory @default(ATENDIMENTO)
   isGroup       Boolean              @default(false)
   unreadCount   Int                  @default(0)
-  lastMessage   String?
-  lastMessageAt DateTime?
-  assignedTo    String?
+  lastMessage       String?
+  lastMessageSender String?
+  lastMessageAt     DateTime?
+  assignedTo        String?
   notes         String?
   createdAt     DateTime             @default(now())
   updatedAt     DateTime             @updatedAt
@@ -575,7 +576,9 @@ model Conversation {
 model Message {
   id             String        @id @default(uuid())
   conversationId String
+  waMessageId    String?       // WhatsApp message ID for deduplication and receipt tracking
   fromMe         Boolean       @default(false)
+  senderName     String?       // For group messages: who sent this message
   content        String        @db.Text
   type           MessageType   @default(TEXT)
   mediaUrl       String?
@@ -585,7 +588,9 @@ model Message {
 
   conversation Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
 
+  @@unique([conversationId, waMessageId])
   @@index([conversationId])
+  @@index([waMessageId])
   @@map("TBLMENSAGEM")
 }
 

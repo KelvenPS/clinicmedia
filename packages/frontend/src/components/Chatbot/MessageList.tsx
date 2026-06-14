@@ -7,6 +7,7 @@ import MessageBubble from './MessageBubble'
 
 interface Props {
   conversationId: string
+  isGroup?: boolean
 }
 
 function isSameDay(a: string, b: string) {
@@ -17,7 +18,7 @@ function isSameDay(a: string, b: string) {
     da.getDate() === db.getDate()
 }
 
-export default function MessageList({ conversationId }: Props) {
+export default function MessageList({ conversationId, isGroup }: Props) {
   const bottomRef = useRef<HTMLDivElement>(null)
 
   const { data: messages, isLoading } = useQuery<Message[]>({
@@ -68,7 +69,7 @@ export default function MessageList({ conversationId }: Props) {
                   <div className="flex-1 h-px bg-slate-200" />
                 </div>
               )}
-              <MessageBubble message={msg} />
+              <MessageBubble message={msg} isGroup={isGroup} />
             </div>
           )
         })}

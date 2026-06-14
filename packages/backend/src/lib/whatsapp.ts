@@ -6,6 +6,7 @@ import {
   type WAMessage,
   type Chat,
   type Contact,
+  type proto,
 } from '@whiskeysockets/baileys'
 import { Boom } from '@hapi/boom'
 import QRCode from 'qrcode'
@@ -15,23 +16,18 @@ import { prisma } from './prisma'
 
 const SESSIONS_DIR = path.resolve(process.env.SESSIONS_DIR ?? path.join(process.cwd(), 'sessions'))
 
-const logger = {
-  level: 'silent',
-  trace: () => {}, debug: () => {}, info: () => {},
-  warn: () => {}, error: () => {}, fatal: () => {},
-  child: function() { return this },
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-} as any
+const logger = { level: 'silent', trace: ()=>{}, debug: ()=>{}, info: ()=>{}, warn: ()=>{}, error: ()=>{}, fatal: ()=>{}, child: function(){ return this } } as any
 
 // ─── Estado em memória ────────────────────────────────────────────────────────
 
 const sockets    = new Map<string, ReturnType<typeof makeWASocket>>()
 const stoppingKeys = new Set<string>()
 
-// Deduplicação de mensagens por instanceKey
+// IDs de mensagens WA já processados (evita duplicata mesmo após restart graças ao DB)
 const processedMsgs = new Map<string, Set<string>>()
 
-// Estado de sincronização por instanceKey
+// Estado de sincronização
 interface SyncState { syncing: boolean; total: number; syncedAt: Date | null }
 const syncState = new Map<string, SyncState>()
 
@@ -39,13 +35,96 @@ export function getSyncStatus(instanceKey: string): SyncState {
   return syncState.get(instanceKey) ?? { syncing: false, total: 0, syncedAt: null }
 }
 
-// ─── Callbacks registrados pelo chatbot route ─────────────────────────────────
+// ─── Handler de mensagens registrado pelo chatbot route ───────────────────────
 
 type MessageFn = (instanceId: string, msg: WAMessage) => Promise<void>
 let messageHandler: MessageFn | null = null
 
 export function registerMessageHandler(fn: MessageFn) {
   messageHandler = fn
+}
+
+// ─── Envio de mensagens via Baileys ──────────────────────────────────────────
+
+export async function sendWhatsAppMessage(
+  instanceKey: string,
+  jid: string,
+  content: string,
+): Promise<{ waMessageId: string } | null> {
+  const sock = sockets.get(instanceKey)
+  if (!sock) return null
+
+  const result = await sock.sendMessage(jid, { text: content })
+  if (!result?.key.id) return null
+
+  // Adiciona ao cache para não duplicar quando o echo chegar via messages.upsert
+  const set = processedMsgs.get(instanceKey)
+  if (set) set.add(result.key.id)
+
+  return { waMessageId: result.key.id }
+}
+
+// ─── Presença / Typing ────────────────────────────────────────────────────────
+
+export async function sendTypingPresence(
+  instanceKey: string,
+  jid: string,
+  typing: boolean,
+): Promise<void> {
+  const sock = sockets.get(instanceKey)
+  if (!sock) return
+  try {
+    await sock.sendPresenceUpdate(typing ? 'composing' : 'paused', jid)
+  } catch { /* ignora erros de presença */ }
+}
+
+// ─── Marcar mensagens como lidas no WhatsApp ─────────────────────────────────
+
+export async function markMessagesReadWA(
+  instanceKey: string,
+  keys: Array<{ remoteJid: string; id: string; fromMe?: boolean | null }>,
+): Promise<void> {
+  const sock = sockets.get(instanceKey)
+  if (!sock || keys.length === 0) return
+  try {
+    await sock.readMessages(keys as Parameters<typeof sock.readMessages>[0])
+  } catch { /* ignora */ }
+}
+
+// ─── Avatar / Foto de perfil ─────────────────────────────────────────────────
+
+export async function refreshContactAvatar(
+  instanceKey: string,
+  jid: string,
+  conversationId: string,
+): Promise<string | null> {
+  const sock = sockets.get(instanceKey)
+  if (!sock) return null
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const url = await (sock as any).profilePictureUrl(jid, 'image') as string | undefined
+    if (url) {
+      await prisma.conversation.update({ where: { id: conversationId }, data: { contactAvatar: url } })
+      return url
+    }
+  } catch { /* sem foto */ }
+  return null
+}
+
+async function syncAvatars(instanceKey: string, instanceId: string): Promise<void> {
+  const convs = await prisma.conversation.findMany({
+    where: { instanceId, contactAvatar: null },
+    select: { id: true, contactPhone: true, isGroup: true },
+    orderBy: { lastMessageAt: 'desc' },
+    take: 80,
+  })
+  for (const conv of convs) {
+    if (!sockets.has(instanceKey)) break
+    const jid = conv.isGroup ? `${conv.contactPhone}@g.us` : `${conv.contactPhone}@s.whatsapp.net`
+    await refreshContactAvatar(instanceKey, jid, conv.id)
+    await new Promise(r => setTimeout(r, 600))
+  }
+  console.log(`[WA] Avatar sync concluído: ${instanceKey}`)
 }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -58,21 +137,34 @@ function toLong(v: unknown): number {
   return Number(v) || 0
 }
 
+// ─── Processamento de mensagem individual ─────────────────────────────────────
+
 async function processMessage(instanceId: string, msg: WAMessage, instanceKey: string) {
   if (!msg.message || !msg.key.remoteJid) return
 
-  // Deduplicação por ID de mensagem WhatsApp
-  const msgId = msg.key.id
-  if (msgId) {
-    const set = processedMsgs.get(instanceKey)
-    if (set) {
-      if (set.has(msgId)) return
-      set.add(msgId)
-      if (set.size > 20_000) {
-        const arr = [...set]
-        arr.slice(0, 10_000).forEach(id => set.delete(id))
-      }
-    }
+  const waMessageId = msg.key.id
+  if (!waMessageId) return
+
+  // 1. Verificar cache em memória (rápido)
+  const set = processedMsgs.get(instanceKey)
+  if (set?.has(waMessageId)) return
+
+  // 2. Verificar no banco de dados (deduplicação pós-restart)
+  const alreadyInDb = await prisma.message.findFirst({
+    where: { waMessageId },
+    select: { id: true },
+  }).catch(() => null)
+
+  if (alreadyInDb) {
+    set?.add(waMessageId) // Atualiza cache
+    return
+  }
+
+  // Adiciona ao cache antes de processar (evita race condition)
+  set?.add(waMessageId)
+  if (set && set.size > 20_000) {
+    const arr = [...set]
+    arr.slice(0, 10_000).forEach(id => set.delete(id))
   }
 
   if (messageHandler) {
@@ -91,7 +183,6 @@ async function syncHistory(
 ) {
   syncState.set(instanceKey, { syncing: true, total: 0, syncedAt: null })
 
-  // Mapa nome dos contatos WhatsApp
   const nameMap = new Map<string, string>()
   for (const c of contacts) {
     const name = c.name || c.notify
@@ -108,7 +199,6 @@ async function syncHistory(
     const isGroup = jid.endsWith('@g.us')
     const contactName = chat.name || nameMap.get(jid) || null
     const unread = Math.max(0, chat.unreadCount ?? 0)
-
     const ts = toLong(chat.conversationTimestamp)
     const lastMsgAt = ts > 0 ? new Date(ts * 1000) : null
 
@@ -116,23 +206,11 @@ async function syncHistory(
     const status   = isGroup ? 'OPEN'   : (unread > 0 ? 'WAITING'    : 'OPEN')
 
     try {
-      const existing = await prisma.conversation.findFirst({
-        where: { instanceId, contactPhone },
-      })
+      const existing = await prisma.conversation.findFirst({ where: { instanceId, contactPhone } })
 
       if (!existing) {
         await prisma.conversation.create({
-          data: {
-            instanceId,
-            contactPhone,
-            contactName,
-            isGroup,
-            lastMessage: null,
-            lastMessageAt: lastMsgAt,
-            unreadCount: unread,
-            status,
-            category,
-          },
+          data: { instanceId, contactPhone, contactName, isGroup, lastMessage: null, lastMessageAt: lastMsgAt, unreadCount: unread, status, category },
         })
         synced++
       } else {
@@ -155,7 +233,6 @@ async function syncHistory(
     } catch { /* silencia erros individuais */ }
   }
 
-  // Processa mensagens históricas (vindas no payload da history.set)
   for (const msg of messages) {
     await processMessage(instanceId, msg, instanceKey).catch(() => {})
   }
@@ -209,16 +286,10 @@ export async function startSession(instanceKey: string, instanceId: string): Pro
       try {
         await prisma.whatsAppInstance.update({
           where: { instanceKey },
-          data: {
-            status: 'CONNECTED',
-            qrCode: null,
-            qrCodeExpiresAt: null,
-            connectedAt: new Date(),
-            phoneNumber: phone || null,
-            displayName: sock.user?.name ?? null,
-          },
+          data: { status: 'CONNECTED', qrCode: null, qrCodeExpiresAt: null, connectedAt: new Date(), phoneNumber: phone || null, displayName: sock.user?.name ?? null },
         })
         console.log(`[WA] Conectado: ${instanceKey} (${phone})`)
+        setTimeout(() => syncAvatars(instanceKey, instanceId).catch(() => {}), 8000)
       } catch (e) { console.error('[WA] Erro ao atualizar CONNECTED:', e) }
     }
 
@@ -226,11 +297,7 @@ export async function startSession(instanceKey: string, instanceId: string): Pro
       const code = (lastDisconnect?.error as Boom)?.output?.statusCode
       const loggedOut = code === DisconnectReason.loggedOut
 
-      if (stoppingKeys.has(instanceKey)) {
-        sockets.delete(instanceKey)
-        return
-      }
-
+      if (stoppingKeys.has(instanceKey)) { sockets.delete(instanceKey); return }
       sockets.delete(instanceKey)
 
       if (loggedOut) {
@@ -239,8 +306,7 @@ export async function startSession(instanceKey: string, instanceId: string): Pro
         syncState.delete(instanceKey)
         await prisma.whatsAppInstance.update({
           where: { instanceKey },
-          data: { status: 'DISCONNECTED', qrCode: null, qrCodeExpiresAt: null,
-                  phoneNumber: null, displayName: null, disconnectedAt: new Date() },
+          data: { status: 'DISCONNECTED', qrCode: null, qrCodeExpiresAt: null, phoneNumber: null, displayName: null, disconnectedAt: new Date() },
         }).catch(() => {})
         console.log(`[WA] Logout: ${instanceKey}`)
       } else {
@@ -252,14 +318,14 @@ export async function startSession(instanceKey: string, instanceId: string): Pro
 
   sock.ev.on('creds.update', saveCreds)
 
-  // ── Histórico inicial (disparado pelo WhatsApp ao conectar) ───────────────────
+  // ── Histórico inicial ─────────────────────────────────────────────────────────
 
   sock.ev.on('messaging-history.set', async ({ chats, contacts, messages }) => {
     console.log(`[WA] Histórico recebido: ${chats.length} chats, ${messages.length} msgs`)
     await syncHistory(instanceId, instanceKey, chats, contacts, messages).catch(console.error)
   })
 
-  // ── Novos chats descobertos após a conexão inicial ────────────────────────────
+  // ── Novos chats ───────────────────────────────────────────────────────────────
 
   sock.ev.on('chats.upsert', async (chats) => {
     for (const chat of chats) {
@@ -278,21 +344,14 @@ export async function startSession(instanceKey: string, instanceId: string): Pro
         const existing = await prisma.conversation.findFirst({ where: { instanceId, contactPhone } })
         if (!existing) {
           await prisma.conversation.create({
-            data: {
-              instanceId, contactPhone,
-              contactName: chat.name || null, isGroup,
-              lastMessage: null, lastMessageAt: lastMsgAt,
-              unreadCount: unread,
-              status: chatStatus,
-              category: chatCategory,
-            },
+            data: { instanceId, contactPhone, contactName: chat.name || null, isGroup, lastMessage: null, lastMessageAt: lastMsgAt, unreadCount: unread, status: chatStatus, category: chatCategory },
           })
         }
       } catch { /* silencioso */ }
     }
   })
 
-  // ── Atualização de nomes de contatos ─────────────────────────────────────────
+  // ── Atualização de contatos ───────────────────────────────────────────────────
 
   sock.ev.on('contacts.upsert', async (contacts) => {
     for (const contact of contacts) {
@@ -309,11 +368,55 @@ export async function startSession(instanceKey: string, instanceId: string): Pro
   // ── Mensagens em tempo real e históricas ──────────────────────────────────────
 
   sock.ev.on('messages.upsert', async ({ messages, type }) => {
-    // 'notify' = nova mensagem em tempo real
-    // 'append' = mensagem histórica durante sincronização
     if (type !== 'notify' && type !== 'append') return
     for (const msg of messages) {
       await processMessage(instanceId, msg, instanceKey).catch(console.error)
+    }
+  })
+
+  // ── Atualização de status de entrega/leitura ──────────────────────────────────
+
+  sock.ev.on('message-receipt.update', async (receipts) => {
+    for (const { key, receipt } of receipts) {
+      if (!key.id || !key.fromMe) continue // só atualiza msgs que enviamos nós
+
+      // Determina novo status baseado no receipt
+      let newStatus: 'SENT' | 'DELIVERED' | 'READ' | null = null
+      if (receipt.readTimestamp || receipt.playedTimestamp) {
+        newStatus = 'READ'
+      } else if (receipt.receiptTimestamp) {
+        newStatus = 'DELIVERED'
+      }
+
+      if (!newStatus) continue
+
+      await prisma.message.updateMany({
+        where: { waMessageId: key.id },
+        data: { status: newStatus },
+      }).catch(() => {})
+    }
+  })
+
+  // ── Atualização de mensagens (edição, reação, etc.) ──────────────────────────
+
+  sock.ev.on('messages.update', async (updates) => {
+    for (const { key, update } of updates) {
+      if (!key.id || !key.fromMe) continue
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const status = (update as any).status as number | undefined
+      if (status === undefined) continue
+
+      // Baileys status: 2=SENT, 3=DELIVERED, 4=READ
+      const statusMap: Record<number, 'SENT' | 'DELIVERED' | 'READ'> = {
+        2: 'SENT', 3: 'DELIVERED', 4: 'READ',
+      }
+      const newStatus = statusMap[status]
+      if (!newStatus) continue
+
+      await prisma.message.updateMany({
+        where: { waMessageId: key.id },
+        data: { status: newStatus },
+      }).catch(() => {})
     }
   })
 }
@@ -338,8 +441,6 @@ export async function stopSession(instanceKey: string): Promise<void> {
   fs.rmSync(path.join(SESSIONS_DIR, instanceKey), { recursive: true, force: true })
   stoppingKeys.delete(instanceKey)
 }
-
-// ─── Fecha socket interno ─────────────────────────────────────────────────────
 
 function closeSocket(instanceKey: string) {
   const sock = sockets.get(instanceKey)

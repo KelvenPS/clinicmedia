@@ -8,6 +8,10 @@ import {
   startSession,
   stopSession,
   getSyncStatus,
+  refreshContactAvatar,
+  sendWhatsAppMessage,
+  markMessagesReadWA,
+  sendTypingPresence,
 } from '../lib/whatsapp'
 
 const router = Router()
@@ -241,16 +245,21 @@ async function handleIncomingMessage(instanceId: string, msg: WAMessage): Promis
   const contactPhone = remoteJid.replace('@s.whatsapp.net', '').replace('@g.us', '')
   const isGroup = remoteJid.endsWith('@g.us')
 
+  // Para msgs de grupo: quem enviou (msg.pushName = nome, msg.key.participant = JID do membro)
+  const senderName = pushName || null
+  // O "lastMessageSender" só é relevante em grupos — em privado o contact já é a pessoa
+  const lastMessageSender = isGroup ? senderName : null
+
   const instance = await prisma.whatsAppInstance.findUnique({ where: { id: instanceId } })
   if (!instance) return
 
-  // Check group/community reply settings
+  // Checar configuração de resposta a grupos
   if (isGroup && !fromMe) {
     const settings = await prisma.chatbotSettings.findUnique({ where: { instanceId } })
     if (settings && !settings.replyGroups) return
   }
 
-  // Determine category: groups go to GRUPOS; individual chats follow normal flow
+  // Categorização: grupos → GRUPOS; individuais → fluxo normal
   const convCategory = isGroup ? 'GRUPOS' : (fromMe ? 'ATENDIMENTO' : 'AGUARDANDO')
   const convStatus   = fromMe ? 'OPEN' : (isGroup ? 'OPEN' : 'WAITING')
 
@@ -258,14 +267,19 @@ async function handleIncomingMessage(instanceId: string, msg: WAMessage): Promis
     where: { instanceId, contactPhone },
   })
 
+  const isNew = !conversation
+
   if (!conversation) {
     conversation = await prisma.conversation.create({
       data: {
         instanceId,
         contactPhone,
-        contactName: pushName || null,
+        // Para grupos: contactName = null aqui (será preenchido durante sync de histórico)
+        // Para privado: contactName = nome do contato (pushName)
+        contactName: isGroup ? null : (senderName || null),
         isGroup,
         lastMessage: content,
+        lastMessageSender,
         lastMessageAt: new Date(),
         unreadCount: fromMe ? 0 : 1,
         status: convStatus,
@@ -277,27 +291,51 @@ async function handleIncomingMessage(instanceId: string, msg: WAMessage): Promis
       where: { id: conversation.id },
       data: {
         lastMessage: content,
+        lastMessageSender,
         lastMessageAt: new Date(),
-        contactName: pushName || conversation.contactName,
+        // Para privados: atualiza nome com pushName. Para grupos: não sobrescreve nome do grupo
+        ...(!isGroup && senderName && { contactName: senderName }),
         unreadCount: fromMe ? conversation.unreadCount : { increment: 1 },
       },
     })
   }
 
+  // Buscar avatar em background quando conversa é nova
+  if (isNew && instance) {
+    const jid = isGroup ? `${contactPhone}@g.us` : `${contactPhone}@s.whatsapp.net`
+    setTimeout(() => refreshContactAvatar(instance.instanceKey, jid, conversation!.id).catch(() => {}), 1000)
+  }
+
+  // Timestamp real da mensagem WA
+  const msgTimestamp = msg.messageTimestamp
+    ? new Date(toLong(msg.messageTimestamp) * 1000)
+    : new Date()
+
+  // senderName em grupos = pushName (quem enviou no grupo)
+  const senderNameForMsg = isGroup
+    ? (msg.pushName || msg.key.participant?.replace('@s.whatsapp.net', '') || null)
+    : null
+
   await prisma.message.create({
     data: {
       conversationId: conversation.id,
+      waMessageId: msg.key.id ?? null,
       fromMe,
+      senderName: senderNameForMsg,
       content,
       type: messageType,
       mediaUrl: mediaUrl ?? null,
       status: fromMe ? 'SENT' : 'DELIVERED',
       isBot: false,
-      timestamp: new Date(),
+      timestamp: msgTimestamp,
     },
+  }).catch(async (err) => {
+    // Unique constraint on waMessageId — mensagem já existe, ignora
+    if (err?.code === 'P2002') return
+    throw err
   })
 
-  if (!fromMe) {
+  if (!fromMe && !isGroup) {
     await prisma.notification.create({
       data: {
         userId: instance.doctorId,
@@ -308,6 +346,15 @@ async function handleIncomingMessage(instanceId: string, msg: WAMessage): Promis
       },
     }).catch(() => {})
   }
+}
+
+// Helper para toLong (duplicado aqui para não importar do whatsapp.ts)
+function toLong(v: unknown): number {
+  if (!v) return 0
+  if (typeof v === 'number') return v
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  if (typeof (v as any).toNumber === 'function') return (v as any).toNumber()
+  return Number(v) || 0
 }
 
 // Registra o handler no gerenciador de sessões Baileys
@@ -688,9 +735,77 @@ router.post('/conversations/:id/read', async (req: AuthRequest, res: Response) =
         }),
       },
     })
+
+    // Enviar read receipts ao WhatsApp para as mensagens não lidas
+    if (existing.unreadCount > 0 && instance.status === 'CONNECTED') {
+      const jid = existing.isGroup
+        ? `${existing.contactPhone}@g.us`
+        : `${existing.contactPhone}@s.whatsapp.net`
+
+      const unreadMsgs = await prisma.message.findMany({
+        where: { conversationId: id, fromMe: false, status: { in: ['SENT', 'DELIVERED'] }, waMessageId: { not: null } },
+        select: { waMessageId: true },
+        orderBy: { timestamp: 'desc' },
+        take: 20,
+      })
+
+      if (unreadMsgs.length > 0) {
+        const keys = unreadMsgs.map(m => ({ remoteJid: jid, id: m.waMessageId!, fromMe: false }))
+        markMessagesReadWA(instance.instanceKey, keys).catch(() => {})
+
+        // Atualiza status no DB
+        await prisma.message.updateMany({
+          where: { conversationId: id, fromMe: false, status: { in: ['SENT', 'DELIVERED'] } },
+          data: { status: 'READ' },
+        }).catch(() => {})
+      }
+    }
+
     res.json(updated)
   } catch {
     res.status(500).json({ message: 'Erro interno do servidor' })
+  }
+})
+
+// ─── Typing indicator ─────────────────────────────────────────────────────────
+
+router.post('/conversations/:id/typing', async (req: AuthRequest, res: Response) => {
+  try {
+    const { id } = req.params
+    const { typing } = req.body as { typing: boolean }
+    const instance = await resolveInstance(req.user!.userId)
+    if (!instance || instance.status !== 'CONNECTED') { res.json({ ok: true }); return }
+
+    const conv = await prisma.conversation.findFirst({ where: { id, instanceId: instance.id }, select: { contactPhone: true, isGroup: true } })
+    if (!conv) { res.json({ ok: true }); return }
+
+    const jid = conv.isGroup ? `${conv.contactPhone}@g.us` : `${conv.contactPhone}@s.whatsapp.net`
+    await sendTypingPresence(instance.instanceKey, jid, typing ?? false)
+    res.json({ ok: true })
+  } catch {
+    res.json({ ok: true })
+  }
+})
+
+// ─── Avatar refresh ───────────────────────────────────────────────────────────
+
+router.post('/conversations/:id/refresh-avatar', async (req: AuthRequest, res: Response) => {
+  try {
+    const { id } = req.params
+    const instance = await resolveInstance(req.user!.userId)
+    if (!instance) { res.json({ avatarUrl: null }); return }
+
+    const conv = await prisma.conversation.findFirst({ where: { id, instanceId: instance.id } })
+    if (!conv) { res.status(404).json({ message: 'Conversa não encontrada' }); return }
+
+    const jid = conv.isGroup
+      ? `${conv.contactPhone}@g.us`
+      : `${conv.contactPhone}@s.whatsapp.net`
+
+    const url = await refreshContactAvatar(instance.instanceKey, jid, conv.id)
+    res.json({ avatarUrl: url })
+  } catch {
+    res.json({ avatarUrl: null })
   }
 })
 
@@ -736,6 +851,11 @@ router.post('/conversations/:id/messages', async (req: AuthRequest, res: Respons
       return
     }
 
+    if (instance.status !== 'CONNECTED') {
+      res.status(400).json({ message: 'WhatsApp não está conectado. Conecte na aba Configurações.' })
+      return
+    }
+
     const data = sendMessageSchema.parse(req.body)
     const conversation = await prisma.conversation.findFirst({ where: { id, instanceId: instance.id } })
     if (!conversation) {
@@ -743,25 +863,46 @@ router.post('/conversations/:id/messages', async (req: AuthRequest, res: Respons
       return
     }
 
+    // Montar JID do destinatário
+    const jid = conversation.isGroup
+      ? `${conversation.contactPhone}@g.us`
+      : `${conversation.contactPhone}@s.whatsapp.net`
+
+    // Enviar via WhatsApp (apenas para mensagens de texto por enquanto)
+    let waMessageId: string | null = null
+    if (data.type === 'TEXT') {
+      const waResult = await sendWhatsAppMessage(instance.instanceKey, jid, data.content)
+      if (!waResult) {
+        res.status(503).json({ message: 'Não foi possível enviar a mensagem. Verifique a conexão WhatsApp.' })
+        return
+      }
+      waMessageId = waResult.waMessageId
+    }
+
+    const now = new Date()
+
+    // Salvar mensagem no banco com o waMessageId para evitar duplicata quando o eco chegar
     const message = await prisma.message.create({
       data: {
         conversationId: id,
+        waMessageId,
         fromMe: true,
         content: data.content,
         type: data.type,
         mediaUrl: data.mediaUrl ?? null,
         status: 'SENT',
         isBot: false,
-        timestamp: new Date(),
+        timestamp: now,
       },
     })
 
-    // Quando agente responde manualmente, mover de AGUARDANDO → ATENDIMENTO
+    // Mover conversa de AGUARDANDO → ATENDIMENTO quando agente responde
     await prisma.conversation.update({
       where: { id },
       data: {
         lastMessage: data.content,
-        lastMessageAt: new Date(),
+        lastMessageSender: null,
+        lastMessageAt: now,
         ...(conversation.category === 'AGUARDANDO' && {
           category: 'ATENDIMENTO',
           status: 'OPEN',
@@ -776,6 +917,7 @@ router.post('/conversations/:id/messages', async (req: AuthRequest, res: Respons
       res.status(400).json({ message: 'Dados inválidos', errors: error.errors })
       return
     }
+    console.error('[POST /messages]', error)
     res.status(500).json({ message: 'Erro interno do servidor' })
   }
 })

@@ -3,6 +3,7 @@ import { type Message, formatMessageTime } from '../../types/chatbot'
 
 interface Props {
   message: Message
+  isGroup?: boolean
 }
 
 function MediaPreview({ message }: { message: Message }) {
@@ -66,10 +67,23 @@ function MediaPreview({ message }: { message: Message }) {
   return null
 }
 
-export default function MessageBubble({ message }: Props) {
-  const isMe = message.fromMe
+// Consistent color per sender name (WhatsApp-like)
+const SENDER_COLORS = [
+  'text-[#e67e22]', 'text-[#27ae60]', 'text-[#2980b9]',
+  'text-[#8e44ad]', 'text-[#c0392b]', 'text-[#16a085]',
+  'text-[#d35400]', 'text-[#2c3e50]',
+]
 
-  // Render ticks matching WhatsApp Web status
+function senderColor(name: string): string {
+  let hash = 0
+  for (let i = 0; i < name.length; i++) hash = name.charCodeAt(i) + ((hash << 5) - hash)
+  return SENDER_COLORS[Math.abs(hash) % SENDER_COLORS.length]
+}
+
+export default function MessageBubble({ message, isGroup }: Props) {
+  const isMe = message.fromMe
+  const showSender = isGroup && !isMe && message.senderName
+
   const renderTicks = () => {
     if (!isMe) return null
     if (message.status === 'READ') {
@@ -98,13 +112,20 @@ export default function MessageBubble({ message }: Props) {
               : 'bg-white text-[#111b21] rounded-tl-none border border-slate-100'
           }`}
         >
+          {/* Sender name in group messages (WhatsApp-style colored label) */}
+          {showSender && (
+            <span className={`block text-[11px] font-semibold mb-0.5 ${senderColor(message.senderName!)}`}>
+              {message.senderName}
+            </span>
+          )}
+
           {message.type !== 'TEXT' && <MediaPreview message={message} />}
           {message.content && (
             <span className="whitespace-pre-wrap break-words block pr-8">
               {message.content}
             </span>
           )}
-          
+
           {/* Time & status indicator inside bubble at bottom right */}
           <div className="absolute right-2.5 bottom-1 flex items-center gap-1 text-[9.5px] text-slate-400 font-medium select-none">
             <span>{formatMessageTime(message.timestamp)}</span>

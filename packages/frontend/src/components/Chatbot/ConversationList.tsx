@@ -41,10 +41,10 @@ export default function ConversationList({
     refetchInterval: 15000,
   })
 
-  const countTodos = allConversations?.filter(c => c.category !== 'GRUPOS').length ?? 0
+  const countTodos     = allConversations?.length ?? 0
   const countAguardando = allConversations?.filter(c => c.category === 'AGUARDANDO').length ?? 0
-  const countFila = allConversations?.filter(c => c.category === 'FILA').length ?? 0
-  const countGrupos = allConversations?.filter(c => c.category === 'GRUPOS').length ?? 0
+  const countFila      = allConversations?.filter(c => c.category === 'FILA').length ?? 0
+  const countGrupos    = allConversations?.filter(c => c.category === 'GRUPOS').length ?? 0
 
   const readMutation = useMutation({
     mutationFn: (id: string) => api.post(`/chatbot/conversations/${id}/read`),
@@ -52,11 +52,12 @@ export default function ConversationList({
   })
 
   const filtered = (conversations ?? []).filter(c => {
-    // TODOS tab excludes groups (groups are only shown in GRUPOS tab)
-    if (category === 'TODOS' && c.category === 'GRUPOS') return false
+    const term = searchQuery.toLowerCase()
     const matchesSearch =
-      (c.contactName ?? '').toLowerCase().includes(searchQuery.toLowerCase()) ||
-      c.contactPhone.includes(searchQuery)
+      (c.contactName ?? '').toLowerCase().includes(term) ||
+      c.contactPhone.includes(searchQuery) ||
+      // Also search sender name in groups
+      (c.lastMessageSender ?? '').toLowerCase().includes(term)
     return matchesSearch
   })
 
@@ -127,6 +128,11 @@ export default function ConversationList({
           {unreadAguardando > 0 && (
             <span className="px-1.5 py-0.5 bg-amber-100 text-amber-700 text-[10px] font-bold rounded-full leading-none animate-pulse">
               {unreadAguardando} novo{unreadAguardando > 1 ? 's' : ''}
+            </span>
+          )}
+          {unreadGrupos > 0 && (
+            <span className="px-1.5 py-0.5 bg-emerald-100 text-emerald-700 text-[10px] font-bold rounded-full leading-none animate-pulse">
+              {unreadGrupos} grupo{unreadGrupos > 1 ? 's' : ''}
             </span>
           )}
         </div>

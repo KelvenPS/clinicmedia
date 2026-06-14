@@ -20,6 +20,7 @@ import paymentMethodRoutes from './routes/payment-methods'
 import subscriptionRoutes from './routes/subscriptions'
 import integrationRoutes from './routes/integrations'
 import chatbotRoutes from './routes/chatbot'
+import { restoreSessions } from './lib/whatsapp'
 import adminRoutes from './routes/admin'
 import adminSqlRoutes from './routes/admin-sql'
 
@@ -94,6 +95,9 @@ app.listen(PORT, () => {
   console.log(`  🐘  Banco: PostgreSQL`)
   console.log(`  📡  Ambiente: ${process.env.NODE_ENV || 'development'}`)
   console.log('')
+
+  // Restaura sessões WhatsApp ativas após restart do servidor
+  restoreSessions().catch(err => console.error('[WA] Erro ao restaurar sessões:', err))
 })
 
 export default app

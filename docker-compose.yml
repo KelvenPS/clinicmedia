@@ -32,6 +32,9 @@ services:
       FRONTEND_URL: http://${VPS_IP:-2.25.185.223}
       BACKEND_URL: http://${VPS_IP:-2.25.185.223}
       MP_ACCESS_TOKEN: ${MP_ACCESS_TOKEN:-}
+      SESSIONS_DIR: /app/sessions
+    volumes:
+      - whatsapp_sessions:/app/sessions
     depends_on:
       postgres:
         condition: service_healthy
@@ -76,6 +79,7 @@ services:
 
 volumes:
   postgres_data:
+  whatsapp_sessions:
 
 networks:
   clinicmedia_network:

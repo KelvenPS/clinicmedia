@@ -3,6 +3,7 @@ import {
   Phone, Wifi, WifiOff, QrCode, Loader2, Save, X, Check,
   AlertCircle, Smartphone, RefreshCw, LogOut, Clock,
 } from 'lucide-react'
+// AlertCircle mantido para a fase de erro
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { type ChatbotInstance, type ChatbotSettings, type InstanceStatus } from '../../types/chatbot'
 import api from '../../lib/api'
@@ -16,7 +17,7 @@ const DAYS = [
 
 // ─── QR Code Modal ────────────────────────────────────────────────────────────
 
-type QrPhase = 'starting' | 'waiting_qr' | 'qr_ready' | 'connected' | 'error' | 'no_api'
+type QrPhase = 'starting' | 'waiting_qr' | 'qr_ready' | 'connected' | 'error'
 
 function WhatsAppQRModal({ onClose }: { onClose: () => void }) {
   const queryClient = useQueryClient()
@@ -24,18 +25,14 @@ function WhatsAppQRModal({ onClose }: { onClose: () => void }) {
   const [errorMsg, setErrorMsg] = useState('')
   const [countdown, setCountdown] = useState(55)
 
-  // Inicia conexão ao montar
+  // Inicia conexão ao montar — Baileys gera o QR diretamente no backend
   const connectMutation = useMutation({
     mutationFn: () => api.post('/chatbot/instance/connect').then(r => r.data),
-    onSuccess: (data) => {
-      if (data?.status === 'NO_EVOLUTION_API') {
-        setPhase('no_api')
-      } else {
-        setPhase('waiting_qr')
-      }
+    onSuccess: () => {
+      setPhase('waiting_qr')
     },
     onError: () => {
-      setErrorMsg('Não foi possível iniciar a conexão. Verifique as configurações.')
+      setErrorMsg('Não foi possível iniciar a conexão. Tente novamente.')
       setPhase('error')
     },
   })
@@ -48,8 +45,8 @@ function WhatsAppQRModal({ onClose }: { onClose: () => void }) {
   const { data: statusData } = useQuery<InstanceStatus>({
     queryKey: ['chatbot-instance-status-modal'],
     queryFn: () => api.get('/chatbot/instance/status').then(r => r.data),
-    refetchInterval: phase === 'connected' || phase === 'error' || phase === 'no_api' ? false : 3000,
-    enabled: phase !== 'error' && phase !== 'no_api',
+    refetchInterval: phase === 'connected' || phase === 'error' ? false : 3000,
+    enabled: phase !== 'error',
   })
 
   useEffect(() => {
@@ -236,31 +233,6 @@ function WhatsAppQRModal({ onClose }: { onClose: () => void }) {
                 <p className="text-xs text-slate-500 font-mono">{statusData.phoneNumber}</p>
               )}
               <p className="text-xs text-slate-400">Fechando automaticamente...</p>
-            </div>
-          )}
-
-          {/* ── Sem Evolution API ── */}
-          {phase === 'no_api' && (
-            <div className="space-y-4 w-full">
-              <div className="w-14 h-14 rounded-full bg-amber-50 flex items-center justify-center mx-auto">
-                <AlertCircle className="w-7 h-7 text-amber-500" />
-              </div>
-              <p className="text-sm font-bold text-slate-800">Evolution API não configurada</p>
-              <div className="bg-slate-900 rounded-xl p-4 text-left">
-                <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-2">Configure no servidor (.env)</p>
-                <code className="text-[11px] text-emerald-400 leading-relaxed block whitespace-pre-wrap font-mono">
-                  {`EVOLUTION_API_URL=http://sua-api:8080\nEVOLUTION_API_KEY=sua-chave`}
-                </code>
-              </div>
-              <p className="text-[11px] text-slate-400 leading-relaxed">
-                A Evolution API é necessária para gerar o QR Code e estabelecer a conexão com o WhatsApp.
-              </p>
-              <button
-                onClick={onClose}
-                className="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-600 rounded-lg text-sm font-medium transition-colors"
-              >
-                Fechar
-              </button>
             </div>
           )}
 

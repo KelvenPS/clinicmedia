@@ -1,7 +1,13 @@
-import { Router, Request, Response } from 'express'
+import { Router, Response } from 'express'
 import { z } from 'zod'
 import { prisma } from '../lib/prisma'
 import { authenticate, AuthRequest } from '../middleware/auth'
+import type { WAMessage } from '@whiskeysockets/baileys'
+import {
+  registerMessageHandler,
+  startSession,
+  stopSession,
+} from '../lib/whatsapp'
 
 const router = Router()
 
@@ -188,194 +194,111 @@ async function resolveOrCreateInstance(userId: string) {
   })
 }
 
-// ─── PUBLIC: Webhook (Evolution API format) ──────────────────────────────────
+// ─── Handler de mensagens recebidas via Baileys ───────────────────────────────
 
-router.post('/webhook/:instanceKey', async (req: Request, res: Response) => {
-  try {
-    const { instanceKey } = req.params
-    const body = req.body
+async function handleIncomingMessage(instanceId: string, msg: WAMessage): Promise<void> {
+  const remoteJid = msg.key.remoteJid ?? ''
+  const fromMe = msg.key.fromMe ?? false
+  const pushName = msg.pushName ?? ''
+  const mc = msg.message ?? {}
 
-    const instance = await prisma.whatsAppInstance.findUnique({ where: { instanceKey } })
-    if (!instance) {
-      res.status(404).json({ message: 'Instance not found' })
-      return
-    }
+  let content = ''
+  let messageType: 'TEXT' | 'IMAGE' | 'AUDIO' | 'VIDEO' | 'DOCUMENT' | 'STICKER' | 'LOCATION' = 'TEXT'
+  let mediaUrl: string | undefined
 
-    // ── QR Code atualizado pela Evolution API ──────────────────────────────────
-    const eventType = body?.event ?? body?.type ?? ''
+  if (mc.conversation) {
+    content = mc.conversation
+  } else if (mc.extendedTextMessage?.text) {
+    content = mc.extendedTextMessage.text
+  } else if (mc.imageMessage) {
+    content = mc.imageMessage.caption ?? ''
+    messageType = 'IMAGE'
+    mediaUrl = mc.imageMessage.url ?? undefined
+  } else if (mc.audioMessage) {
+    content = '[Áudio]'
+    messageType = 'AUDIO'
+  } else if (mc.videoMessage) {
+    content = mc.videoMessage.caption ?? '[Vídeo]'
+    messageType = 'VIDEO'
+  } else if (mc.documentMessage) {
+    content = mc.documentMessage.fileName ?? '[Documento]'
+    messageType = 'DOCUMENT'
+    mediaUrl = mc.documentMessage.url ?? undefined
+  } else if (mc.stickerMessage) {
+    content = '[Sticker]'
+    messageType = 'STICKER'
+  } else if (mc.locationMessage) {
+    const loc = mc.locationMessage
+    content = `[Localização] Lat: ${loc.degreesLatitude}, Lng: ${loc.degreesLongitude}`
+    messageType = 'LOCATION'
+  } else {
+    return // tipo desconhecido, ignora
+  }
 
-    if (eventType === 'QRCODE_UPDATED' || eventType === 'qrcode.updated') {
-      const qrBase64 =
-        body?.data?.qrcode?.base64 ??
-        body?.data?.base64 ??
-        body?.qrcode?.base64 ??
-        null
-      if (qrBase64) {
-        await prisma.whatsAppInstance.update({
-          where: { instanceKey },
-          data: {
-            qrCode: qrBase64,
-            qrCodeExpiresAt: new Date(Date.now() + 55_000),
-            status: 'CONNECTING',
-          },
-        })
-      }
-      res.status(200).json({ received: true })
-      return
-    }
+  const contactPhone = remoteJid.replace('@s.whatsapp.net', '').replace('@g.us', '')
+  const isGroup = remoteJid.endsWith('@g.us')
 
-    // ── Atualização de status de conexão ──────────────────────────────────────
-    if (
-      eventType === 'CONNECTION_UPDATE' ||
-      eventType === 'connection.update' ||
-      eventType === 'status.instance'
-    ) {
-      const state: string =
-        body?.data?.state ??
-        body?.data?.connection ??
-        body?.state ??
-        ''
+  const instance = await prisma.whatsAppInstance.findUnique({ where: { id: instanceId } })
+  if (!instance) return
 
-      if (state === 'open' || state === 'CONNECTED') {
-        await prisma.whatsAppInstance.update({
-          where: { instanceKey },
-          data: {
-            status: 'CONNECTED',
-            qrCode: null,
-            qrCodeExpiresAt: null,
-            connectedAt: new Date(),
-            phoneNumber: body?.data?.phone ?? body?.data?.wuid?.replace('@s.whatsapp.net', '') ?? instance.phoneNumber,
-            displayName: body?.data?.pushName ?? instance.displayName,
-          },
-        })
-      } else if (state === 'close' || state === 'DISCONNECTED') {
-        await prisma.whatsAppInstance.update({
-          where: { instanceKey },
-          data: {
-            status: 'DISCONNECTED',
-            qrCode: null,
-            qrCodeExpiresAt: null,
-            disconnectedAt: new Date(),
-          },
-        })
-      } else if (state === 'connecting' || state === 'CONNECTING') {
-        await prisma.whatsAppInstance.update({
-          where: { instanceKey },
-          data: { status: 'CONNECTING' },
-        })
-      }
-      res.status(200).json({ received: true })
-      return
-    }
+  let conversation = await prisma.conversation.findFirst({
+    where: { instanceId, contactPhone },
+  })
 
-    // ── Mensagem recebida (MESSAGES_UPSERT ou payload direto) ─────────────────
-    const data = body?.data ?? body
-    const key = data?.key ?? {}
-    const remoteJid: string = key?.remoteJid ?? data?.remoteJid ?? ''
-    const fromMe: boolean = key?.fromMe ?? data?.fromMe ?? false
-    const pushName: string = data?.pushName ?? data?.notifyName ?? ''
-    const messageContent = data?.message ?? {}
-
-    let content = ''
-    let messageType: 'TEXT' | 'IMAGE' | 'AUDIO' | 'VIDEO' | 'DOCUMENT' | 'STICKER' | 'LOCATION' = 'TEXT'
-    let mediaUrl: string | undefined
-
-    if (messageContent.conversation) {
-      content = messageContent.conversation
-    } else if (messageContent.extendedTextMessage?.text) {
-      content = messageContent.extendedTextMessage.text
-    } else if (messageContent.imageMessage) {
-      content = messageContent.imageMessage.caption ?? ''
-      messageType = 'IMAGE'
-      mediaUrl = messageContent.imageMessage.url
-    } else if (messageContent.audioMessage) {
-      content = '[Áudio]'
-      messageType = 'AUDIO'
-      mediaUrl = messageContent.audioMessage.url
-    } else if (messageContent.videoMessage) {
-      content = messageContent.videoMessage.caption ?? '[Vídeo]'
-      messageType = 'VIDEO'
-      mediaUrl = messageContent.videoMessage.url
-    } else if (messageContent.documentMessage) {
-      content = messageContent.documentMessage.fileName ?? '[Documento]'
-      messageType = 'DOCUMENT'
-      mediaUrl = messageContent.documentMessage.url
-    } else if (messageContent.stickerMessage) {
-      content = '[Sticker]'
-      messageType = 'STICKER'
-    } else if (messageContent.locationMessage) {
-      const loc = messageContent.locationMessage
-      content = `[Localização] Lat: ${loc.degreesLatitude}, Lng: ${loc.degreesLongitude}`
-      messageType = 'LOCATION'
-    } else {
-      content = typeof body === 'string' ? body : JSON.stringify(data)
-    }
-
-    const contactPhone = remoteJid.replace('@s.whatsapp.net', '').replace('@g.us', '')
-    const isGroup = remoteJid.endsWith('@g.us')
-
-    let conversation = await prisma.conversation.findFirst({
-      where: { instanceId: instance.id, contactPhone },
-    })
-
-    if (!conversation) {
-      conversation = await prisma.conversation.create({
-        data: {
-          instanceId: instance.id,
-          contactPhone,
-          contactName: pushName || null,
-          isGroup,
-          lastMessage: content,
-          lastMessageAt: new Date(),
-          unreadCount: fromMe ? 0 : 1,
-          // Mensagem entrante nova → aguardando resposta do agente
-          status: fromMe ? 'OPEN' : 'WAITING',
-          category: fromMe ? 'ATENDIMENTO' : 'AGUARDANDO',
-        },
-      })
-    } else {
-      await prisma.conversation.update({
-        where: { id: conversation.id },
-        data: {
-          lastMessage: content,
-          lastMessageAt: new Date(),
-          contactName: pushName || conversation.contactName,
-          unreadCount: fromMe ? conversation.unreadCount : { increment: 1 },
-        },
-      })
-    }
-
-    await prisma.message.create({
+  if (!conversation) {
+    conversation = await prisma.conversation.create({
       data: {
-        conversationId: conversation.id,
-        fromMe,
-        content,
-        type: messageType,
-        mediaUrl: mediaUrl ?? null,
-        status: fromMe ? 'SENT' : 'DELIVERED',
-        isBot: false,
-        timestamp: new Date(),
+        instanceId,
+        contactPhone,
+        contactName: pushName || null,
+        isGroup,
+        lastMessage: content,
+        lastMessageAt: new Date(),
+        unreadCount: fromMe ? 0 : 1,
+        status: fromMe ? 'OPEN' : 'WAITING',
+        category: fromMe ? 'ATENDIMENTO' : 'AGUARDANDO',
       },
     })
-
-    if (!fromMe) {
-      await prisma.notification.create({
-        data: {
-          userId: instance.doctorId,
-          title: `Nova mensagem de ${pushName || contactPhone}`,
-          message: content.slice(0, 100),
-          type: 'INFO',
-          link: '/chatbot',
-        },
-      }).catch(() => {})
-    }
-
-    res.status(200).json({ received: true })
-  } catch (error) {
-    console.error('[Webhook] Error:', error)
-    res.status(500).json({ message: 'Internal error' })
+  } else {
+    await prisma.conversation.update({
+      where: { id: conversation.id },
+      data: {
+        lastMessage: content,
+        lastMessageAt: new Date(),
+        contactName: pushName || conversation.contactName,
+        unreadCount: fromMe ? conversation.unreadCount : { increment: 1 },
+      },
+    })
   }
-})
+
+  await prisma.message.create({
+    data: {
+      conversationId: conversation.id,
+      fromMe,
+      content,
+      type: messageType,
+      mediaUrl: mediaUrl ?? null,
+      status: fromMe ? 'SENT' : 'DELIVERED',
+      isBot: false,
+      timestamp: new Date(),
+    },
+  })
+
+  if (!fromMe) {
+    await prisma.notification.create({
+      data: {
+        userId: instance.doctorId,
+        title: `Nova mensagem de ${pushName || contactPhone}`,
+        message: content.slice(0, 100),
+        type: 'INFO',
+        link: '/chatbot',
+      },
+    }).catch(() => {})
+  }
+}
+
+// Registra o handler no gerenciador de sessões Baileys
+registerMessageHandler(handleIncomingMessage)
 
 // ─── All routes below require authentication ──────────────────────────────────
 
@@ -436,67 +359,25 @@ router.delete('/instance', async (req: AuthRequest, res: Response) => {
   }
 })
 
-// ─── Connect: inicia conexão com Evolution API ────────────────────────────────
+// ─── Connect: inicia sessão WhatsApp diretamente via Baileys ─────────────────
 
 router.post('/instance/connect', async (req: AuthRequest, res: Response) => {
   try {
     const userId = req.user!.userId
     const instance = await resolveOrCreateInstance(userId)
 
-    const evolutionUrl = process.env.EVOLUTION_API_URL
-    const evolutionKey = process.env.EVOLUTION_API_KEY ?? ''
-
-    if (!evolutionUrl) {
-      // Evolution API não configurada — apenas marca como CONNECTING para testar fluxo
-      await prisma.whatsAppInstance.update({
-        where: { id: instance.id },
-        data: { status: 'CONNECTING' },
-      })
-      res.json({
-        status: 'NO_EVOLUTION_API',
-        message: 'Configure EVOLUTION_API_URL no .env para habilitar a conexão real com WhatsApp.',
-        instanceKey: instance.instanceKey,
-      })
-      return
-    }
-
-    // Detecta URL base da aplicação para montar o webhook
-    const proto = req.headers['x-forwarded-proto'] ?? req.protocol
-    const host  = req.headers['x-forwarded-host']  ?? req.get('host')
-    const appUrl = process.env.APP_URL ?? `${proto}://${host}`
-    const webhookUrl = `${appUrl}/api/chatbot/webhook/${instance.instanceKey}`
-
-    // Chama Evolution API para criar/reconectar instância
-    const evRes = await fetch(`${evolutionUrl}/instance/create`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', apikey: evolutionKey },
-      body: JSON.stringify({
-        instanceName: instance.instanceKey,
-        qrcode: true,
-        webhook: webhookUrl,
-        webhookByEvents: true,
-        events: ['QRCODE_UPDATED', 'CONNECTION_UPDATE', 'MESSAGES_UPSERT'],
-      }),
+    // Reseta status e limpa QR antigo antes de gerar novo
+    await prisma.whatsAppInstance.update({
+      where: { id: instance.id },
+      data: { status: 'CONNECTING', qrCode: null, qrCodeExpiresAt: null },
     })
 
-    const evData: Record<string, unknown> = evRes.ok ? await evRes.json() as Record<string, unknown> : {}
+    // Inicia sessão Baileys de forma assíncrona
+    // O QR será gerado e salvo no banco via connection.update → o frontend faz polling
+    startSession(instance.instanceKey, instance.id).catch(err =>
+      console.error('[/instance/connect] Erro Baileys:', err)
+    )
 
-    const updates: Record<string, unknown> = {
-      status: 'CONNECTING',
-      webhookUrl,
-    }
-
-    // Se a Evolution API já devolveu o QR diretamente
-    const immediateQr =
-      (evData?.qrcode as Record<string, unknown>)?.base64 ??
-      (evData?.base64 as string) ??
-      null
-    if (immediateQr) {
-      updates.qrCode = immediateQr
-      updates.qrCodeExpiresAt = new Date(Date.now() + 55_000)
-    }
-
-    await prisma.whatsAppInstance.update({ where: { id: instance.id }, data: updates as Parameters<typeof prisma.whatsAppInstance.update>[0]['data'] })
     res.json({ status: 'CONNECTING', instanceKey: instance.instanceKey })
   } catch (err) {
     console.error('[/instance/connect]', err)
@@ -516,32 +397,6 @@ router.get('/instance/status', async (req: AuthRequest, res: Response) => {
 
     const now = new Date()
     const qrExpired = instance.qrCodeExpiresAt ? instance.qrCodeExpiresAt < now : false
-
-    // Se o QR está expirado, tenta buscar um novo na Evolution API
-    if (qrExpired && instance.status === 'CONNECTING') {
-      const evolutionUrl = process.env.EVOLUTION_API_URL
-      const evolutionKey = process.env.EVOLUTION_API_KEY ?? ''
-      if (evolutionUrl) {
-        try {
-          const evRes = await fetch(
-            `${evolutionUrl}/instance/qrcode/${instance.instanceKey}?image=true`,
-            { headers: { apikey: evolutionKey } },
-          )
-          if (evRes.ok) {
-            const evData = await evRes.json() as Record<string, unknown>
-            const freshQr = (evData?.base64 as string) ?? null
-            if (freshQr) {
-              await prisma.whatsAppInstance.update({
-                where: { id: instance.id },
-                data: { qrCode: freshQr, qrCodeExpiresAt: new Date(Date.now() + 55_000) },
-              })
-              res.json({ status: instance.status, qrCode: freshQr, qrCodeExpired: false })
-              return
-            }
-          }
-        } catch { /* Evolution API indisponível */ }
-      }
-    }
 
     res.json({
       status: instance.status,
@@ -585,14 +440,9 @@ router.post('/instance/disconnect', async (req: AuthRequest, res: Response) => {
       res.status(404).json({ message: 'Instância não encontrada' })
       return
     }
-    const evolutionUrl = process.env.EVOLUTION_API_URL
-    const evolutionKey = process.env.EVOLUTION_API_KEY ?? ''
-    if (evolutionUrl) {
-      fetch(`${evolutionUrl}/instance/logout/${instance.instanceKey}`, {
-        method: 'DELETE',
-        headers: { apikey: evolutionKey },
-      }).catch(() => {})
-    }
+
+    // Encerra sessão Baileys e limpa arquivos de credenciais
+    await stopSession(instance.instanceKey)
 
     const updated = await prisma.whatsAppInstance.update({
       where: { id: instance.id },
@@ -601,6 +451,7 @@ router.post('/instance/disconnect', async (req: AuthRequest, res: Response) => {
         qrCode: null,
         qrCodeExpiresAt: null,
         phoneNumber: null,
+        displayName: null,
         disconnectedAt: new Date(),
       },
     })

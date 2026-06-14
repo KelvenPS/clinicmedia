@@ -1,4 +1,4 @@
-import { Zap, ArrowLeft, MessageSquare, Clock, ListFilter, Users, ClipboardList, GitBranch, Settings, ChevronDown } from 'lucide-react'
+import { Zap, ArrowLeft, MessageSquare, Clock, ListFilter, Users, ClipboardList, GitBranch, Settings, ChevronDown, UsersRound } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import { type ActivePanel, type ConversationCategory, type Conversation } from '../../types/chatbot'
@@ -34,6 +34,7 @@ export default function AppSidebar({
   const countAtendimento = (conversations ?? []).filter(c => c.category === 'ATENDIMENTO').length
   const countAguardando = (conversations ?? []).filter(c => c.category === 'AGUARDANDO').length
   const countFila = (conversations ?? []).filter(c => c.category === 'FILA').length
+  const countGrupos = (conversations ?? []).filter(c => c.category === 'GRUPOS').length
 
   const initials = userName
     .split(' ')
@@ -128,6 +129,24 @@ export default function AppSidebar({
           {countFila > 0 && (
             <span className="bg-[#f59e0b] text-white text-[11px] font-bold px-2 py-0.5 rounded-full min-w-[20px] text-center">
               {countFila}
+            </span>
+          )}
+        </button>
+
+        <button
+          onClick={() => {
+            onSelectPanel('atendimento')
+            onSelectCategory('GRUPOS')
+          }}
+          className="w-full flex items-center justify-between px-4 py-3 rounded-xl text-sm font-medium text-slate-400 hover:bg-white/5 hover:text-white transition-all duration-150"
+        >
+          <div className="flex items-center gap-3.5">
+            <UsersRound className="w-5 h-5 flex-shrink-0" />
+            <span>Grupos</span>
+          </div>
+          {countGrupos > 0 && (
+            <span className="bg-emerald-600 text-white text-[11px] font-bold px-2 py-0.5 rounded-full min-w-[20px] text-center">
+              {countGrupos}
             </span>
           )}
         </button>

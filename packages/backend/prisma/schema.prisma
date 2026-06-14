@@ -639,6 +639,8 @@ model ChatbotSettings {
   notificationsEnabled Boolean  @default(true)
   botType              String   @default("LIGHT")
   aiSystemPrompt       String?  @db.Text
+  replyGroups          Boolean  @default(true)
+  replyCommunities     Boolean  @default(false)
   createdAt            DateTime @default(now())
   updatedAt            DateTime @updatedAt
 

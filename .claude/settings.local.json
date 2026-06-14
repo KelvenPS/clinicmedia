@@ -6,7 +6,10 @@
       "Bash(npx tsc *)",
       "Bash(git push *)",
       "Bash(git add *)",
-      "Bash(git commit -m ' *)"
+      "Bash(git commit -m ' *)",
+      "Bash(node -e \"const l = require\\('/Users/kelvenpereiradasilva/Documents/Programaçao/clinicmedia/packages/frontend/node_modules/lucide-react'\\); console.log\\(Object.keys\\(l\\).filter\\(k => k.toLowerCase\\(\\).includes\\('user'\\) || k.toLowerCase\\(\\).includes\\('group'\\)\\).join\\('\\\\n'\\)\\)\")",
+      "Bash(node -e \"const l = require\\('/Users/kelvenpereiradasilva/Documents/Programaçao/clinicmedia/node_modules/lucide-react'\\); console.log\\(Object.keys\\(l\\).filter\\(k => k.toLowerCase\\(\\).includes\\('user'\\) || k.toLowerCase\\(\\).includes\\('group'\\)\\).join\\('\\\\n'\\)\\)\")",
+      "Bash(npm run *)"
     ],
     "additionalDirectories": [
       "c:\\clinicmedia\\packages\\backend\\prisma\\migrations"

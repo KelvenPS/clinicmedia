@@ -301,6 +301,8 @@ export default function ConfiguracoesPanel() {
         notificationsEnabled: settings.notificationsEnabled ?? true,
         botType: settings.botType ?? 'LIGHT',
         aiSystemPrompt: settings.aiSystemPrompt ?? '',
+        replyGroups: settings.replyGroups ?? true,
+        replyCommunities: settings.replyCommunities ?? false,
       })
     }
   }, [settings])
@@ -530,6 +532,43 @@ export default function ConfiguracoesPanel() {
                   </button>
                 </div>
               ))}
+
+              <hr className="border-slate-100" />
+
+              {/* Grupos e Comunidades */}
+              <div>
+                <div className="flex items-center gap-2 mb-3">
+                  <Users className="w-4 h-4 text-emerald-500" />
+                  <p className="text-sm font-semibold text-slate-700">Grupos e Comunidades</p>
+                </div>
+                <div className="space-y-3">
+                  {([
+                    {
+                      key: 'replyGroups' as keyof ChatbotSettings,
+                      label: 'Responder mensagens de grupos',
+                      desc: 'Receber e visualizar mensagens de grupos do WhatsApp',
+                    },
+                    {
+                      key: 'replyCommunities' as keyof ChatbotSettings,
+                      label: 'Responder mensagens de comunidades',
+                      desc: 'Receber e visualizar mensagens de comunidades do WhatsApp',
+                    },
+                  ] as { key: keyof ChatbotSettings; label: string; desc: string }[]).map(field => (
+                    <div key={field.key} className="flex items-center justify-between p-3 bg-slate-50 rounded-lg">
+                      <div className="flex-1 mr-4">
+                        <p className="text-sm font-medium text-slate-700">{field.label}</p>
+                        <p className="text-xs text-slate-400 mt-0.5">{field.desc}</p>
+                      </div>
+                      <button
+                        onClick={() => updateField({ [field.key]: !settingsForm[field.key] })}
+                        className={`relative w-11 h-6 rounded-full transition-colors flex-shrink-0 ${settingsForm[field.key] ? 'bg-emerald-500' : 'bg-slate-200'}`}
+                      >
+                        <span className={`absolute top-0.5 left-0.5 w-5 h-5 bg-white rounded-full shadow transition-transform ${settingsForm[field.key] ? 'translate-x-5' : 'translate-x-0'}`} />
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              </div>
 
               <hr className="border-slate-100" />
 

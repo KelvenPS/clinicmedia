@@ -1,5 +1,5 @@
-import { useState } from 'react'
-import { MessageSquare, Search } from 'lucide-react'
+import { useState, type ReactNode } from 'react'
+import { MessageSquare, Search, Users } from 'lucide-react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { type Conversation, type ConversationCategory } from '../../types/chatbot'
 import api from '../../lib/api'
@@ -41,19 +41,24 @@ export default function ConversationList({
     refetchInterval: 15000,
   })
 
-  const countTodos = allConversations?.length ?? 0
+  const countTodos = allConversations?.filter(c => c.category !== 'GRUPOS').length ?? 0
   const countAguardando = allConversations?.filter(c => c.category === 'AGUARDANDO').length ?? 0
   const countFila = allConversations?.filter(c => c.category === 'FILA').length ?? 0
+  const countGrupos = allConversations?.filter(c => c.category === 'GRUPOS').length ?? 0
 
   const readMutation = useMutation({
     mutationFn: (id: string) => api.post(`/chatbot/conversations/${id}/read`),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ['chatbot-conversations'] }),
   })
 
-  const filtered = (conversations ?? []).filter(c =>
-    (c.contactName ?? '').toLowerCase().includes(searchQuery.toLowerCase()) ||
-    c.contactPhone.includes(searchQuery)
-  )
+  const filtered = (conversations ?? []).filter(c => {
+    // TODOS tab excludes groups (groups are only shown in GRUPOS tab)
+    if (category === 'TODOS' && c.category === 'GRUPOS') return false
+    const matchesSearch =
+      (c.contactName ?? '').toLowerCase().includes(searchQuery.toLowerCase()) ||
+      c.contactPhone.includes(searchQuery)
+    return matchesSearch
+  })
 
   function handleSelect(conv: Conversation) {
     onSelect(conv)
@@ -63,6 +68,7 @@ export default function ConversationList({
   // Unread totals per tab for attention indicators
   const unreadAguardando = allConversations?.filter(c => c.category === 'AGUARDANDO' && c.unreadCount > 0).length ?? 0
   const unreadFila = allConversations?.filter(c => c.category === 'FILA' && c.unreadCount > 0).length ?? 0
+  const unreadGrupos = allConversations?.filter(c => c.category === 'GRUPOS' && c.unreadCount > 0).length ?? 0
 
   const tabs: {
     key: ConversationCategory
@@ -72,6 +78,7 @@ export default function ConversationList({
     activeText: string
     activeBadge: string
     alertCount?: number
+    icon?: ReactNode
   }[] = [
     {
       key: 'TODOS',
@@ -98,6 +105,16 @@ export default function ConversationList({
       activeText: 'text-violet-600',
       activeBadge: 'bg-violet-50 text-violet-600',
       alertCount: unreadFila,
+    },
+    {
+      key: 'GRUPOS',
+      label: 'Grupos',
+      count: countGrupos,
+      activeBorder: 'border-emerald-500',
+      activeText: 'text-emerald-600',
+      activeBadge: 'bg-emerald-50 text-emerald-600',
+      alertCount: unreadGrupos,
+      icon: <Users className="w-3 h-3" />,
     },
   ]
 
@@ -147,12 +164,13 @@ export default function ConversationList({
             <button
               key={tab.key}
               onClick={() => onCategoryChange(tab.key)}
-              className={`relative flex items-center gap-1.5 px-3 py-3 border-b-2 font-medium text-xs transition-all ${
+              className={`relative flex items-center gap-1.5 px-2.5 py-3 border-b-2 font-medium text-xs transition-all ${
                 isActive
                   ? `${tab.activeBorder} ${tab.activeText} font-semibold`
                   : 'border-transparent text-slate-500 hover:text-slate-700'
               }`}
             >
+              {tab.icon && <span className="flex-shrink-0">{tab.icon}</span>}
               <span>{tab.label}</span>
               <span className={`px-1.5 py-0.5 rounded-full text-[10px] font-semibold leading-none ${
                 isActive ? tab.activeBadge : 'bg-slate-100 text-slate-500'

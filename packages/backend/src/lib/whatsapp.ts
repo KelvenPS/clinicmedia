@@ -112,6 +112,9 @@ async function syncHistory(
     const ts = toLong(chat.conversationTimestamp)
     const lastMsgAt = ts > 0 ? new Date(ts * 1000) : null
 
+    const category = isGroup ? 'GRUPOS' : (unread > 0 ? 'AGUARDANDO' : 'ATENDIMENTO')
+    const status   = isGroup ? 'OPEN'   : (unread > 0 ? 'WAITING'    : 'OPEN')
+
     try {
       const existing = await prisma.conversation.findFirst({
         where: { instanceId, contactPhone },
@@ -127,8 +130,8 @@ async function syncHistory(
             lastMessage: null,
             lastMessageAt: lastMsgAt,
             unreadCount: unread,
-            status: unread > 0 ? 'WAITING' : 'OPEN',
-            category: unread > 0 ? 'AGUARDANDO' : 'ATENDIMENTO',
+            status,
+            category,
           },
         })
         synced++
@@ -268,6 +271,9 @@ export async function startSession(instanceKey: string, instanceId: string): Pro
       const ts = toLong(chat.conversationTimestamp)
       const lastMsgAt = ts > 0 ? new Date(ts * 1000) : null
 
+      const chatCategory = isGroup ? 'GRUPOS' : (unread > 0 ? 'AGUARDANDO' : 'ATENDIMENTO')
+      const chatStatus   = isGroup ? 'OPEN'   : (unread > 0 ? 'WAITING'    : 'OPEN')
+
       try {
         const existing = await prisma.conversation.findFirst({ where: { instanceId, contactPhone } })
         if (!existing) {
@@ -277,8 +283,8 @@ export async function startSession(instanceKey: string, instanceId: string): Pro
               contactName: chat.name || null, isGroup,
               lastMessage: null, lastMessageAt: lastMsgAt,
               unreadCount: unread,
-              status: unread > 0 ? 'WAITING' : 'OPEN',
-              category: unread > 0 ? 'AGUARDANDO' : 'ATENDIMENTO',
+              status: chatStatus,
+              category: chatCategory,
             },
           })
         }

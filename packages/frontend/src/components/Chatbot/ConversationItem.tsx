@@ -1,4 +1,4 @@
-import { Bot, MessageCircle } from 'lucide-react'
+import { Bot, MessageCircle, Users } from 'lucide-react'
 import {
   type Conversation,
   avatarGradient,
@@ -34,8 +34,9 @@ const BADGE: Record<string, { text: string; cls: string }> = {
 export default function ConversationItem({ conversation, isSelected, onClick }: Props) {
   const name = conversation.contactName ?? conversation.contactPhone
   const hasUnread = conversation.unreadCount > 0
-  const isBot = conversation.status === 'BOT' || conversation.category === 'FILA'
-  const isAguardando = conversation.category === 'AGUARDANDO' || conversation.status === 'WAITING'
+  const isGroup = conversation.isGroup || conversation.category === 'GRUPOS'
+  const isBot = !isGroup && (conversation.status === 'BOT' || conversation.category === 'FILA')
+  const isAguardando = !isGroup && (conversation.category === 'AGUARDANDO' || conversation.status === 'WAITING')
 
   const accent = CATEGORY_ACCENT[conversation.category] ?? CATEGORY_ACCENT['ATENDIMENTO']
 
@@ -58,7 +59,11 @@ export default function ConversationItem({ conversation, isSelected, onClick }: 
         </div>
 
         {/* Status dot overlay */}
-        {isAguardando ? (
+        {isGroup ? (
+          <div className="absolute -bottom-0.5 -right-0.5 w-4 h-4 rounded-full bg-emerald-500 border-2 border-white flex items-center justify-center">
+            <Users className="w-2 h-2 text-white" />
+          </div>
+        ) : isAguardando ? (
           <span className="absolute -bottom-0.5 -right-0.5 w-3.5 h-3.5 rounded-full bg-amber-400 border-2 border-white animate-pulse" />
         ) : isBot ? (
           <div className="absolute -bottom-0.5 -right-0.5 w-4 h-4 rounded-full bg-violet-500 border-2 border-white flex items-center justify-center">

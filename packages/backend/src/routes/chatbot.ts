@@ -179,6 +179,8 @@ const upsertSettingsSchema = z.object({
   notificationsEnabled: z.boolean().optional(),
   botType: z.enum(['LIGHT', 'AI_AGENT']).optional(),
   aiSystemPrompt: z.string().optional().nullable(),
+  replyGroups: z.boolean().optional(),
+  replyCommunities: z.boolean().optional(),
 })
 
 // ─── Helper: resolve or create instance ──────────────────────────────────────
@@ -242,6 +244,16 @@ async function handleIncomingMessage(instanceId: string, msg: WAMessage): Promis
   const instance = await prisma.whatsAppInstance.findUnique({ where: { id: instanceId } })
   if (!instance) return
 
+  // Check group/community reply settings
+  if (isGroup && !fromMe) {
+    const settings = await prisma.chatbotSettings.findUnique({ where: { instanceId } })
+    if (settings && !settings.replyGroups) return
+  }
+
+  // Determine category: groups go to GRUPOS; individual chats follow normal flow
+  const convCategory = isGroup ? 'GRUPOS' : (fromMe ? 'ATENDIMENTO' : 'AGUARDANDO')
+  const convStatus   = fromMe ? 'OPEN' : (isGroup ? 'OPEN' : 'WAITING')
+
   let conversation = await prisma.conversation.findFirst({
     where: { instanceId, contactPhone },
   })
@@ -256,8 +268,8 @@ async function handleIncomingMessage(instanceId: string, msg: WAMessage): Promis
         lastMessage: content,
         lastMessageAt: new Date(),
         unreadCount: fromMe ? 0 : 1,
-        status: fromMe ? 'OPEN' : 'WAITING',
-        category: fromMe ? 'ATENDIMENTO' : 'AGUARDANDO',
+        status: convStatus,
+        category: convCategory,
       },
     })
   } else {

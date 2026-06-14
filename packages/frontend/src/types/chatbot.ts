@@ -116,6 +116,8 @@ export interface ChatbotSettings {
   notificationsEnabled: boolean
   botType: BotType
   aiSystemPrompt: string | null
+  replyGroups: boolean
+  replyCommunities: boolean
 }
 
 // ─── Helper Functions ───────────────────────────────────────────────────────────

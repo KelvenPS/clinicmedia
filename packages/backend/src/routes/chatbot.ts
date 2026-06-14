@@ -7,6 +7,7 @@ import {
   registerMessageHandler,
   startSession,
   stopSession,
+  getSyncStatus,
 } from '../lib/whatsapp'
 
 const router = Router()
@@ -406,6 +407,23 @@ router.get('/instance/status', async (req: AuthRequest, res: Response) => {
       displayName: instance.displayName,
       connectedAt: instance.connectedAt,
     })
+  } catch {
+    res.status(500).json({ message: 'Erro interno do servidor' })
+  }
+})
+
+// ─── Sync status ─────────────────────────────────────────────────────────────
+
+router.get('/instance/sync-status', async (req: AuthRequest, res: Response) => {
+  try {
+    const instance = await resolveInstance(req.user!.userId)
+    if (!instance) {
+      res.json({ syncing: false, total: 0, syncedAt: null })
+      return
+    }
+    const sync = getSyncStatus(instance.instanceKey)
+    const convCount = await prisma.conversation.count({ where: { instanceId: instance.id } })
+    res.json({ ...sync, conversationCount: convCount })
   } catch {
     res.status(500).json({ message: 'Erro interno do servidor' })
   }

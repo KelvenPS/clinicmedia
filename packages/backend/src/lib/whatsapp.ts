@@ -4,6 +4,8 @@ import {
   useMultiFileAuthState,
   fetchLatestBaileysVersion,
   type WAMessage,
+  type Chat,
+  type Contact,
 } from '@whiskeysockets/baileys'
 import { Boom } from '@hapi/boom'
 import QRCode from 'qrcode'
@@ -13,26 +15,32 @@ import { prisma } from './prisma'
 
 const SESSIONS_DIR = path.resolve(process.env.SESSIONS_DIR ?? path.join(process.cwd(), 'sessions'))
 
-// No-op logger compatível com Baileys — suprime todos os logs internos
 const logger = {
   level: 'silent',
-  trace: () => {},
-  debug: () => {},
-  info: () => {},
-  warn: () => {},
-  error: () => {},
-  fatal: () => {},
+  trace: () => {}, debug: () => {}, info: () => {},
+  warn: () => {}, error: () => {}, fatal: () => {},
   child: function() { return this },
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 } as any
 
-// Sockets ativos por instanceKey
-const sockets = new Map<string, ReturnType<typeof makeWASocket>>()
+// ─── Estado em memória ────────────────────────────────────────────────────────
 
-// Chaves em processo de encerramento intencional (não deve reconectar)
+const sockets    = new Map<string, ReturnType<typeof makeWASocket>>()
 const stoppingKeys = new Set<string>()
 
-// Callback de processamento de mensagens (registrado pelo chatbot route)
+// Deduplicação de mensagens por instanceKey
+const processedMsgs = new Map<string, Set<string>>()
+
+// Estado de sincronização por instanceKey
+interface SyncState { syncing: boolean; total: number; syncedAt: Date | null }
+const syncState = new Map<string, SyncState>()
+
+export function getSyncStatus(instanceKey: string): SyncState {
+  return syncState.get(instanceKey) ?? { syncing: false, total: 0, syncedAt: null }
+}
+
+// ─── Callbacks registrados pelo chatbot route ─────────────────────────────────
+
 type MessageFn = (instanceId: string, msg: WAMessage) => Promise<void>
 let messageHandler: MessageFn | null = null
 
@@ -40,11 +48,126 @@ export function registerMessageHandler(fn: MessageFn) {
   messageHandler = fn
 }
 
-// ─── Inicia sessão Baileys para um instanceKey ────────────────────────────────
+// ─── Helpers ──────────────────────────────────────────────────────────────────
+
+function toLong(v: unknown): number {
+  if (!v) return 0
+  if (typeof v === 'number') return v
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  if (typeof (v as any).toNumber === 'function') return (v as any).toNumber()
+  return Number(v) || 0
+}
+
+async function processMessage(instanceId: string, msg: WAMessage, instanceKey: string) {
+  if (!msg.message || !msg.key.remoteJid) return
+
+  // Deduplicação por ID de mensagem WhatsApp
+  const msgId = msg.key.id
+  if (msgId) {
+    const set = processedMsgs.get(instanceKey)
+    if (set) {
+      if (set.has(msgId)) return
+      set.add(msgId)
+      if (set.size > 20_000) {
+        const arr = [...set]
+        arr.slice(0, 10_000).forEach(id => set.delete(id))
+      }
+    }
+  }
+
+  if (messageHandler) {
+    await messageHandler(instanceId, msg)
+  }
+}
+
+// ─── Sincronização do histórico de chats ─────────────────────────────────────
+
+async function syncHistory(
+  instanceId: string,
+  instanceKey: string,
+  chats: Chat[],
+  contacts: Contact[],
+  messages: WAMessage[],
+) {
+  syncState.set(instanceKey, { syncing: true, total: 0, syncedAt: null })
+
+  // Mapa nome dos contatos WhatsApp
+  const nameMap = new Map<string, string>()
+  for (const c of contacts) {
+    const name = c.name || c.notify
+    if (c.id && name) nameMap.set(c.id, name)
+  }
+
+  let synced = 0
+
+  for (const chat of chats) {
+    const jid = chat.id ?? ''
+    if (!jid || jid === 'status@broadcast' || jid.endsWith('@broadcast')) continue
+
+    const contactPhone = jid.replace('@s.whatsapp.net', '').replace('@g.us', '')
+    const isGroup = jid.endsWith('@g.us')
+    const contactName = chat.name || nameMap.get(jid) || null
+    const unread = Math.max(0, chat.unreadCount ?? 0)
+
+    const ts = toLong(chat.conversationTimestamp)
+    const lastMsgAt = ts > 0 ? new Date(ts * 1000) : null
+
+    try {
+      const existing = await prisma.conversation.findFirst({
+        where: { instanceId, contactPhone },
+      })
+
+      if (!existing) {
+        await prisma.conversation.create({
+          data: {
+            instanceId,
+            contactPhone,
+            contactName,
+            isGroup,
+            lastMessage: null,
+            lastMessageAt: lastMsgAt,
+            unreadCount: unread,
+            status: unread > 0 ? 'WAITING' : 'OPEN',
+            category: unread > 0 ? 'AGUARDANDO' : 'ATENDIMENTO',
+          },
+        })
+        synced++
+      } else {
+        const needsUpdate =
+          (contactName && !existing.contactName) ||
+          (lastMsgAt && (!existing.lastMessageAt || lastMsgAt > existing.lastMessageAt))
+
+        if (needsUpdate) {
+          await prisma.conversation.update({
+            where: { id: existing.id },
+            data: {
+              contactName: contactName || existing.contactName,
+              lastMessageAt: lastMsgAt || existing.lastMessageAt,
+              unreadCount: Math.max(existing.unreadCount, unread),
+            },
+          })
+        }
+        synced++
+      }
+    } catch { /* silencia erros individuais */ }
+  }
+
+  // Processa mensagens históricas (vindas no payload da history.set)
+  for (const msg of messages) {
+    await processMessage(instanceId, msg, instanceKey).catch(() => {})
+  }
+
+  syncState.set(instanceKey, { syncing: false, total: synced, syncedAt: new Date() })
+  console.log(`[WA] Sync concluído: ${synced} conversas — ${instanceKey}`)
+}
+
+// ─── Inicia sessão Baileys ────────────────────────────────────────────────────
 
 export async function startSession(instanceKey: string, instanceId: string): Promise<void> {
-  // Fecha socket existente sem disparar reconexão
   closeSocket(instanceKey)
+
+  processedMsgs.set(instanceKey, new Set())
+  syncState.set(instanceKey, { syncing: false, total: 0, syncedAt: null })
 
   const sessDir = path.join(SESSIONS_DIR, instanceKey)
   fs.mkdirSync(sessDir, { recursive: true })
@@ -59,26 +182,22 @@ export async function startSession(instanceKey: string, instanceId: string): Pro
     printQRInTerminal: false,
     browser: ['ClinicMedia', 'Safari', '1.0'],
     getMessage: async () => undefined,
+    syncFullHistory: true,
   })
 
   sockets.set(instanceKey, sock)
 
+  // ── Conexão ──────────────────────────────────────────────────────────────────
+
   sock.ev.on('connection.update', async ({ connection, lastDisconnect, qr }) => {
-    // QR gerado — salva no banco como data URI para exibição direta no frontend
     if (qr) {
       try {
         const qrDataUrl = await QRCode.toDataURL(qr)
         await prisma.whatsAppInstance.update({
           where: { instanceKey },
-          data: {
-            qrCode: qrDataUrl,
-            qrCodeExpiresAt: new Date(Date.now() + 55_000),
-            status: 'CONNECTING',
-          },
+          data: { qrCode: qrDataUrl, qrCodeExpiresAt: new Date(Date.now() + 55_000), status: 'CONNECTING' },
         })
-      } catch (e) {
-        console.error('[WA] Erro ao salvar QR code:', e)
-      }
+      } catch (e) { console.error('[WA] Erro ao salvar QR:', e) }
     }
 
     if (connection === 'open') {
@@ -97,16 +216,13 @@ export async function startSession(instanceKey: string, instanceId: string): Pro
           },
         })
         console.log(`[WA] Conectado: ${instanceKey} (${phone})`)
-      } catch (e) {
-        console.error('[WA] Erro ao atualizar status CONNECTED:', e)
-      }
+      } catch (e) { console.error('[WA] Erro ao atualizar CONNECTED:', e) }
     }
 
     if (connection === 'close') {
       const code = (lastDisconnect?.error as Boom)?.output?.statusCode
       const loggedOut = code === DisconnectReason.loggedOut
 
-      // Se foi um encerramento intencional (stopSession), não reconecta
       if (stoppingKeys.has(instanceKey)) {
         sockets.delete(instanceKey)
         return
@@ -115,22 +231,16 @@ export async function startSession(instanceKey: string, instanceId: string): Pro
       sockets.delete(instanceKey)
 
       if (loggedOut) {
-        // Sessão encerrada pelo WhatsApp (logout no celular) — limpa tudo
         fs.rmSync(path.join(SESSIONS_DIR, instanceKey), { recursive: true, force: true })
+        processedMsgs.delete(instanceKey)
+        syncState.delete(instanceKey)
         await prisma.whatsAppInstance.update({
           where: { instanceKey },
-          data: {
-            status: 'DISCONNECTED',
-            qrCode: null,
-            qrCodeExpiresAt: null,
-            phoneNumber: null,
-            displayName: null,
-            disconnectedAt: new Date(),
-          },
+          data: { status: 'DISCONNECTED', qrCode: null, qrCodeExpiresAt: null,
+                  phoneNumber: null, displayName: null, disconnectedAt: new Date() },
         }).catch(() => {})
-        console.log(`[WA] Sessão encerrada (logout): ${instanceKey}`)
+        console.log(`[WA] Logout: ${instanceKey}`)
       } else {
-        // Queda de rede ou erro temporário — reconecta em 3s
         console.log(`[WA] Reconectando em 3s: ${instanceKey} (código ${code})`)
         setTimeout(() => startSession(instanceKey, instanceId).catch(console.error), 3000)
       }
@@ -139,35 +249,91 @@ export async function startSession(instanceKey: string, instanceId: string): Pro
 
   sock.ev.on('creds.update', saveCreds)
 
+  // ── Histórico inicial (disparado pelo WhatsApp ao conectar) ───────────────────
+
+  sock.ev.on('messaging-history.set', async ({ chats, contacts, messages }) => {
+    console.log(`[WA] Histórico recebido: ${chats.length} chats, ${messages.length} msgs`)
+    await syncHistory(instanceId, instanceKey, chats, contacts, messages).catch(console.error)
+  })
+
+  // ── Novos chats descobertos após a conexão inicial ────────────────────────────
+
+  sock.ev.on('chats.upsert', async (chats) => {
+    for (const chat of chats) {
+      const jid = chat.id ?? ''
+      if (!jid || jid === 'status@broadcast') continue
+      const contactPhone = jid.replace('@s.whatsapp.net', '').replace('@g.us', '')
+      const isGroup = jid.endsWith('@g.us')
+      const unread = Math.max(0, chat.unreadCount ?? 0)
+      const ts = toLong(chat.conversationTimestamp)
+      const lastMsgAt = ts > 0 ? new Date(ts * 1000) : null
+
+      try {
+        const existing = await prisma.conversation.findFirst({ where: { instanceId, contactPhone } })
+        if (!existing) {
+          await prisma.conversation.create({
+            data: {
+              instanceId, contactPhone,
+              contactName: chat.name || null, isGroup,
+              lastMessage: null, lastMessageAt: lastMsgAt,
+              unreadCount: unread,
+              status: unread > 0 ? 'WAITING' : 'OPEN',
+              category: unread > 0 ? 'AGUARDANDO' : 'ATENDIMENTO',
+            },
+          })
+        }
+      } catch { /* silencioso */ }
+    }
+  })
+
+  // ── Atualização de nomes de contatos ─────────────────────────────────────────
+
+  sock.ev.on('contacts.upsert', async (contacts) => {
+    for (const contact of contacts) {
+      const name = contact.name || contact.notify
+      if (!name || !contact.id) continue
+      const phone = contact.id.replace('@s.whatsapp.net', '').replace('@g.us', '')
+      await prisma.conversation.updateMany({
+        where: { instanceId, contactPhone: phone, contactName: null },
+        data: { contactName: name },
+      }).catch(() => {})
+    }
+  })
+
+  // ── Mensagens em tempo real e históricas ──────────────────────────────────────
+
   sock.ev.on('messages.upsert', async ({ messages, type }) => {
-    if (type !== 'notify' || !messageHandler) return
+    // 'notify' = nova mensagem em tempo real
+    // 'append' = mensagem histórica durante sincronização
+    if (type !== 'notify' && type !== 'append') return
     for (const msg of messages) {
-      await messageHandler(instanceId, msg).catch(console.error)
+      await processMessage(instanceId, msg, instanceKey).catch(console.error)
     }
   })
 }
 
-// ─── Encerra sessão intencionalmente (desconexão do usuário) ─────────────────
+// ─── Encerra sessão ───────────────────────────────────────────────────────────
 
 export async function stopSession(instanceKey: string): Promise<void> {
   stoppingKeys.add(instanceKey)
   const sock = sockets.get(instanceKey)
   sockets.delete(instanceKey)
+  processedMsgs.delete(instanceKey)
+  syncState.delete(instanceKey)
 
   if (sock) {
     try {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       ;(sock.ev as any).removeAllListeners()
       await sock.logout()
-    } catch { /* socket já encerrado ou não autenticado */ }
+    } catch { /* socket já encerrado */ }
   }
 
-  // Remove arquivos de credenciais da sessão
   fs.rmSync(path.join(SESSIONS_DIR, instanceKey), { recursive: true, force: true })
   stoppingKeys.delete(instanceKey)
 }
 
-// ─── Fecha socket sem trigger de reconexão (usado antes de restart) ──────────
+// ─── Fecha socket interno ─────────────────────────────────────────────────────
 
 function closeSocket(instanceKey: string) {
   const sock = sockets.get(instanceKey)
@@ -176,14 +342,13 @@ function closeSocket(instanceKey: string) {
     try {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       ;(sock.ev as any).removeAllListeners()
-      // Força o fechamento via WebSocket subjacente
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       ;(sock as any).ws?.close?.()
     } catch { /* ignorado */ }
   }
 }
 
-// ─── Restaura sessões ativas após reinicialização do servidor ─────────────────
+// ─── Restaura sessões ao reiniciar o servidor ─────────────────────────────────
 
 export async function restoreSessions(): Promise<void> {
   const instances = await prisma.whatsAppInstance.findMany({
@@ -193,10 +358,9 @@ export async function restoreSessions(): Promise<void> {
   for (const inst of instances) {
     const sessDir = path.join(SESSIONS_DIR, inst.instanceKey)
     if (fs.existsSync(sessDir)) {
-      console.log(`[WA] Restaurando sessão: ${inst.instanceKey}`)
+      console.log(`[WA] Restaurando: ${inst.instanceKey}`)
       startSession(inst.instanceKey, inst.id).catch(console.error)
     } else {
-      // Arquivos de sessão perdidos — reseta status
       await prisma.whatsAppInstance.update({
         where: { id: inst.id },
         data: { status: 'DISCONNECTED', qrCode: null, qrCodeExpiresAt: null },

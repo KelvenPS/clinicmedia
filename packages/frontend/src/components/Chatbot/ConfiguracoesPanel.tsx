@@ -1,12 +1,18 @@
 import { useState, useEffect, useCallback } from 'react'
 import {
   Phone, Wifi, WifiOff, QrCode, Loader2, Save, X, Check,
-  AlertCircle, Smartphone, RefreshCw, LogOut, Clock,
+  AlertCircle, Smartphone, RefreshCw, LogOut, Clock, MessageSquare, Users,
 } from 'lucide-react'
-// AlertCircle mantido para a fase de erro
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { type ChatbotInstance, type ChatbotSettings, type InstanceStatus } from '../../types/chatbot'
 import api from '../../lib/api'
+
+interface SyncStatus {
+  syncing: boolean
+  total: number
+  syncedAt: string | null
+  conversationCount: number
+}
 
 const DAYS = [
   { key: 'MON', label: 'Seg' }, { key: 'TUE', label: 'Ter' },
@@ -324,9 +330,18 @@ export default function ConfiguracoesPanel() {
   const isConnected  = instance?.status === 'CONNECTED'
   const isConnecting = instance?.status === 'CONNECTING'
 
+  const { data: syncData } = useQuery<SyncStatus>({
+    queryKey: ['chatbot-sync-status'],
+    queryFn: () => api.get('/chatbot/instance/sync-status').then(r => r.data),
+    enabled: isConnected,
+    refetchInterval: isConnected ? 5000 : false,
+  })
+
   const handleCloseModal = useCallback(() => {
     setShowQRModal(false)
     queryClient.invalidateQueries({ queryKey: ['chatbot-instance'] })
+    queryClient.invalidateQueries({ queryKey: ['chatbot-sync-status'] })
+    queryClient.invalidateQueries({ queryKey: ['chatbot-conversations'] })
   }, [queryClient])
 
   return (
@@ -381,10 +396,11 @@ export default function ConfiguracoesPanel() {
 
               {/* Info quando conectado */}
               {isConnected && (
-                <div className="bg-emerald-50 border border-emerald-100 rounded-xl p-3.5 mb-4 space-y-2">
+                <div className="bg-emerald-50 border border-emerald-100 rounded-xl p-3.5 mb-4 space-y-3">
+                  {/* Número e nome */}
                   {instance?.displayName && (
-                    <div className="flex items-center gap-2">
-                      <div className="w-8 h-8 rounded-full bg-emerald-200 flex items-center justify-center text-emerald-800 text-xs font-bold flex-shrink-0">
+                    <div className="flex items-center gap-2.5">
+                      <div className="w-9 h-9 rounded-full bg-emerald-200 flex items-center justify-center text-emerald-800 text-sm font-bold flex-shrink-0">
                         {instance.displayName.charAt(0).toUpperCase()}
                       </div>
                       <div>
@@ -395,16 +411,43 @@ export default function ConfiguracoesPanel() {
                       </div>
                     </div>
                   )}
+
+                  {/* Status da sincronização */}
+                  <div className="border-t border-emerald-200 pt-2.5 space-y-2">
+                    {syncData?.syncing ? (
+                      <div className="flex items-center gap-2">
+                        <Loader2 className="w-3.5 h-3.5 text-emerald-600 animate-spin flex-shrink-0" />
+                        <span className="text-xs text-emerald-700 font-medium">Sincronizando conversas do WhatsApp...</span>
+                      </div>
+                    ) : (
+                      <div className="flex items-center gap-4">
+                        <div className="flex items-center gap-1.5">
+                          <MessageSquare className="w-3.5 h-3.5 text-emerald-600" />
+                          <span className="text-xs text-emerald-700 font-semibold">
+                            {syncData?.conversationCount ?? 0} conversas
+                          </span>
+                        </div>
+                        {syncData?.syncedAt && (
+                          <span className="text-[10px] text-emerald-600">
+                            Sincronizado {new Date(syncData.syncedAt).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}
+                          </span>
+                        )}
+                      </div>
+                    )}
+
+                    {/* Barra de progresso ao sincronizar */}
+                    {syncData?.syncing && (
+                      <div className="w-full bg-emerald-200 rounded-full h-1">
+                        <div className="h-1 bg-emerald-500 rounded-full animate-pulse w-2/3" />
+                      </div>
+                    )}
+                  </div>
+
                   {instance?.connectedAt && (
-                    <p className="text-[10px] text-emerald-600">
+                    <p className="text-[10px] text-emerald-600 border-t border-emerald-200 pt-2">
                       Conectado em {new Date(instance.connectedAt).toLocaleString('pt-BR')}
                     </p>
                   )}
-                  <div className="pt-1 border-t border-emerald-200">
-                    <p className="text-[10px] text-emerald-600 font-mono break-all">
-                      Instância: {instance?.instanceKey}
-                    </p>
-                  </div>
                 </div>
               )}
 

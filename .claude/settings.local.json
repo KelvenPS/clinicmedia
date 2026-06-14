@@ -3,7 +3,10 @@
     "allow": [
       "Bash(mkdir -p \"c:/clinicmedia/packages/backend/prisma/migrations/20260612092500_room_address_healthplan_room\")",
       "Bash(npx prisma *)",
-      "Bash(npx tsc *)"
+      "Bash(npx tsc *)",
+      "Bash(git push *)",
+      "Bash(git add *)",
+      "Bash(git commit -m ' *)"
     ],
     "additionalDirectories": [
       "c:\\clinicmedia\\packages\\backend\\prisma\\migrations"

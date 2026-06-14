@@ -11,7 +11,33 @@ import api from '../lib/api'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
-export type NodeType = 'start' | 'end' | 'message' | 'menu' | 'ai' | 'queue'
+export type NodeType = 'start' | 'end' | 'message' | 'menu' | 'ai' | 'queue' | 'system_action'
+
+export interface SaInputParam {
+  id: string
+  name: string
+  type: string
+  required: boolean
+  source: string
+  value: string
+}
+
+export interface SaOutputMapping {
+  id: string
+  varName: string
+  path: string
+  type: string
+  defaultValue: string
+  required: boolean
+}
+
+export interface SaErrorScenario {
+  id: string
+  scenario: string
+  message: string
+  retry: boolean
+  transferQueue: boolean
+}
 
 export interface CanvasNode {
   id: string
@@ -44,6 +70,22 @@ export interface CanvasNode {
     queueSendSummary?: boolean
     queueSendLastMessage?: boolean
     queueAgentSummary?: string
+    // System Action specific
+    saModule?: string
+    saAction?: string
+    saOperationType?: 'query' | 'create' | 'update' | 'cancel' | 'request'
+    saDescription?: string
+    saInputParams?: SaInputParam[]
+    saOutputMappings?: SaOutputMapping[]
+    saAutoExecute?: boolean
+    saRequireConfirmation?: boolean
+    saConfirmationMessage?: string
+    saRequireAuth?: boolean
+    saAuditLog?: boolean
+    saTimeoutSecs?: number
+    saRetry?: boolean
+    saRetryCount?: number
+    saErrorScenarios?: SaErrorScenario[]
   }
 }
 
@@ -128,6 +170,13 @@ const NODE_CFG: Record<NodeType, NodeCfg> = {
     icon: <Users className="w-4 h-4 text-cyan-600" />, w: 220, baseH: 95,
     canHaveInput: true, canHaveOutput: true,
   },
+  system_action: {
+    label: 'Ação do Sistema', colorClass: 'text-teal-600', bgClass: 'bg-teal-50',
+    borderClass: 'border-teal-200 hover:border-teal-500', headerClass: 'bg-teal-50/70',
+    accentColor: '#14b8a6',
+    icon: <Settings className="w-4 h-4 text-teal-600" />, w: 260, baseH: 110,
+    canHaveInput: true, canHaveOutput: true,
+  },
 }
 
 function nodeHeight(node: CanvasNode): number {
@@ -145,6 +194,8 @@ function inputPortPos(node: CanvasNode): { x: number; y: number } | null {
   return { x: node.x + cfg.w / 2, y: node.y }
 }
 
+const SA_PORT_LABELS = ['Sucesso', 'Erro', 'Sem Dados', 'Sem Permissão', 'Timeout']
+
 function outputPortPositions(node: CanvasNode): { x: number; y: number; portIndex: number; label?: string }[] {
   const cfg = NODE_CFG[node.type] || NODE_CFG.message
   if (!cfg.canHaveOutput) return []
@@ -158,6 +209,16 @@ function outputPortPositions(node: CanvasNode): { x: number; y: number; portInde
       y: node.y + h,
       portIndex: i,
       label: String(i + 1),
+    }))
+  }
+
+  if (node.type === 'system_action') {
+    const w = cfg.w
+    return SA_PORT_LABELS.map((label, i) => ({
+      x: node.x + (w / (SA_PORT_LABELS.length + 1)) * (i + 1),
+      y: node.y + h,
+      portIndex: i,
+      label,
     }))
   }
 
@@ -208,6 +269,12 @@ const PALETTE_CATEGORIES: {
     items: [
       { type: 'queue', label: 'Transferir Fila', desc: 'Transfere para o suporte humano', icon: <Users className="w-4 h-4 text-cyan-400" /> },
       { type: 'end', label: 'Encerrar Fluxo', desc: 'Finaliza a conversação e libera o bot', icon: <Square className="w-4 h-4 text-rose-500" /> },
+    ]
+  },
+  {
+    category: 'Integrações',
+    items: [
+      { type: 'system_action', label: 'Ação do Sistema', desc: 'Consulta, cria ou atualiza dados internos da plataforma', icon: <Settings className="w-4 h-4 text-teal-500" /> },
     ]
   }
 ]
@@ -293,6 +360,32 @@ function NodeCard({
           )}
           {node.type === 'queue' && (
             <p className="text-[10px] text-slate-500 line-clamp-2 leading-normal">{node.data.text || 'Transferindo para atendimento...'}</p>
+          )}
+          {node.type === 'system_action' && (
+            <div className="space-y-1">
+              {node.data.saModule ? (
+                <>
+                  <div className="flex items-center gap-1.5">
+                    <span className="text-[9px] font-bold text-teal-600 uppercase tracking-wide">{node.data.saModule}</span>
+                    {node.data.saOperationType && (
+                      <span className="text-[8px] px-1 py-0.5 bg-teal-50 border border-teal-200 text-teal-600 rounded font-semibold">
+                        {{ query: 'Consulta', create: 'Criação', update: 'Atualização', cancel: 'Cancelamento', request: 'Solicitação' }[node.data.saOperationType]}
+                      </span>
+                    )}
+                  </div>
+                  {node.data.saAction && (
+                    <p className="text-[9px] text-slate-500 truncate">{node.data.saAction}</p>
+                  )}
+                </>
+              ) : (
+                <p className="text-[10px] text-slate-400 italic">Módulo não configurado</p>
+              )}
+              <div className="flex gap-0.5 mt-1">
+                {SA_PORT_LABELS.map((label, i) => (
+                  <span key={i} className={`text-[7px] px-1 py-0.5 rounded font-bold ${i === 0 ? 'bg-emerald-50 text-emerald-600' : i === 1 ? 'bg-rose-50 text-rose-500' : 'bg-slate-100 text-slate-400'}`}>{label.split(' ')[0]}</span>
+                ))}
+              </div>
+            </div>
           )}
           {(node.type === 'start' || node.type === 'end') && (
             <p className="text-[9px] text-slate-400 uppercase tracking-wider font-semibold text-center">{node.type === 'start' ? 'Início do Fluxo' : 'Fim do Fluxo'}</p>
@@ -1825,6 +1918,645 @@ function QueueNodeEditor({ node, onChange }: { node: CanvasNode; onChange: (n: C
   )
 }
 
+// ─── System Action Node Editor ───────────────────────────────────────────────
+
+const SA_OPERATION_TYPES = [
+  { id: 'query',   label: 'Consulta',     color: 'text-sky-600 bg-sky-50 border-sky-200' },
+  { id: 'create',  label: 'Criação',      color: 'text-emerald-600 bg-emerald-50 border-emerald-200' },
+  { id: 'update',  label: 'Atualização',  color: 'text-amber-600 bg-amber-50 border-amber-200' },
+  { id: 'cancel',  label: 'Cancelamento', color: 'text-rose-600 bg-rose-50 border-rose-200' },
+  { id: 'request', label: 'Solicitação',  color: 'text-purple-600 bg-purple-50 border-purple-200' },
+] as const
+
+const SA_PARAM_TYPES = ['Texto', 'Número', 'Data', 'Hora', 'Booleano', 'CPF', 'CNPJ', 'E-mail', 'Telefone', 'Lista', 'Objeto']
+const SA_PARAM_SOURCES = ['Variável do fluxo', 'Valor fixo', 'Resposta do usuário', 'Resultado de ação anterior', 'Usuário autenticado', 'Sistema']
+
+const SA_ERROR_SCENARIOS_DEF = [
+  { id: 'invalid_data',       label: 'Dados inválidos',           icon: '⚠️' },
+  { id: 'missing_required',   label: 'Campo obrigatório ausente', icon: '📋' },
+  { id: 'system_unavailable', label: 'Sistema indisponível',      icon: '🔴' },
+  { id: 'timeout',            label: 'Tempo esgotado',            icon: '⏱️' },
+  { id: 'no_permission',      label: 'Sem permissão',             icon: '🔒' },
+  { id: 'not_found',          label: 'Registro não encontrado',   icon: '🔍' },
+  { id: 'no_availability',    label: 'Sem disponibilidade',       icon: '📭' },
+  { id: 'unknown',            label: 'Erro desconhecido',         icon: '❓' },
+]
+
+const SA_OUTPUT_PORTS_DEF = [
+  { portIndex: 0, label: 'Sucesso',       colorClass: 'text-emerald-600' },
+  { portIndex: 1, label: 'Erro',          colorClass: 'text-rose-600' },
+  { portIndex: 2, label: 'Sem Dados',     colorClass: 'text-slate-500' },
+  { portIndex: 3, label: 'Sem Permissão', colorClass: 'text-amber-600' },
+  { portIndex: 4, label: 'Timeout',       colorClass: 'text-purple-600' },
+]
+
+function SystemActionNodeEditor({ node, onChange }: { node: CanvasNode; onChange: (n: CanvasNode) => void }) {
+  const [activeTab, setActiveTab] = useState<'config' | 'entrada' | 'execucao' | 'saida' | 'erros' | 'preview' | 'insights'>('config')
+  const [lastChanged, setLastChanged] = useState(new Date())
+
+  const d = node.data
+
+  function setData(patch: Partial<CanvasNode['data']>) {
+    onChange({ ...node, data: { ...node.data, ...patch } })
+    setLastChanged(new Date())
+  }
+
+  const { data: modulesData, isLoading: modulesLoading } = useQuery({
+    queryKey: ['sa-modules'],
+    queryFn: () => api.get('/chatbot/system-actions/modules').then(r => r.data),
+    retry: false,
+    staleTime: 60_000,
+  })
+
+  const { data: actionsData, isLoading: actionsLoading } = useQuery({
+    queryKey: ['sa-actions', d.saModule],
+    queryFn: () => api.get(`/chatbot/system-actions/modules/${encodeURIComponent(d.saModule!)}/actions`).then(r => r.data),
+    enabled: !!d.saModule,
+    retry: false,
+    staleTime: 60_000,
+  })
+
+  const modules: string[] = modulesData?.modules ?? []
+  const actions: string[] = actionsData?.actions ?? []
+
+  const inputParams: SaInputParam[] = d.saInputParams ?? []
+  const outputMappings: SaOutputMapping[] = d.saOutputMappings ?? []
+  const errorScenarios: SaErrorScenario[] = d.saErrorScenarios ?? []
+
+  function addInputParam() {
+    setData({ saInputParams: [...inputParams, { id: `param_${Date.now()}`, name: '', type: 'Texto', required: true, source: 'Variável do fluxo', value: '' }] })
+  }
+
+  function updateInputParam(id: string, patch: Partial<SaInputParam>) {
+    setData({ saInputParams: inputParams.map(p => p.id === id ? { ...p, ...patch } : p) })
+  }
+
+  function removeInputParam(id: string) {
+    setData({ saInputParams: inputParams.filter(p => p.id !== id) })
+  }
+
+  function addOutputMapping() {
+    setData({ saOutputMappings: [...outputMappings, { id: `out_${Date.now()}`, varName: '', path: 'response.', type: 'Texto', defaultValue: '', required: false }] })
+  }
+
+  function updateOutputMapping(id: string, patch: Partial<SaOutputMapping>) {
+    setData({ saOutputMappings: outputMappings.map(m => m.id === id ? { ...m, ...patch } : m) })
+  }
+
+  function removeOutputMapping(id: string) {
+    setData({ saOutputMappings: outputMappings.filter(m => m.id !== id) })
+  }
+
+  function upsertErrorScenario(scenarioId: string, patch: Partial<SaErrorScenario>) {
+    const existing = errorScenarios.find(e => e.id === scenarioId)
+    if (existing) {
+      setData({ saErrorScenarios: errorScenarios.map(e => e.id === scenarioId ? { ...e, ...patch } : e) })
+    } else {
+      setData({ saErrorScenarios: [...errorScenarios, { id: scenarioId, scenario: scenarioId, message: '', retry: false, transferQueue: false, ...patch }] })
+    }
+  }
+
+  const configuredErrorCount = errorScenarios.filter(e => e.message).length
+
+  const TABS = [
+    { id: 'config',   label: 'Config' },
+    { id: 'entrada',  label: 'Entrada',  badge: inputParams.length || undefined },
+    { id: 'execucao', label: 'Execução' },
+    { id: 'saida',    label: 'Saída',    badge: outputMappings.length || undefined },
+    { id: 'erros',    label: 'Erros',    badge: configuredErrorCount || undefined },
+    { id: 'preview',  label: 'Preview' },
+    { id: 'insights', label: 'Insights' },
+  ] as const
+
+  return (
+    <div className="flex flex-col h-full bg-white text-slate-700">
+      {/* ── Tabs ── */}
+      <div className="flex border-b border-slate-200 flex-shrink-0 overflow-x-auto">
+        {TABS.map(t => (
+          <button
+            key={t.id}
+            onClick={() => setActiveTab(t.id as typeof activeTab)}
+            className={`flex-shrink-0 px-2 py-2 text-center border-b-2 text-[9px] font-bold uppercase tracking-wider transition-all relative ${activeTab === t.id ? 'border-teal-500 text-teal-600 bg-slate-50' : 'border-transparent text-slate-400 hover:text-slate-600'}`}
+          >
+            {t.label}
+            {'badge' in t && t.badge ? (
+              <span className="absolute top-1 right-0 w-3 h-3 bg-teal-500 text-white rounded-full text-[7px] flex items-center justify-center font-bold leading-none">{t.badge}</span>
+            ) : null}
+          </button>
+        ))}
+      </div>
+
+      <div className="flex-1 overflow-y-auto">
+
+        {/* ══ CONFIG ══ */}
+        {activeTab === 'config' && (
+          <div className="p-4 space-y-4 animate-in fade-in duration-200">
+
+            <div>
+              <label className="block text-[10px] font-bold uppercase tracking-wider text-slate-500 mb-1">Nome do bloco</label>
+              <input
+                value={d.label || 'Ação do Sistema'}
+                onChange={e => onChange({ ...node, data: { ...d, label: e.target.value } })}
+                placeholder="Ex: Consultar agenda do médico"
+                className="w-full px-3 py-2 bg-white border border-slate-200 rounded-lg text-xs text-slate-800 focus:outline-none focus:border-teal-400 focus:ring-1 focus:ring-teal-500/20"
+              />
+            </div>
+
+            <div>
+              <label className="block text-[10px] font-bold uppercase tracking-wider text-slate-500 mb-1">Módulo do sistema</label>
+              {modulesLoading ? (
+                <div className="h-9 bg-slate-100 rounded-lg animate-pulse" />
+              ) : modules.length > 0 ? (
+                <select
+                  value={d.saModule ?? ''}
+                  onChange={e => setData({ saModule: e.target.value, saAction: undefined })}
+                  className="w-full px-3 py-2 bg-white border border-slate-200 rounded-lg text-xs text-slate-700 focus:outline-none focus:border-teal-400 focus:ring-1 focus:ring-teal-500/20"
+                >
+                  <option value="">Selecionar módulo...</option>
+                  {modules.map(m => <option key={m} value={m}>{m}</option>)}
+                </select>
+              ) : (
+                <div className="px-3 py-2.5 bg-slate-50 border border-dashed border-slate-300 rounded-lg">
+                  <p className="text-[10px] text-slate-400 italic">Nenhum módulo disponível no momento.</p>
+                  <p className="text-[9px] text-slate-400 mt-0.5">O endpoint de módulos será conectado quando disponível.</p>
+                </div>
+              )}
+            </div>
+
+            <div>
+              <label className="block text-[10px] font-bold uppercase tracking-wider text-slate-500 mb-1">Ação</label>
+              {!d.saModule ? (
+                <div className="px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg">
+                  <p className="text-[10px] text-slate-400 italic">Selecione um módulo primeiro.</p>
+                </div>
+              ) : actionsLoading ? (
+                <div className="h-9 bg-slate-100 rounded-lg animate-pulse" />
+              ) : actions.length > 0 ? (
+                <select
+                  value={d.saAction ?? ''}
+                  onChange={e => setData({ saAction: e.target.value })}
+                  className="w-full px-3 py-2 bg-white border border-slate-200 rounded-lg text-xs text-slate-700 focus:outline-none focus:border-teal-400 focus:ring-1 focus:ring-teal-500/20"
+                >
+                  <option value="">Selecionar ação...</option>
+                  {actions.map(a => <option key={a} value={a}>{a}</option>)}
+                </select>
+              ) : (
+                <div className="px-3 py-2.5 bg-slate-50 border border-dashed border-slate-300 rounded-lg">
+                  <p className="text-[10px] text-slate-400 italic">Nenhuma ação disponível para "{d.saModule}".</p>
+                </div>
+              )}
+            </div>
+
+            <div>
+              <label className="block text-[10px] font-bold uppercase tracking-wider text-slate-500 mb-2">Tipo de operação</label>
+              <div className="grid grid-cols-2 gap-1.5">
+                {SA_OPERATION_TYPES.map(op => (
+                  <button
+                    key={op.id}
+                    onClick={() => setData({ saOperationType: op.id })}
+                    className={`px-2 py-1.5 rounded-lg border text-[10px] font-semibold transition-all ${d.saOperationType === op.id ? op.color + ' ring-1 ring-offset-1 ring-current' : 'bg-white text-slate-500 border-slate-200 hover:border-slate-300'}`}
+                  >
+                    {op.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            <div>
+              <label className="block text-[10px] font-bold uppercase tracking-wider text-slate-500 mb-1">
+                Descrição <span className="text-slate-400 normal-case font-normal">(opcional)</span>
+              </label>
+              <textarea
+                value={d.saDescription ?? ''}
+                onChange={e => setData({ saDescription: e.target.value })}
+                placeholder="Descreva o que essa ação realiza..."
+                rows={2}
+                className="w-full px-3 py-2 bg-white border border-slate-200 rounded-lg text-xs text-slate-800 resize-none focus:outline-none focus:border-teal-400 focus:ring-1 focus:ring-teal-500/20"
+              />
+            </div>
+
+            <div className="p-2.5 bg-teal-50 border border-teal-200 rounded-xl">
+              <p className="text-[10px] font-bold text-teal-700 mb-1.5">Portas de saída</p>
+              <div className="space-y-1">
+                {SA_OUTPUT_PORTS_DEF.map(p => (
+                  <div key={p.portIndex} className="flex items-center gap-2 text-[10px]">
+                    <span className="w-4 h-4 rounded-full bg-white border-2 border-teal-300 text-[8px] font-bold text-teal-600 flex items-center justify-center flex-shrink-0">{p.portIndex}</span>
+                    <span className={p.colorClass + ' font-medium'}>{p.label}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* ══ ENTRADA ══ */}
+        {activeTab === 'entrada' && (
+          <div className="p-4 space-y-4 animate-in fade-in duration-200">
+            <div className="flex items-center justify-between">
+              <p className="text-[10px] font-bold uppercase tracking-wider text-slate-500">Parâmetros de entrada</p>
+              <button
+                onClick={addInputParam}
+                className="flex items-center gap-1 px-2 py-1 bg-teal-50 hover:bg-teal-100 border border-teal-200 text-teal-700 rounded-lg text-[10px] font-bold transition-colors"
+              >
+                <Plus className="w-3 h-3" />
+                Adicionar
+              </button>
+            </div>
+
+            {inputParams.length === 0 ? (
+              <div className="py-8 text-center">
+                <p className="text-[10px] text-slate-400 italic">Nenhum parâmetro de entrada configurado.</p>
+                <p className="text-[9px] text-slate-400 mt-1">Clique em "Adicionar" para mapear dados de entrada.</p>
+              </div>
+            ) : (
+              <div className="space-y-3">
+                {inputParams.map((param, idx) => (
+                  <div key={param.id} className="p-3 bg-slate-50 border border-slate-200 rounded-xl space-y-2.5">
+                    <div className="flex items-center justify-between">
+                      <span className="text-[9px] font-bold text-slate-400 uppercase tracking-wider">Parâmetro {idx + 1}</span>
+                      <button onClick={() => removeInputParam(param.id)} className="text-slate-400 hover:text-rose-500 transition-colors">
+                        <X className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
+                    <div>
+                      <label className="block text-[9px] font-bold text-slate-400 uppercase tracking-wider mb-0.5">Nome</label>
+                      <input
+                        value={param.name}
+                        onChange={e => updateInputParam(param.id, { name: e.target.value })}
+                        placeholder="Ex: medico_id"
+                        className="w-full px-2.5 py-1.5 bg-white border border-slate-200 rounded-lg text-xs text-slate-800 font-mono focus:outline-none focus:border-teal-400"
+                      />
+                    </div>
+                    <div className="grid grid-cols-2 gap-2">
+                      <div>
+                        <label className="block text-[9px] font-bold text-slate-400 uppercase tracking-wider mb-0.5">Tipo</label>
+                        <select
+                          value={param.type}
+                          onChange={e => updateInputParam(param.id, { type: e.target.value })}
+                          className="w-full px-2 py-1.5 bg-white border border-slate-200 rounded-lg text-[10px] text-slate-700 focus:outline-none focus:border-teal-400"
+                        >
+                          {SA_PARAM_TYPES.map(t => <option key={t} value={t}>{t}</option>)}
+                        </select>
+                      </div>
+                      <div>
+                        <label className="block text-[9px] font-bold text-slate-400 uppercase tracking-wider mb-0.5">Obrigatório</label>
+                        <label className="flex items-center gap-1.5 mt-2 cursor-pointer">
+                          <input type="checkbox" checked={param.required} onChange={e => updateInputParam(param.id, { required: e.target.checked })} className="accent-teal-600" />
+                          <span className="text-[10px] text-slate-600">{param.required ? 'Sim' : 'Não'}</span>
+                        </label>
+                      </div>
+                    </div>
+                    <div>
+                      <label className="block text-[9px] font-bold text-slate-400 uppercase tracking-wider mb-0.5">Origem do valor</label>
+                      <select
+                        value={param.source}
+                        onChange={e => updateInputParam(param.id, { source: e.target.value })}
+                        className="w-full px-2 py-1.5 bg-white border border-slate-200 rounded-lg text-[10px] text-slate-700 focus:outline-none focus:border-teal-400"
+                      >
+                        {SA_PARAM_SOURCES.map(s => <option key={s} value={s}>{s}</option>)}
+                      </select>
+                    </div>
+                    <div>
+                      <label className="block text-[9px] font-bold text-slate-400 uppercase tracking-wider mb-0.5">Valor</label>
+                      <input
+                        value={param.value}
+                        onChange={e => updateInputParam(param.id, { value: e.target.value })}
+                        placeholder={param.source === 'Variável do fluxo' ? '{{variavel}}' : 'Valor fixo...'}
+                        className="w-full px-2.5 py-1.5 bg-white border border-slate-200 rounded-lg text-xs text-slate-800 font-mono focus:outline-none focus:border-teal-400"
+                      />
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {inputParams.length > 0 && (
+              <div className="bg-slate-900 rounded-xl p-3">
+                <p className="text-[9px] font-bold text-slate-400 uppercase tracking-wider mb-2">Prévia do payload</p>
+                <pre className="text-[9px] text-emerald-400 font-mono leading-relaxed overflow-x-auto whitespace-pre-wrap">
+                  {JSON.stringify(Object.fromEntries(inputParams.filter(p => p.name).map(p => [p.name, p.value || `{{${p.name}}}`])), null, 2)}
+                </pre>
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* ══ EXECUÇÃO ══ */}
+        {activeTab === 'execucao' && (
+          <div className="p-4 space-y-4 animate-in fade-in duration-200">
+            {([
+              { key: 'saAutoExecute',        label: 'Executar automaticamente',       desc: 'Executa sem aguardar interação do usuário',    def: true  },
+              { key: 'saRequireConfirmation', label: 'Pedir confirmação antes',        desc: 'Exibe mensagem de confirmação ao usuário',     def: false },
+              { key: 'saRequireAuth',         label: 'Exigir autenticação do usuário', desc: 'Para ações com dados sensíveis (prontuário, financeiro...)', def: false },
+              { key: 'saAuditLog',            label: 'Registrar auditoria',            desc: 'Recomendado para ações críticas',              def: false },
+              { key: 'saRetry',               label: 'Permitir retry automático',      desc: 'Tenta novamente em caso de falha temporária',  def: false },
+            ] as { key: keyof CanvasNode['data']; label: string; desc: string; def: boolean }[]).map(opt => {
+              const val = (d[opt.key] as boolean | undefined) ?? opt.def
+              return (
+                <label key={opt.key} className={`flex items-start gap-3 p-3 rounded-xl border cursor-pointer transition-all ${val ? 'border-teal-300 bg-teal-50/60' : 'border-slate-200 hover:bg-slate-50'}`}>
+                  <input
+                    type="checkbox"
+                    checked={val}
+                    onChange={e => setData({ [opt.key]: e.target.checked })}
+                    className="accent-teal-600 mt-0.5 flex-shrink-0"
+                  />
+                  <div>
+                    <p className={`text-xs font-semibold ${val ? 'text-teal-700' : 'text-slate-700'}`}>{opt.label}</p>
+                    <p className="text-[10px] text-slate-400 mt-0.5">{opt.desc}</p>
+                  </div>
+                </label>
+              )
+            })}
+
+            {d.saRequireConfirmation && (
+              <div>
+                <label className="block text-[10px] font-bold uppercase tracking-wider text-slate-500 mb-1">Mensagem de confirmação</label>
+                <textarea
+                  value={d.saConfirmationMessage ?? ''}
+                  onChange={e => setData({ saConfirmationMessage: e.target.value })}
+                  placeholder="Ex: Confirmar consulta com Dr. {{medico_nome}} no dia {{data}} às {{horario}}?"
+                  rows={3}
+                  className="w-full px-3 py-2.5 bg-white border border-slate-200 rounded-lg text-xs text-slate-800 resize-none focus:outline-none focus:border-teal-400 focus:ring-1 focus:ring-teal-500/20 leading-relaxed"
+                />
+              </div>
+            )}
+
+            {d.saRetry && (
+              <div>
+                <label className="block text-[10px] font-bold uppercase tracking-wider text-slate-500 mb-1">Número de tentativas</label>
+                <input
+                  type="number" min={1} max={5}
+                  value={d.saRetryCount ?? 3}
+                  onChange={e => setData({ saRetryCount: Number(e.target.value) })}
+                  className="w-24 px-2.5 py-1.5 bg-white border border-slate-200 rounded-lg text-xs text-slate-800 focus:outline-none focus:border-teal-400 text-center font-mono"
+                />
+              </div>
+            )}
+
+            <div>
+              <label className="block text-[10px] font-bold uppercase tracking-wider text-slate-500 mb-1">Timeout da execução</label>
+              <div className="flex items-center gap-2">
+                <input
+                  type="number" min={5} max={120}
+                  value={d.saTimeoutSecs ?? 30}
+                  onChange={e => setData({ saTimeoutSecs: Number(e.target.value) })}
+                  className="w-24 px-2.5 py-1.5 bg-white border border-slate-200 rounded-lg text-xs text-slate-800 focus:outline-none focus:border-teal-400 text-center font-mono"
+                />
+                <span className="text-xs text-slate-500">segundos</span>
+              </div>
+            </div>
+
+            {d.saRequireAuth && (
+              <div className="p-2.5 bg-amber-50 border border-amber-200 rounded-xl flex items-start gap-2">
+                <Lock className="w-3.5 h-3.5 text-amber-600 flex-shrink-0 mt-0.5" />
+                <p className="text-[10px] text-amber-700">Autenticação exigida. O usuário será solicitado a confirmar sua identidade antes da execução desta ação.</p>
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* ══ SAÍDA ══ */}
+        {activeTab === 'saida' && (
+          <div className="p-4 space-y-4 animate-in fade-in duration-200">
+            <div className="flex items-center justify-between">
+              <p className="text-[10px] font-bold uppercase tracking-wider text-slate-500">Mapeamento de saída</p>
+              <button
+                onClick={addOutputMapping}
+                className="flex items-center gap-1 px-2 py-1 bg-teal-50 hover:bg-teal-100 border border-teal-200 text-teal-700 rounded-lg text-[10px] font-bold transition-colors"
+              >
+                <Plus className="w-3 h-3" />
+                Adicionar
+              </button>
+            </div>
+
+            {outputMappings.length === 0 ? (
+              <div className="py-8 text-center">
+                <p className="text-[10px] text-slate-400 italic">Nenhum mapeamento configurado.</p>
+                <p className="text-[9px] text-slate-400 mt-1">Defina quais dados do retorno serão salvos como variáveis do fluxo.</p>
+              </div>
+            ) : (
+              <div className="space-y-3">
+                {outputMappings.map((mapping, idx) => (
+                  <div key={mapping.id} className="p-3 bg-slate-50 border border-slate-200 rounded-xl space-y-2.5">
+                    <div className="flex items-center justify-between">
+                      <span className="text-[9px] font-bold text-slate-400 uppercase tracking-wider">Mapeamento {idx + 1}</span>
+                      <button onClick={() => removeOutputMapping(mapping.id)} className="text-slate-400 hover:text-rose-500 transition-colors">
+                        <X className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
+                    <div>
+                      <label className="block text-[9px] font-bold text-slate-400 uppercase tracking-wider mb-0.5">Variável no fluxo</label>
+                      <input
+                        value={mapping.varName}
+                        onChange={e => updateOutputMapping(mapping.id, { varName: e.target.value })}
+                        placeholder="Ex: protocolo_agendamento"
+                        className="w-full px-2.5 py-1.5 bg-white border border-slate-200 rounded-lg text-xs text-slate-800 font-mono focus:outline-none focus:border-teal-400"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-[9px] font-bold text-slate-400 uppercase tracking-wider mb-0.5">Caminho do retorno</label>
+                      <input
+                        value={mapping.path}
+                        onChange={e => updateOutputMapping(mapping.id, { path: e.target.value })}
+                        placeholder="Ex: response.protocolo"
+                        className="w-full px-2.5 py-1.5 bg-white border border-slate-200 rounded-lg text-xs text-slate-800 font-mono focus:outline-none focus:border-teal-400"
+                      />
+                    </div>
+                    <div className="grid grid-cols-2 gap-2">
+                      <div>
+                        <label className="block text-[9px] font-bold text-slate-400 uppercase tracking-wider mb-0.5">Tipo</label>
+                        <select
+                          value={mapping.type}
+                          onChange={e => updateOutputMapping(mapping.id, { type: e.target.value })}
+                          className="w-full px-2 py-1.5 bg-white border border-slate-200 rounded-lg text-[10px] text-slate-700 focus:outline-none focus:border-teal-400"
+                        >
+                          {SA_PARAM_TYPES.map(t => <option key={t} value={t}>{t}</option>)}
+                        </select>
+                      </div>
+                      <div>
+                        <label className="block text-[9px] font-bold text-slate-400 uppercase tracking-wider mb-0.5">Padrão</label>
+                        <input
+                          value={mapping.defaultValue}
+                          onChange={e => updateOutputMapping(mapping.id, { defaultValue: e.target.value })}
+                          placeholder="—"
+                          className="w-full px-2 py-1.5 bg-white border border-slate-200 rounded-lg text-[10px] text-slate-700 font-mono focus:outline-none focus:border-teal-400"
+                        />
+                      </div>
+                    </div>
+                    <label className="flex items-center gap-2 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={mapping.required}
+                        onChange={e => updateOutputMapping(mapping.id, { required: e.target.checked })}
+                        className="accent-teal-600"
+                      />
+                      <span className="text-[10px] text-slate-600">Obrigatória no retorno</span>
+                    </label>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* ══ ERROS ══ */}
+        {activeTab === 'erros' && (
+          <div className="p-4 space-y-3 animate-in fade-in duration-200">
+            <p className="text-[10px] text-slate-500">Configure o comportamento para cada cenário de erro.</p>
+            {SA_ERROR_SCENARIOS_DEF.map(scenario => {
+              const config = errorScenarios.find(e => e.id === scenario.id)
+              return (
+                <div key={scenario.id} className="border border-slate-200 rounded-xl overflow-hidden">
+                  <div className="flex items-center gap-2 px-3 py-2.5 bg-slate-50">
+                    <span className="text-sm">{scenario.icon}</span>
+                    <span className="text-xs font-semibold text-slate-700 flex-1">{scenario.label}</span>
+                    <span className={`w-2 h-2 rounded-full flex-shrink-0 ${config?.message ? 'bg-teal-400' : 'bg-slate-300'}`} />
+                  </div>
+                  <div className="p-3 space-y-2.5 bg-white">
+                    <div>
+                      <label className="block text-[9px] font-bold text-slate-400 uppercase tracking-wider mb-0.5">Mensagem para o usuário</label>
+                      <textarea
+                        value={config?.message ?? ''}
+                        onChange={e => upsertErrorScenario(scenario.id, { message: e.target.value })}
+                        placeholder="Mensagem exibida quando este erro ocorrer..."
+                        rows={2}
+                        className="w-full px-2.5 py-1.5 bg-white border border-slate-200 rounded-lg text-xs text-slate-800 resize-none focus:outline-none focus:border-teal-400 leading-relaxed"
+                      />
+                    </div>
+                    <div className="flex gap-4">
+                      <label className="flex items-center gap-1.5 cursor-pointer">
+                        <input type="checkbox" checked={config?.retry ?? false} onChange={e => upsertErrorScenario(scenario.id, { retry: e.target.checked })} className="accent-teal-600" />
+                        <span className="text-[10px] text-slate-600">Tentar novamente</span>
+                      </label>
+                      <label className="flex items-center gap-1.5 cursor-pointer">
+                        <input type="checkbox" checked={config?.transferQueue ?? false} onChange={e => upsertErrorScenario(scenario.id, { transferQueue: e.target.checked })} className="accent-teal-600" />
+                        <span className="text-[10px] text-slate-600">Transferir para fila</span>
+                      </label>
+                    </div>
+                  </div>
+                </div>
+              )
+            })}
+          </div>
+        )}
+
+        {/* ══ PREVIEW ══ */}
+        {activeTab === 'preview' && (
+          <div className="p-4 space-y-4 animate-in fade-in duration-200">
+            <p className="text-[10px] text-slate-500 italic">Visualização da configuração. Nenhuma execução real é realizada aqui.</p>
+
+            <div className="bg-slate-900 rounded-xl p-3 space-y-2.5 text-[10px]">
+              <div className="flex items-center gap-2 pb-2 border-b border-white/10">
+                <div className="w-1.5 h-1.5 rounded-full bg-teal-400" />
+                <span className="text-teal-400 font-bold text-[10px] uppercase tracking-wider">Ação do Sistema</span>
+              </div>
+              {[
+                { label: 'Módulo',    value: d.saModule || '—' },
+                { label: 'Ação',      value: d.saAction || '—' },
+                { label: 'Operação',  value: SA_OPERATION_TYPES.find(o => o.id === d.saOperationType)?.label || '—' },
+                { label: 'Timeout',   value: `${d.saTimeoutSecs ?? 30}s` },
+                { label: 'Auth',      value: d.saRequireAuth ? 'Exigida' : 'Não exigida' },
+                { label: 'Auditoria', value: d.saAuditLog ? 'Ativa' : 'Inativa' },
+                { label: 'Entradas',  value: `${inputParams.length} parâmetro(s)` },
+                { label: 'Saídas',    value: `${outputMappings.length} mapeamento(s)` },
+              ].map(row => (
+                <div key={row.label} className="flex gap-2">
+                  <span className="text-slate-500 w-20 flex-shrink-0">{row.label}:</span>
+                  <span className="text-white font-medium truncate">{row.value}</span>
+                </div>
+              ))}
+            </div>
+
+            {inputParams.length > 0 && (
+              <div>
+                <p className="text-[10px] font-bold uppercase tracking-wider text-slate-500 mb-2">Payload de entrada</p>
+                <div className="bg-slate-900 rounded-xl p-3">
+                  <pre className="text-[9px] text-sky-300 font-mono leading-relaxed overflow-x-auto whitespace-pre-wrap">
+                    {JSON.stringify(Object.fromEntries(inputParams.filter(p => p.name).map(p => [p.name, p.value || `{{${p.name}}}`])), null, 2)}
+                  </pre>
+                </div>
+              </div>
+            )}
+
+            {outputMappings.length > 0 && (
+              <div>
+                <p className="text-[10px] font-bold uppercase tracking-wider text-slate-500 mb-2">Mapeamento de saída</p>
+                <div className="bg-slate-900 rounded-xl p-3">
+                  <pre className="text-[9px] text-emerald-400 font-mono leading-relaxed overflow-x-auto whitespace-pre-wrap">
+                    {JSON.stringify(Object.fromEntries(outputMappings.filter(m => m.varName).map(m => [m.varName, m.path])), null, 2)}
+                  </pre>
+                </div>
+              </div>
+            )}
+
+            <div>
+              <p className="text-[10px] font-bold uppercase tracking-wider text-slate-500 mb-2">Portas de saída</p>
+              <div className="space-y-1.5">
+                {SA_OUTPUT_PORTS_DEF.map(p => (
+                  <div key={p.portIndex} className="flex items-center gap-2 p-2 bg-slate-50 border border-slate-200 rounded-lg">
+                    <span className="w-5 h-5 rounded-full bg-white border-2 border-slate-300 text-[8px] font-bold text-slate-500 flex items-center justify-center flex-shrink-0">{p.portIndex}</span>
+                    <span className={p.colorClass + ' text-[10px] font-medium'}>{p.label}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* ══ INSIGHTS ══ */}
+        {activeTab === 'insights' && (
+          <div className="p-4 space-y-4 animate-in fade-in duration-200">
+            <p className="text-[10px] font-bold uppercase tracking-wider text-slate-500">Resumo da configuração</p>
+
+            <div className="grid grid-cols-2 gap-2">
+              {[
+                { icon: '🧩', label: 'Módulo',    value: d.saModule || 'Não definido' },
+                { icon: '⚡', label: 'Ação',       value: d.saAction || 'Não definida' },
+                { icon: '🔄', label: 'Operação',   value: SA_OPERATION_TYPES.find(o => o.id === d.saOperationType)?.label || '—' },
+                { icon: '⏱️', label: 'Timeout',    value: `${d.saTimeoutSecs ?? 30}s` },
+                { icon: '📥', label: 'Entradas',   value: `${inputParams.length} param.` },
+                { icon: '📤', label: 'Saídas',     value: `${outputMappings.length} map.` },
+              ].map(s => (
+                <div key={s.label} className="p-3 bg-slate-50 border border-slate-200 rounded-xl">
+                  <div className="text-base mb-1">{s.icon}</div>
+                  <p className="text-xs font-bold text-slate-800 leading-tight truncate">{s.value}</p>
+                  <p className="text-[9px] text-slate-400 mt-0.5 uppercase tracking-wider">{s.label}</p>
+                </div>
+              ))}
+            </div>
+
+            <div className="p-2.5 bg-slate-50 border border-slate-200 rounded-xl space-y-1.5 text-[10px]">
+              <p className="font-bold text-slate-500 uppercase tracking-wider mb-2">Status</p>
+              {[
+                { label: 'Módulo configurado',        ok: !!d.saModule },
+                { label: 'Ação configurada',          ok: !!d.saAction },
+                { label: 'Tipo de operação definido', ok: !!d.saOperationType },
+                { label: 'Parâmetros de entrada',     ok: inputParams.length > 0 },
+                { label: 'Mapeamentos de saída',      ok: outputMappings.length > 0 },
+                { label: 'Tratamento de erros',       ok: configuredErrorCount > 0 },
+                { label: 'Auditoria ativa',           ok: !!d.saAuditLog },
+              ].map(item => (
+                <div key={item.label} className="flex items-center gap-2">
+                  <span className={`w-2 h-2 rounded-full flex-shrink-0 ${item.ok ? 'bg-emerald-400' : 'bg-slate-300'}`} />
+                  <span className="text-slate-500 flex-1">{item.label}</span>
+                  <span className={`font-semibold ${item.ok ? 'text-emerald-600' : 'text-slate-400'}`}>{item.ok ? 'OK' : '—'}</span>
+                </div>
+              ))}
+            </div>
+
+            <div className="p-2.5 bg-slate-50 border border-slate-200 rounded-xl">
+              <p className="text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1">Última alteração</p>
+              <p className="text-xs text-slate-700 font-mono">
+                {lastChanged.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit', second: '2-digit' })}
+              </p>
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
+  )
+}
+
 // ─── Property editor ──────────────────────────────────────────────────────────
 
 interface PropEditorProps {
@@ -1833,9 +2565,10 @@ interface PropEditorProps {
 }
 
 function PropEditor({ node, onChange }: PropEditorProps) {
-  if (node.type === 'message') return <MessageNodeEditor node={node} onChange={onChange} />
-  if (node.type === 'menu')    return <MenuNodeEditor    node={node} onChange={onChange} />
-  if (node.type === 'queue')   return <QueueNodeEditor   node={node} onChange={onChange} />
+  if (node.type === 'message')       return <MessageNodeEditor      node={node} onChange={onChange} />
+  if (node.type === 'menu')          return <MenuNodeEditor          node={node} onChange={onChange} />
+  if (node.type === 'queue')         return <QueueNodeEditor         node={node} onChange={onChange} />
+  if (node.type === 'system_action') return <SystemActionNodeEditor  node={node} onChange={onChange} />
 
   const [activeTab, setActiveTab] = useState<'config' | 'advanced' | 'vars' | 'logs' | 'history'>('config')
   const cfg = NODE_CFG[node.type] || NODE_CFG.message
@@ -2555,6 +3288,37 @@ export default function FlowCanvasEditor({
             executeNode(edge.target)
           }, 1200)
         }
+      }, 800)
+    } else if (node.type === 'system_action') {
+      setSimIsTyping(true)
+      addSimTimeout(() => {
+        setSimIsTyping(false)
+        const moduleName = node.data.saModule || 'Sistema'
+        const actionName = node.data.saAction || 'Ação'
+        setSimMessages(prev => [
+          ...prev,
+          {
+            id: `sys_sa_${Date.now()}`,
+            fromMe: false,
+            type: 'system',
+            text: `⚙️ Executando: ${moduleName} › ${actionName}...`,
+          }
+        ])
+        addSimTimeout(() => {
+          setSimMessages(prev => [
+            ...prev,
+            {
+              id: `sa_ok_${Date.now()}`,
+              fromMe: false,
+              type: 'system',
+              text: `✅ Ação concluída com sucesso.`,
+            }
+          ])
+          const successEdge = edges.find(e => e.source === nodeId && e.sourcePort === 0)
+          if (successEdge) {
+            addSimTimeout(() => { executeNode(successEdge.target) }, 800)
+          }
+        }, 1200)
       }, 800)
     } else if (node.type === 'end') {
       setSimIsTyping(true)

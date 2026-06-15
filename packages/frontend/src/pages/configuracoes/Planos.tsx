@@ -3,7 +3,7 @@ import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { useSearchParams } from 'react-router-dom'
 import {
   Check, Zap, Star, Building2, Video, AlertCircle, Calendar,
-  CreditCard, Clock, CheckCircle2, X, ChevronRight, Receipt,
+  CreditCard, Clock, CheckCircle2, X, ChevronRight, Receipt, Rocket,
 } from 'lucide-react'
 import { format } from 'date-fns'
 import { ptBR } from 'date-fns/locale'
@@ -24,14 +24,12 @@ const PLANS = [
     accent:  'blue',
     price:   PLAN_PRICES.PRO,
     features: [
-      { label: 'Agenda completa', included: true },
+      { label: 'Dashboard e agenda completa', included: true },
       { label: 'Prontuário eletrônico', included: true },
       { label: 'Módulo financeiro', included: true },
-      { label: 'Avaliações psicológicas', included: true },
-      { label: 'Nota Fiscal (NFS-e)', included: true },
-      { label: '2 salas de atendimento', included: true },
+      { label: '1 sala de atendimento', included: true },
       { label: '1 secretária', included: true },
-      { label: 'Suporte por email', included: true },
+      { label: 'Avaliações psicológicas', included: false },
       { label: 'Chatbot IA', included: false },
       { label: 'Teleconsulta', included: false },
     ],
@@ -47,11 +45,10 @@ const PLANS = [
     popular: true,
     features: [
       { label: 'Tudo do Pro', included: true },
-      { label: '5 salas de atendimento', included: true },
-      { label: '5 secretárias', included: true },
-      { label: 'Chatbot IA (light)', included: true },
-      { label: 'Notificações automáticas', included: true },
-      { label: 'Suporte prioritário', included: true },
+      { label: '3 salas de atendimento', included: true },
+      { label: '3 secretárias', included: true },
+      { label: 'Avaliações psicológicas', included: false },
+      { label: 'Chatbot IA', included: false },
       { label: 'Teleconsulta', included: false },
     ],
   },
@@ -65,12 +62,10 @@ const PLANS = [
     price:   PLAN_PRICES.CLINIC,
     features: [
       { label: 'Tudo do Plus', included: true },
-      { label: 'Salas ilimitadas', included: true },
-      { label: 'Secretárias ilimitadas', included: true },
-      { label: 'Chatbot com IA completo', included: true },
-      { label: 'Atendimento via WhatsApp', included: true },
-      { label: '3 meses de consultoria', included: true },
-      { label: 'Suporte 24h', included: true },
+      { label: 'Salas e secretárias ilimitadas', included: true },
+      { label: 'Chatbot IA light', included: true },
+      { label: 'Avaliações psicológicas', included: true },
+      { label: 'Teleconsulta', included: false },
     ],
   },
   {
@@ -81,10 +76,26 @@ const PLANS = [
     border:  'border-cyan-400',
     accent:  'cyan',
     price:   PLAN_PRICES.TELECONSULTA,
-    addon:   true,
     features: [
+      { label: 'Tudo do Clínica', included: true },
+      { label: 'Chatbot Agente de IA', included: true },
       { label: '4 teleconsultas por mês', included: true },
       { label: 'Sala virtual privada', included: true },
+      { label: 'Gravação e receita digital', included: false },
+    ],
+  },
+  {
+    key:     'TELECONSULTA_PRO',
+    name:    'Teleconsulta Pro',
+    icon:    Rocket,
+    color:   'from-violet-500 to-violet-700',
+    border:  'border-violet-400',
+    accent:  'violet',
+    price:   PLAN_PRICES.TELECONSULTA_PRO,
+    features: [
+      { label: 'Tudo do Teleconsulta', included: true },
+      { label: '10 teleconsultas por mês', included: true },
+      { label: 'Sala virtual privada dedicada', included: true },
       { label: 'Link de acesso ao paciente', included: true },
       { label: 'Gravação da consulta', included: true },
       { label: 'Receita digital pós-consulta', included: true },
@@ -268,7 +279,7 @@ export default function Planos() {
       </div>
 
       {/* Plan cards grid */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-5 animate-stagger-3">
+      <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-5 gap-5 animate-stagger-3">
         {PLANS.map((plan, idx) => {
           const Icon = plan.icon
           const isActive = isCurrentPlan(plan.key)
@@ -374,8 +385,8 @@ export default function Planos() {
             </p>
             <p className="text-sm text-slate-500">
               Novos médicos têm 30 dias para experimentar o ClinIQ Pro.
-              No plano gratuito: acesso à agenda apenas.
-              Escolha um plano para desbloquear prontuário, financeiro, avaliações e mais.
+              No período gratuito: acesso à agenda, prontuário e financeiro.
+              Escolha um plano para desbloquear avaliações, chatbot, teleconsulta e mais.
             </p>
           </div>
           <div className="flex flex-col gap-2 text-xs text-slate-500 flex-shrink-0">

@@ -191,7 +191,7 @@ router.post('/checkout', async (req: AuthRequest, res) => {
     }
 
     const { plan, billingCycle } = z.object({
-      plan: z.enum(['PRO', 'PLUS', 'CLINIC', 'TELECONSULTA']),
+      plan: z.enum(['PRO', 'PLUS', 'CLINIC', 'TELECONSULTA', 'TELECONSULTA_PRO']),
       billingCycle: z.enum(['MONTHLY', 'ANNUAL']),
     }).parse(req.body)
 
@@ -377,7 +377,7 @@ router.patch('/admin/:doctorId', requireRole('ADMIN'), async (req: AuthRequest, 
   try {
     const { doctorId } = req.params
     const body = z.object({
-      plan:        z.enum(['TRIAL', 'PRO', 'PLUS', 'CLINIC', 'TELECONSULTA']),
+      plan:        z.enum(['TRIAL', 'PRO', 'PLUS', 'CLINIC', 'TELECONSULTA', 'TELECONSULTA_PRO']),
       billingCycle: z.enum(['MONTHLY', 'ANNUAL']).optional(),
       status:      z.enum(['ACTIVE', 'INACTIVE', 'CANCELLED', 'EXPIRED']).optional(),
       adminNote:   z.string().optional(),

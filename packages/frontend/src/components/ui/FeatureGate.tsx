@@ -5,14 +5,15 @@ import { useSubscription } from '../../hooks/useSubscription'
 import { PLAN_DISPLAY } from '../../types'
 
 const FEATURE_LABELS: Record<string, { label: string; minPlan: string; icon: typeof Zap }> = {
-  prontuario:  { label: 'Prontuário Eletrônico', minPlan: 'PRO',  icon: Zap },
-  financeiro:  { label: 'Módulo Financeiro',     minPlan: 'PRO',  icon: Zap },
-  avaliacoes:  { label: 'Avaliações',            minPlan: 'PRO',  icon: Zap },
-  nota_fiscal: { label: 'Nota Fiscal',           minPlan: 'PRO',  icon: Zap },
-  documentos:  { label: 'Documentos',            minPlan: 'PRO',  icon: Zap },
-  chatbot:     { label: 'Chatbot IA',            minPlan: 'PLUS', icon: Star },
-  whatsapp:    { label: 'WhatsApp',              minPlan: 'CLINIC', icon: Building2 },
-  teleconsulta:{ label: 'Teleconsulta',          minPlan: 'TELECONSULTA', icon: Video },
+  prontuario:       { label: 'Prontuário Eletrônico', minPlan: 'PRO',              icon: Zap },
+  financeiro:       { label: 'Módulo Financeiro',     minPlan: 'PRO',              icon: Zap },
+  avaliacoes:       { label: 'Avaliações',            minPlan: 'CLINIC',           icon: Star },
+  nota_fiscal:      { label: 'Nota Fiscal',           minPlan: 'PRO',              icon: Zap },
+  documentos:       { label: 'Documentos',            minPlan: 'PRO',              icon: Zap },
+  chatbot:          { label: 'Chatbot IA',            minPlan: 'CLINIC',           icon: Star },
+  whatsapp:         { label: 'WhatsApp',              minPlan: 'CLINIC',           icon: Building2 },
+  teleconsulta:     { label: 'Teleconsulta',          minPlan: 'TELECONSULTA',     icon: Video },
+  teleconsulta_pro: { label: 'Teleconsulta Pro',      minPlan: 'TELECONSULTA_PRO', icon: Video },
 }
 
 interface FeatureGateProps {

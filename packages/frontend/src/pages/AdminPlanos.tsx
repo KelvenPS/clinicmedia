@@ -38,7 +38,7 @@ interface AdminDoctorRow {
 }
 
 const editSchema = z.object({
-  plan:        z.enum(['TRIAL', 'PRO', 'PLUS', 'CLINIC', 'TELECONSULTA']),
+  plan:        z.enum(['TRIAL', 'PRO', 'PLUS', 'CLINIC', 'TELECONSULTA', 'TELECONSULTA_PRO']),
   billingCycle: z.enum(['MONTHLY', 'ANNUAL']).optional(),
   status:      z.enum(['ACTIVE', 'INACTIVE', 'CANCELLED', 'EXPIRED']).optional(),
   adminNote:   z.string().optional(),
@@ -50,11 +50,12 @@ type EditForm = z.infer<typeof editSchema>
 
 function PlanBadge({ plan, status }: { plan: PlanKey; status: string }) {
   const colors: Record<PlanKey, string> = {
-    TRIAL:        'bg-slate-100 text-slate-700 border-slate-200',
-    PRO:          'bg-blue-50   text-blue-700   border-blue-200',
-    PLUS:         'bg-purple-50 text-purple-700 border-purple-200',
-    CLINIC:       'bg-emerald-50 text-emerald-700 border-emerald-200',
-    TELECONSULTA: 'bg-cyan-50   text-cyan-700   border-cyan-200',
+    TRIAL:            'bg-slate-100  text-slate-700  border-slate-200',
+    PRO:              'bg-blue-50    text-blue-700   border-blue-200',
+    PLUS:             'bg-purple-50  text-purple-700 border-purple-200',
+    CLINIC:           'bg-emerald-50 text-emerald-700 border-emerald-200',
+    TELECONSULTA:     'bg-cyan-50    text-cyan-700   border-cyan-200',
+    TELECONSULTA_PRO: 'bg-violet-50  text-violet-700 border-violet-200',
   }
 
   return (
@@ -234,6 +235,7 @@ export default function AdminPlanos() {
               <option value="PLUS">Plus</option>
               <option value="CLINIC">Clínica</option>
               <option value="TELECONSULTA">Teleconsulta</option>
+              <option value="TELECONSULTA_PRO">Teleconsulta Pro</option>
             </select>
             <ChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400 pointer-events-none" />
           </div>
@@ -406,6 +408,7 @@ export default function AdminPlanos() {
                 <option value="PLUS">Plus — R$ 109,90/mês</option>
                 <option value="CLINIC">Clínica — R$ 159,90/mês</option>
                 <option value="TELECONSULTA">Teleconsulta — R$ 199,90/mês</option>
+                <option value="TELECONSULTA_PRO">Teleconsulta Pro — R$ 399,90/mês</option>
               </select>
             </div>
 

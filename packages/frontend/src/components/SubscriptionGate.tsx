@@ -15,8 +15,8 @@ const PAYWALL_PLANS = [
     icon: Zap,
     color: 'from-blue-500 to-blue-700',
     border: 'border-blue-400',
-    monthly: 69.90,
-    features: ['Agenda completa', 'Prontuário eletrônico', 'Módulo financeiro', '1 secretária', 'Suporte por email'],
+    monthly: 89.90,
+    features: ['Agenda completa', 'Prontuário eletrônico', 'Módulo financeiro', '1 sala de atendimento', '1 secretária'],
   },
   {
     key: 'PLUS' as const,
@@ -24,9 +24,9 @@ const PAYWALL_PLANS = [
     icon: Star,
     color: 'from-purple-500 to-purple-700',
     border: 'border-purple-400',
-    monthly: 89.90,
+    monthly: 109.90,
     popular: true,
-    features: ['Tudo do Pro', '3 secretárias', 'Notificações automáticas', 'Formas de pagamento', 'Documentos ilimitados', 'Suporte prioritário'],
+    features: ['Tudo do Pro', '3 salas de atendimento', '3 secretárias'],
   },
   {
     key: 'CLINIC' as const,
@@ -34,8 +34,8 @@ const PAYWALL_PLANS = [
     icon: Building2,
     color: 'from-emerald-500 to-emerald-700',
     border: 'border-emerald-400',
-    monthly: 109.90,
-    features: ['Tudo do Plus', 'Secretárias ilimitadas', 'Salas ilimitadas', 'Múltiplos médicos', 'Relatórios avançados', 'Suporte 24h'],
+    monthly: 159.90,
+    features: ['Tudo do Plus', 'Salas e secretárias ilimitadas', 'Chatbot IA light', 'Avaliações psicológicas'],
   },
 ]
 

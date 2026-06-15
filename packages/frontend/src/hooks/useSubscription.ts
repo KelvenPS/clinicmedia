@@ -15,7 +15,7 @@ export interface SubscriptionStatus {
   trialDaysLeft: number
   daysUntilRenewal: number
   hasFeature: (feature: string) => boolean
-  limits: { rooms: number; secretaries: number }
+  limits: { rooms: number; secretaries: number; teleconsultas: number }
   canShowTrialWarning: boolean
 }
 
@@ -42,7 +42,7 @@ export function useSubscription(): SubscriptionStatus {
       trialDaysLeft: 0,
       daysUntilRenewal: 0,
       hasFeature: () => true,
-      limits: { rooms: 999, secretaries: 999 },
+      limits: { rooms: 999, secretaries: 999, teleconsultas: 999 },
       canShowTrialWarning: false,
     }
   }

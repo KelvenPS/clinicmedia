@@ -247,38 +247,42 @@ export interface PaymentMethod {
   createdAt: string
 }
 
-export type PlanKey = 'TRIAL' | 'PRO' | 'PLUS' | 'CLINIC' | 'TELECONSULTA'
+export type PlanKey = 'TRIAL' | 'PRO' | 'PLUS' | 'CLINIC' | 'TELECONSULTA' | 'TELECONSULTA_PRO'
 export type PlanStatus = 'ACTIVE' | 'INACTIVE' | 'CANCELLED' | 'EXPIRED'
 
 export const PLAN_DISPLAY: Record<PlanKey, string> = {
-  TRIAL:        'Período Gratuito',
-  PRO:          'Pro',
-  PLUS:         'Plus',
-  CLINIC:       'Clínica',
-  TELECONSULTA: 'Teleconsulta',
+  TRIAL:            'Período Gratuito',
+  PRO:              'Pro',
+  PLUS:             'Plus',
+  CLINIC:           'Clínica',
+  TELECONSULTA:     'Teleconsulta',
+  TELECONSULTA_PRO: 'Teleconsulta Pro',
 }
 
 export const PLAN_FEATURES: Record<PlanKey, string[]> = {
-  TRIAL:        ['agenda', 'prontuario', 'financeiro', 'avaliacoes'],
-  PRO:          ['agenda', 'prontuario', 'financeiro', 'avaliacoes', 'nota_fiscal', 'documentos'],
-  PLUS:         ['agenda', 'prontuario', 'financeiro', 'avaliacoes', 'nota_fiscal', 'documentos', 'chatbot'],
-  CLINIC:       ['agenda', 'prontuario', 'financeiro', 'avaliacoes', 'nota_fiscal', 'documentos', 'chatbot', 'whatsapp'],
-  TELECONSULTA: ['agenda', 'teleconsulta'],
+  TRIAL:            ['agenda', 'prontuario', 'financeiro'],
+  PRO:              ['agenda', 'prontuario', 'financeiro'],
+  PLUS:             ['agenda', 'prontuario', 'financeiro'],
+  CLINIC:           ['agenda', 'prontuario', 'financeiro', 'avaliacoes', 'chatbot'],
+  TELECONSULTA:     ['agenda', 'prontuario', 'financeiro', 'avaliacoes', 'chatbot', 'teleconsulta'],
+  TELECONSULTA_PRO: ['agenda', 'prontuario', 'financeiro', 'avaliacoes', 'chatbot', 'teleconsulta', 'teleconsulta_pro'],
 }
 
-export const PLAN_LIMITS: Record<PlanKey, { rooms: number; secretaries: number }> = {
-  TRIAL:        { rooms: 0, secretaries: 0 },
-  PRO:          { rooms: 2, secretaries: 1 },
-  PLUS:         { rooms: 5, secretaries: 5 },
-  CLINIC:       { rooms: 999, secretaries: 999 },
-  TELECONSULTA: { rooms: 0, secretaries: 0 },
+export const PLAN_LIMITS: Record<PlanKey, { rooms: number; secretaries: number; teleconsultas: number }> = {
+  TRIAL:            { rooms: 0, secretaries: 0, teleconsultas: 0 },
+  PRO:              { rooms: 1, secretaries: 1, teleconsultas: 0 },
+  PLUS:             { rooms: 3, secretaries: 3, teleconsultas: 0 },
+  CLINIC:           { rooms: 999, secretaries: 999, teleconsultas: 0 },
+  TELECONSULTA:     { rooms: 999, secretaries: 999, teleconsultas: 4 },
+  TELECONSULTA_PRO: { rooms: 999, secretaries: 999, teleconsultas: 10 },
 }
 
 export const PLAN_PRICES: Record<string, { monthly: number; annual: number }> = {
-  PRO:          { monthly: 89.90,  annual: 89.90  * 12 * 0.85 },
-  PLUS:         { monthly: 109.90, annual: 109.90 * 12 * 0.85 },
-  CLINIC:       { monthly: 159.90, annual: 159.90 * 12 * 0.85 },
-  TELECONSULTA: { monthly: 199.90, annual: 199.90 * 12 * 0.85 },
+  PRO:              { monthly: 89.90,  annual: 89.90  * 12 * 0.85 },
+  PLUS:             { monthly: 109.90, annual: 109.90 * 12 * 0.85 },
+  CLINIC:           { monthly: 159.90, annual: 159.90 * 12 * 0.85 },
+  TELECONSULTA:     { monthly: 199.90, annual: 199.90 * 12 * 0.85 },
+  TELECONSULTA_PRO: { monthly: 399.90, annual: 399.90 * 12 * 0.85 },
 }
 
 export interface SubscriptionPaymentRecord {

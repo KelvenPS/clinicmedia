@@ -17,6 +17,8 @@ import {
   Database,
   PanelLeftClose,
   PanelLeft,
+  ShieldCheck,
+  CreditCard,
 } from 'lucide-react'
 import { useAuthStore } from '../store/authStore'
 
@@ -220,6 +222,8 @@ export default function Sidebar({ collapsed = false, onToggleCollapse }: Sidebar
             {!collapsed && (
               <p className="section-label mb-2">Admin</p>
             )}
+            <NavItem to="/admin/gestao" icon={ShieldCheck} label="Gestão" collapsed={collapsed} />
+            <NavItem to="/admin/planos" icon={CreditCard} label="Planos" collapsed={collapsed} />
             <NavItem to="/admin/sql" icon={Database} label="SQL Admin" collapsed={collapsed} />
           </div>
         )}

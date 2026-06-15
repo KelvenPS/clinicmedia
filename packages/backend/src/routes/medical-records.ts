@@ -1,10 +1,11 @@
 import { Router } from 'express'
 import { z } from 'zod'
 import { prisma } from '../lib/prisma'
-import { authenticate, requireRole, AuthRequest } from '../middleware/auth'
+import { authenticate, requireRole, requireFeature, AuthRequest } from '../middleware/auth'
 
 const router = Router()
 router.use(authenticate)
+router.use(requireFeature('prontuario'))
 
 const recordSchema = z.object({
   patientId: z.string().min(1, 'Paciente obrigatório'),

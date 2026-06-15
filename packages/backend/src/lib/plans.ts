@@ -16,7 +16,7 @@ export const PLAN_DISPLAY: Record<string, string> = {
 }
 
 export const PLAN_FEATURES: Record<string, string[]> = {
-  TRIAL:        ['agenda'],
+  TRIAL:        ['agenda', 'prontuario', 'financeiro', 'avaliacoes'],
   PRO:          ['agenda', 'prontuario', 'financeiro', 'avaliacoes', 'nota_fiscal', 'documentos'],
   PLUS:         ['agenda', 'prontuario', 'financeiro', 'avaliacoes', 'nota_fiscal', 'documentos', 'chatbot'],
   CLINIC:       ['agenda', 'prontuario', 'financeiro', 'avaliacoes', 'nota_fiscal', 'documentos', 'chatbot', 'whatsapp'],

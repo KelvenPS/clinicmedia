@@ -22,6 +22,9 @@ import PageHeader from '../components/ui/PageHeader'
 import { useAuthStore } from '../store/authStore'
 import type { Patient, User as UserType, GroupedMedicalRecord, MedicalRecord } from '../types'
 import Modal from '../components/ui/Modal'
+import { SpecialtyFormRouter, type SpecialtySubmitData } from '../components/prontuario/SpecialtyForms'
+import { SpecialtyRecordView } from '../components/prontuario/SpecialtyRecordView'
+import { getSpecialtyKey, SPECIALTY_LABELS } from '../components/prontuario/specialtyUtils'
 
 const recordTypeConfig: Record<string, { label: string; color: string; bg: string; icon: string }> = {
   ANAMNESE: { label: 'Anamnese', color: 'text-blue-700', bg: 'bg-blue-100', icon: '📋' },
@@ -89,7 +92,14 @@ function RecordCard({ record, onDelete, canDelete }: { record: MedicalRecord; on
 
       {expanded && (
         <div className="px-4 pb-4 pt-3 border-t border-blue-100/70 bg-blue-50/30 animate-slide-in">
-          <p className="text-sm text-slate-700 whitespace-pre-wrap leading-relaxed">{record.content}</p>
+          {record.specialtyData && record.specialtyType ? (
+            <SpecialtyRecordView
+              specialtyType={record.specialtyType}
+              data={record.specialtyData}
+            />
+          ) : (
+            <p className="text-sm text-slate-700 whitespace-pre-wrap leading-relaxed">{record.content}</p>
+          )}
           {canDelete && (
             <div className="flex justify-end mt-4">
               <button
@@ -224,8 +234,16 @@ export default function Prontuario() {
     enabled: !!selectedPatient,
   })
 
+  // Detect the logged-in doctor's specialty for specialty-aware forms
+  const currentDoctor = user?.role === 'DOCTOR'
+    ? doctors.find(d => d.id === user.id)
+    : null
+  const doctorSpecialty = user?.specialty ?? currentDoctor?.specialty
+  const specialtyKey = getSpecialtyKey(doctorSpecialty)
+  const hasSpecialtyForm = user?.role === 'DOCTOR'
+
   const createMutation = useMutation({
-    mutationFn: (data: FormData) => api.post('/medical-records', data),
+    mutationFn: (data: FormData | SpecialtySubmitData) => api.post('/medical-records', data),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['prontuario'] })
       toast.success('Prontuário registrado!')
@@ -406,17 +424,33 @@ export default function Prontuario() {
       <Modal
         isOpen={modalOpen}
         onClose={() => setModalOpen(false)}
-        title="Novo Registro de Prontuário"
+        title={
+          hasSpecialtyForm && specialtyKey !== 'CLINICO_GERAL'
+            ? `Novo Registro · ${SPECIALTY_LABELS[specialtyKey]}`
+            : 'Novo Registro de Prontuário'
+        }
         size="lg"
       >
-        <RecordForm
-          defaultPatientId={selectedPatient?.id}
-          patients={patients}
-          doctors={doctors}
-          currentUser={user}
-          onSubmit={(data) => createMutation.mutate(data)}
-          loading={createMutation.isPending}
-        />
+        {hasSpecialtyForm ? (
+          <SpecialtyFormRouter
+            patients={patients}
+            doctors={doctors}
+            currentUser={user}
+            defaultPatientId={selectedPatient?.id}
+            specialtyKey={specialtyKey}
+            onSubmit={(data) => createMutation.mutate(data)}
+            loading={createMutation.isPending}
+          />
+        ) : (
+          <RecordForm
+            defaultPatientId={selectedPatient?.id}
+            patients={patients}
+            doctors={doctors}
+            currentUser={user}
+            onSubmit={(data) => createMutation.mutate(data)}
+            loading={createMutation.isPending}
+          />
+        )}
       </Modal>
     </div>
   )

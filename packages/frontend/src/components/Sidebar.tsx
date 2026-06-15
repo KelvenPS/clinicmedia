@@ -1,4 +1,5 @@
-import { NavLink, useNavigate } from 'react-router-dom'
+import { useState } from 'react'
+import { NavLink, useNavigate, useLocation } from 'react-router-dom'
 import {
   LayoutDashboard,
   Calendar,
@@ -7,11 +8,14 @@ import {
   UserCog,
   LogOut,
   ChevronRight,
+  ChevronDown,
   Settings,
   ClipboardList,
   Brain,
   Zap,
   Bot,
+  MessageSquare,
+  Sparkles,
   Receipt,
   Video,
   Database,
@@ -84,6 +88,9 @@ function NavItem({ to, icon: Icon, label, collapsed, badge }: NavItemProps) {
 export default function Sidebar({ collapsed = false, onToggleCollapse }: SidebarProps) {
   const { user, logout } = useAuthStore()
   const navigate = useNavigate()
+  const location = useLocation()
+  const isChatbotRoute = location.pathname.startsWith('/chatbot')
+  const [chatbotOpen, setChatbotOpen] = useState(isChatbotRoute)
 
   const handleLogout = () => {
     logout()
@@ -166,18 +173,67 @@ export default function Sidebar({ collapsed = false, onToggleCollapse }: Sidebar
           {!collapsed && (
             <p className="section-label mb-2">Automação</p>
           )}
-          <NavItem
-            to="/chatbot"
-            icon={Bot}
-            label="Chatbot IA"
-            collapsed={collapsed}
-            badge={
-              <span className="inline-flex items-center gap-1 text-xs bg-cyan-500/20 text-cyan-400 px-1.5 py-0.5 rounded-md font-semibold border border-cyan-500/20">
-                <span className="w-1.5 h-1.5 rounded-full bg-cyan-400 animate-pulse-soft" />
-                NOVO
-              </span>
-            }
-          />
+
+          {/* Chatbot — expandable in expanded mode, direct nav in collapsed */}
+          {collapsed ? (
+            <NavLink
+              to="/chatbot/light"
+              className={({ isActive: _ }) =>
+                `sidebar-link group tooltip-trigger ${isChatbotRoute ? 'active' : ''}`
+              }
+            >
+              <Bot className={`w-5 h-5 flex-shrink-0 transition-all duration-200 ${isChatbotRoute ? 'text-white' : 'text-slate-400 group-hover:text-white group-hover:scale-110'}`} />
+              <span className="tooltip">Chatbot IA</span>
+            </NavLink>
+          ) : (
+            <div>
+              {/* Parent toggle button */}
+              <button
+                onClick={() => setChatbotOpen(o => !o)}
+                className={`sidebar-link group w-full text-left ${isChatbotRoute ? 'active' : ''}`}
+              >
+                <Bot className={`w-5 h-5 flex-shrink-0 transition-all duration-200 ${isChatbotRoute ? 'text-white' : 'text-slate-400 group-hover:text-white group-hover:scale-110'}`} />
+                <span className="flex-1 overflow-hidden whitespace-nowrap">Chatbot IA</span>
+                <span className="inline-flex items-center gap-1 text-xs bg-cyan-500/20 text-cyan-400 px-1.5 py-0.5 rounded-md font-semibold border border-cyan-500/20 mr-1">
+                  <span className="w-1.5 h-1.5 rounded-full bg-cyan-400 animate-pulse-soft" />
+                  NOVO
+                </span>
+                <ChevronDown className={`w-4 h-4 flex-shrink-0 text-slate-400 transition-transform duration-200 ${chatbotOpen ? 'rotate-180' : ''}`} />
+              </button>
+
+              {/* Sub-items */}
+              {chatbotOpen && (
+                <div className="ml-5 mt-1 space-y-0.5 border-l border-white/10 pl-3 pb-1">
+                  <NavLink
+                    to="/chatbot/light"
+                    className={({ isActive }) =>
+                      `flex items-center gap-2 px-2.5 py-2 rounded-xl text-sm font-medium transition-all duration-150 ${
+                        isActive
+                          ? 'bg-cyan-600/20 text-cyan-300 border border-cyan-500/20'
+                          : 'text-slate-400 hover:text-white hover:bg-white/6'
+                      }`
+                    }
+                  >
+                    <MessageSquare className="w-4 h-4 flex-shrink-0" />
+                    <span>Chatbot Light</span>
+                  </NavLink>
+                  <NavLink
+                    to="/chatbot/agente"
+                    className={({ isActive }) =>
+                      `flex items-center gap-2 px-2.5 py-2 rounded-xl text-sm font-medium transition-all duration-150 ${
+                        isActive
+                          ? 'bg-violet-600/20 text-violet-300 border border-violet-500/20'
+                          : 'text-slate-400 hover:text-white hover:bg-white/6'
+                      }`
+                    }
+                  >
+                    <Sparkles className="w-4 h-4 flex-shrink-0" />
+                    <span>Agente Clínico</span>
+                  </NavLink>
+                </div>
+              )}
+            </div>
+          )}
         </div>
 
         {/* ── NFS-e ── */}

@@ -20,6 +20,7 @@ import paymentMethodRoutes from './routes/payment-methods'
 import subscriptionRoutes from './routes/subscriptions'
 import integrationRoutes from './routes/integrations'
 import chatbotRoutes from './routes/chatbot'
+import chatbotLightRoutes from './routes/chatbot-light'
 import { restoreSessions } from './lib/whatsapp'
 import adminRoutes from './routes/admin'
 import adminSqlRoutes from './routes/admin-sql'
@@ -60,6 +61,7 @@ app.use('/api/payment-methods', paymentMethodRoutes)
 app.use('/api/subscriptions', subscriptionRoutes)
 app.use('/api/integrations', integrationRoutes)
 app.use('/api/chatbot', chatbotRoutes)
+app.use('/api/chatbot-light', chatbotLightRoutes)
 app.use('/api/admin/sql', adminSqlRoutes)
 app.use('/api/admin', adminRoutes)
 

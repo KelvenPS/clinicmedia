@@ -23,6 +23,7 @@ import Planos from './pages/configuracoes/Planos'
 import ConfigNotificacoes from './pages/configuracoes/ConfigNotificacoes'
 import Integracoes from './pages/configuracoes/Integracoes'
 import ChatbotIA from './pages/ChatbotIA'
+import ChatbotLight from './pages/ChatbotLight'
 import AdminGestao from './pages/AdminGestao'
 import AdminSQL from './pages/AdminSQL'
 import AdminPlanos from './pages/AdminPlanos'
@@ -46,7 +47,10 @@ export default function App() {
         <Route path="/login" element={isAuthenticated ? <Navigate to="/dashboard" replace /> : <Login />} />
         <Route path="/" element={isAuthenticated ? <Navigate to="/dashboard" replace /> : <LandingPage />} />
 
-        <Route path="/chatbot/*" element={<ProtectedRoute allowedRoles={['ADMIN', 'DOCTOR']}><ChatbotIA /></ProtectedRoute>} />
+        <Route path="/chatbot/agente/*" element={<ProtectedRoute allowedRoles={['ADMIN', 'DOCTOR']}><ChatbotIA /></ProtectedRoute>} />
+        <Route path="/chatbot/light/*" element={<ProtectedRoute allowedRoles={['ADMIN', 'DOCTOR']}><ChatbotLight /></ProtectedRoute>} />
+        <Route path="/chatbot" element={<Navigate to="/chatbot/light" replace />} />
+        <Route path="/chatbot/*" element={<Navigate to="/chatbot/light" replace />} />
 
         <Route path="/" element={<ProtectedRoute><Layout /></ProtectedRoute>}>
           <Route index element={<Navigate to="/dashboard" replace />} />

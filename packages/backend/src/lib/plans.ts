@@ -23,8 +23,8 @@ export const PLAN_FEATURES: Record<string, string[]> = {
   PRO:              ['agenda', 'prontuario', 'financeiro'],
   PLUS:             ['agenda', 'prontuario', 'financeiro'],
   CLINIC:           ['agenda', 'prontuario', 'financeiro', 'avaliacoes', 'chatbot'],
-  TELECONSULTA:     ['agenda', 'prontuario', 'financeiro', 'avaliacoes', 'chatbot', 'teleconsulta'],
-  TELECONSULTA_PRO: ['agenda', 'prontuario', 'financeiro', 'avaliacoes', 'chatbot', 'teleconsulta', 'teleconsulta_pro'],
+  TELECONSULTA:     ['agenda', 'prontuario', 'financeiro', 'avaliacoes', 'chatbot', 'chatbot_agente', 'teleconsulta'],
+  TELECONSULTA_PRO: ['agenda', 'prontuario', 'financeiro', 'avaliacoes', 'chatbot', 'chatbot_agente', 'teleconsulta', 'teleconsulta_pro'],
 }
 
 export const PLAN_LIMITS: Record<string, { rooms: number; secretaries: number; teleconsultas: number }> = {

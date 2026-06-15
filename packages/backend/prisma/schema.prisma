@@ -104,6 +104,10 @@ model User {
   healthPlans         HealthPlan[]        @relation("DoctorHealthPlans")
   appointmentTypes    AppointmentType[]   @relation("DoctorAppointmentTypes")
   sqlLogs             SqlQueryLog[]       @relation("AdminSqlLogs")
+  lightTemplates      LightTemplate[]     @relation("DoctorLightTemplates")
+  lightIntegrations   LightIntegrationConfig[] @relation("DoctorLightIntegrations")
+  lightLogs           LightMessageLog[]   @relation("DoctorLightLogs")
+  lightSettings       LightSettings?      @relation("DoctorLightSettings")
 
   @@map("TBLUSUARIO")
 }
@@ -201,15 +205,17 @@ model AppointmentBlock {
 }
 
 model MedicalRecord {
-  id        String     @id @default(uuid())
-  patientId String
-  doctorId  String
-  title     String
-  content   String
-  type      RecordType @default(EVOLUCAO)
-  date      DateTime   @default(now())
-  createdAt DateTime   @default(now())
-  updatedAt DateTime   @updatedAt
+  id            String     @id @default(uuid())
+  patientId     String
+  doctorId      String
+  title         String
+  content       String
+  type          RecordType @default(EVOLUCAO)
+  date          DateTime   @default(now())
+  specialtyType String?
+  specialtyData Json?
+  createdAt     DateTime   @default(now())
+  updatedAt     DateTime   @updatedAt
 
   patient Patient @relation(fields: [patientId], references: [id])
   doctor  User    @relation("DoctorRecords", fields: [doctorId], references: [id])
@@ -628,6 +634,76 @@ model ChatbotTemplate {
   updatedAt   DateTime @updatedAt
 
   @@map("TBLCHATBOTMODELO")
+}
+
+// ─── Chatbot Light Module ─────────────────────────────────────────────────────
+
+model LightTemplate {
+  id           String   @id @default(uuid())
+  doctorId     String
+  name         String
+  category     String
+  content      String   @db.Text
+  variables    String[] @default([])
+  active       Boolean  @default(true)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  doctor       User                    @relation("DoctorLightTemplates", fields: [doctorId], references: [id])
+  integrations LightIntegrationConfig[]
+
+  @@index([doctorId])
+  @@map("TBLCHATBOTLIGHTTEMPLATE")
+}
+
+model LightIntegrationConfig {
+  id            String         @id @default(uuid())
+  doctorId      String
+  module        String
+  triggerEvent  String
+  enabled       Boolean        @default(false)
+  templateId    String?
+  delayMinutes  Int            @default(0)
+  createdAt     DateTime       @default(now())
+  updatedAt     DateTime       @updatedAt
+
+  doctor        User            @relation("DoctorLightIntegrations", fields: [doctorId], references: [id])
+  template      LightTemplate?  @relation(fields: [templateId], references: [id])
+
+  @@unique([doctorId, module, triggerEvent])
+  @@map("TBLCHATBOTLIGHTCONFIG")
+}
+
+model LightMessageLog {
+  id            String    @id @default(uuid())
+  doctorId      String
+  phone         String
+  recipientName String?
+  content       String    @db.Text
+  module        String
+  triggerEvent  String?
+  status        String    @default("PENDING")
+  errorMessage  String?
+  sentAt        DateTime?
+  createdAt     DateTime  @default(now())
+
+  doctor        User      @relation("DoctorLightLogs", fields: [doctorId], references: [id])
+
+  @@index([doctorId])
+  @@index([doctorId, createdAt])
+  @@map("TBLCHATBOTLIGHTLOG")
+}
+
+model LightSettings {
+  id             String   @id @default(uuid())
+  doctorId       String   @unique
+  enabledScreens String[] @default(["agenda", "pacientes", "prontuario", "avaliacao", "financeiro"])
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  doctor         User     @relation("DoctorLightSettings", fields: [doctorId], references: [id])
+
+  @@map("TBLCHATBOTLIGHTSETTINGS")
 }
 
 model ChatbotSettings {

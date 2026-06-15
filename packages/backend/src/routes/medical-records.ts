@@ -1,5 +1,6 @@
 import { Router } from 'express'
 import { z } from 'zod'
+import { Prisma } from '@prisma/client'
 import { prisma } from '../lib/prisma'
 import { authenticate, requireRole, requireFeature, AuthRequest } from '../middleware/auth'
 
@@ -8,12 +9,14 @@ router.use(authenticate)
 router.use(requireFeature('prontuario'))
 
 const recordSchema = z.object({
-  patientId: z.string().min(1, 'Paciente obrigatório'),
-  doctorId: z.string().min(1, 'Médico obrigatório'),
-  title: z.string().min(2, 'Título muito curto'),
-  content: z.string().min(5, 'Conteúdo muito curto'),
-  type: z.enum(['ANAMNESE', 'EVOLUCAO', 'PRESCRICAO', 'EXAME', 'ATESTADO', 'OUTROS']).default('EVOLUCAO'),
-  date: z.string().optional(),
+  patientId:     z.string().min(1, 'Paciente obrigatório'),
+  doctorId:      z.string().min(1, 'Médico obrigatório'),
+  title:         z.string().min(2, 'Título muito curto'),
+  content:       z.string().min(5, 'Conteúdo muito curto'),
+  type:          z.enum(['ANAMNESE', 'EVOLUCAO', 'PRESCRICAO', 'EXAME', 'ATESTADO', 'OUTROS']).default('EVOLUCAO'),
+  date:          z.string().optional(),
+  specialtyType: z.string().optional(),
+  specialtyData: z.record(z.unknown()).optional(),
 })
 
 router.get('/', async (req: AuthRequest, res) => {
@@ -81,10 +84,12 @@ router.post('/', requireRole('ADMIN', 'DOCTOR', 'SECRETARY'), async (req: AuthRe
   try {
     const data = recordSchema.parse(req.body)
 
+    const { specialtyData, ...rest } = data
     const record = await prisma.medicalRecord.create({
       data: {
-        ...data,
-        date: data.date ? new Date(data.date) : new Date(),
+        ...rest,
+        date: rest.date ? new Date(rest.date) : new Date(),
+        specialtyData: specialtyData as Prisma.InputJsonValue | undefined,
       },
       include: {
         patient: { select: { id: true, name: true } },

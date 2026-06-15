@@ -13,7 +13,10 @@
       "Bash(DATABASE_URL=\"postgresql://neondb_owner:npg_vL1Hfi6jzneh@ep-wandering-glade-aqgkjm52-pooler.c-8.us-east-1.aws.neon.tech/neondb?sslmode=require&channel_binding=require\" DIRECT_URL=\"postgresql://neondb_owner:npg_vL1Hfi6jzneh@ep-wandering-glade-aqgkjm52.c-8.us-east-1.aws.neon.tech/neondb?sslmode=require&channel_binding=require\" npx prisma migrate status --schema=packages/backend/prisma/schema.prisma)",
       "Bash(DATABASE_URL=\"postgresql://neondb_owner:npg_vL1Hfi6jzneh@ep-wandering-glade-aqgkjm52-pooler.c-8.us-east-1.aws.neon.tech/neondb?sslmode=require&channel_binding=require\" npx prisma db execute --schema=packages/backend/prisma/schema.prisma --file=-)",
       "Bash(DATABASE_URL='postgresql://neondb_owner:npg_vL1Hfi6jzneh@ep-wandering-glade-aqgkjm52-pooler.c-8.us-east-1.aws.neon.tech/neondb?sslmode=require&channel_binding=require' node -e ' *)",
-      "Bash(node -e ' *)"
+      "Bash(node -e ' *)",
+      "Bash(ls -la /c/clinicmedia/ 2>/dev/null || ls -la /mnt/c/clinicmedia/ 2>/dev/null || echo \"Testing with absolute path\")",
+      "Read(//mnt/c/**)",
+      "Bash(grep -E \"\\\\.ts$|^total|^d\")"
     ],
     "additionalDirectories": [
       "c:\\clinicmedia\\packages\\backend\\prisma\\migrations"

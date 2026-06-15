@@ -313,14 +313,6 @@ export default function Planos() {
                   </span>
                 </div>
               )}
-              {plan.addon && (
-                <div className="absolute -top-3 left-1/2 -translate-x-1/2 z-10">
-                  <span className="bg-cyan-600 text-white text-xs font-bold px-3 py-1 rounded-full shadow">
-                    Add-on
-                  </span>
-                </div>
-              )}
-
               {/* Plan header */}
               <div className={`w-12 h-12 rounded-xl bg-gradient-to-br ${plan.color} flex items-center justify-center mb-4 shadow-lg`}>
                 <Icon className="w-6 h-6 text-white" />

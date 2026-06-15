@@ -84,6 +84,10 @@ router.post('/', async (req: AuthRequest, res) => {
     // When blocked, disallow replication — force single occurrence
     const effectiveRepeatCount = apptData.isBlocked ? 1 : (repeatCount && repeatCount > 1 ? repeatCount : 1)
 
+    // Empty string roomId from the frontend form (hidden selector) must be null, not ''.
+    // An empty string fails the FK constraint since no Room has id=''.
+    if (apptData.roomId === '') apptData.roomId = null
+
     // DOCTOR cannot create an appointment assigned to another professional.
     if (req.user!.role === 'DOCTOR') {
       apptData.doctorId = req.user!.userId
@@ -188,6 +192,7 @@ router.put('/:id', async (req: AuthRequest, res) => {
     const data: Record<string, unknown> = { ...parsed }
 
     if (data.date) data.date = new Date(data.date as string)
+    if (data.roomId === '') data.roomId = null
 
     const existing = await prisma.appointment.findUnique({ where: { id }, select: { doctorId: true } })
     if (!existing) {

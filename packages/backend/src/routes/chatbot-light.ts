@@ -2,7 +2,7 @@ import { Router } from 'express'
 import { z } from 'zod'
 import { prisma } from '../lib/prisma'
 import { authenticate, requireFeature, AuthRequest } from '../middleware/auth'
-import { getWhatsAppSocket } from '../lib/whatsapp'
+import { sendWhatsAppMessage } from '../lib/whatsapp'
 
 const router = Router()
 router.use(authenticate)
@@ -246,11 +246,9 @@ router.post('/test', async (req: AuthRequest, res) => {
     })
 
     try {
-      const sock = getWhatsAppSocket(instance.instanceKey)
-      if (!sock) throw new Error('Socket indisponível')
-
       const jid = `${phone.replace(/\D/g, '')}@s.whatsapp.net`
-      await sock.sendMessage(jid, { text: content })
+      const result = await sendWhatsAppMessage(instance.instanceKey, jid, content)
+      if (!result) throw new Error('Socket indisponível')
 
       const updated = await prisma.lightMessageLog.update({
         where: { id: log.id },

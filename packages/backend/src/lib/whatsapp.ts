@@ -23,6 +23,8 @@ const logger = { level: 'silent', trace: ()=>{}, debug: ()=>{}, info: ()=>{}, wa
 
 const sockets    = new Map<string, ReturnType<typeof makeWASocket>>()
 const stoppingKeys = new Set<string>()
+const reconnectAttempts = new Map<string, number>()
+const MAX_RECONNECT_ATTEMPTS = 5
 
 // IDs de mensagens WA já processados (evita duplicata mesmo após restart graças ao DB)
 const processedMsgs = new Map<string, Set<string>>()
@@ -277,6 +279,10 @@ export async function startSession(instanceKey: string, instanceId: string): Pro
 
   // ── Conexão ──────────────────────────────────────────────────────────────────
 
+  // Só zera o contador de tentativas depois que a conexão fica estável por um
+  // tempo — senão um ciclo "abre e cai na hora" (ex: badSession) nunca acumula.
+  let stableTimer: NodeJS.Timeout | null = null
+
   sock.ev.on('connection.update', async ({ connection, lastDisconnect, qr }) => {
     if (qr) {
       try {
@@ -298,27 +304,49 @@ export async function startSession(instanceKey: string, instanceId: string): Pro
         })
         console.log(`[WA] Conectado: ${instanceKey} (${phone})`)
         setTimeout(() => syncAvatars(instanceKey, instanceId).catch(() => {}), 8000)
+        // Conexão considerada estável depois de 15s sem cair de novo.
+        stableTimer = setTimeout(() => reconnectAttempts.set(instanceKey, 0), 15_000)
       } catch (e) { console.error('[WA] Erro ao atualizar CONNECTED:', e) }
     }
 
     if (connection === 'close') {
+      if (stableTimer) { clearTimeout(stableTimer); stableTimer = null }
+
       const code = (lastDisconnect?.error as Boom)?.output?.statusCode
       const loggedOut = code === DisconnectReason.loggedOut
 
       if (stoppingKeys.has(instanceKey)) { sockets.delete(instanceKey); return }
       sockets.delete(instanceKey)
 
-      if (loggedOut) {
+      const attempts = (reconnectAttempts.get(instanceKey) ?? 0) + 1
+      reconnectAttempts.set(instanceKey, attempts)
+
+      // badSession (500): a sessão local está corrompida/dessincronizada com o
+      // WhatsApp — reconectar com as mesmas credenciais nunca vai funcionar.
+      // multideviceMismatch (411): sessão de outro formato, mesma história.
+      // Depois de muitas tentativas seguidas sem ficar estável, desiste também
+      // (evita loop infinito gravando log e batendo timeout pra sempre).
+      const unrecoverable =
+        code === DisconnectReason.badSession ||
+        code === DisconnectReason.multideviceMismatch ||
+        attempts >= MAX_RECONNECT_ATTEMPTS
+
+      if (loggedOut || unrecoverable) {
         fs.rmSync(path.join(SESSIONS_DIR, instanceKey), { recursive: true, force: true })
         processedMsgs.delete(instanceKey)
         syncState.delete(instanceKey)
+        reconnectAttempts.delete(instanceKey)
         await prisma.whatsAppInstance.update({
           where: { instanceKey },
           data: { status: 'DISCONNECTED', qrCode: null, qrCodeExpiresAt: null, phoneNumber: null, displayName: null, disconnectedAt: new Date() },
         }).catch(() => {})
-        console.log(`[WA] Logout: ${instanceKey}`)
+        console.log(
+          loggedOut
+            ? `[WA] Logout: ${instanceKey}`
+            : `[WA] Sessão irrecuperável (código ${code}, ${attempts} tentativas): ${instanceKey}. Necessário reconectar via QR Code.`
+        )
       } else {
-        console.log(`[WA] Reconectando em 3s: ${instanceKey} (código ${code})`)
+        console.log(`[WA] Reconectando em 3s: ${instanceKey} (código ${code}, tentativa ${attempts}/${MAX_RECONNECT_ATTEMPTS})`)
         setTimeout(() => startSession(instanceKey, instanceId).catch(console.error), 3000)
       }
     }
@@ -437,6 +465,7 @@ export async function stopSession(instanceKey: string): Promise<void> {
   sockets.delete(instanceKey)
   processedMsgs.delete(instanceKey)
   syncState.delete(instanceKey)
+  reconnectAttempts.delete(instanceKey)
 
   if (sock) {
     try {

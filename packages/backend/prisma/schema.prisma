@@ -108,6 +108,8 @@ model User {
   lightIntegrations   LightIntegrationConfig[] @relation("DoctorLightIntegrations")
   lightLogs           LightMessageLog[]   @relation("DoctorLightLogs")
   lightSettings       LightSettings?      @relation("DoctorLightSettings")
+  lightFluxos         LightFluxo[]        @relation("DoctorLightFluxos")
+  lightQuickReplies   LightQuickReply[]   @relation("DoctorLightQuickReplies")
 
   @@map("TBLUSUARIO")
 }
@@ -704,6 +706,42 @@ model LightSettings {
   doctor         User     @relation("DoctorLightSettings", fields: [doctorId], references: [id])
 
   @@map("TBLCHATBOTLIGHTSETTINGS")
+}
+
+model LightFluxo {
+  id              String   @id @default(uuid())
+  doctorId        String
+  name            String
+  description     String?
+  keywords        String
+  welcomeMessage  String   @db.Text
+  options         Json     @default("[]")
+  maxAttempts     Int      @default(3)
+  fallbackMessage String   @default("Não consegui entender. Vou transferir para um atendente.") @db.Text
+  active          Boolean  @default(true)
+  executions      Int      @default(0)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  doctor          User     @relation("DoctorLightFluxos", fields: [doctorId], references: [id])
+
+  @@index([doctorId])
+  @@map("TBLCHATBOTLIGHTFLUXO")
+}
+
+model LightQuickReply {
+  id        String   @id @default(uuid())
+  doctorId  String
+  keyword   String
+  response  String   @db.Text
+  active    Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  doctor    User     @relation("DoctorLightQuickReplies", fields: [doctorId], references: [id])
+
+  @@index([doctorId])
+  @@map("TBLCHATBOTLIGHTQUICKREPLY")
 }
 
 model ChatbotSettings {

@@ -271,6 +271,167 @@ router.post('/test', async (req: AuthRequest, res) => {
   }
 })
 
+// ─── Fluxos ───────────────────────────────────────────────────────────────────
+
+const fluxoSchema = z.object({
+  name:            z.string().min(2, 'Nome obrigatório'),
+  description:     z.string().optional().nullable(),
+  keywords:        z.string().min(1, 'Palavras-chave obrigatórias'),
+  welcomeMessage:  z.string().min(5, 'Mensagem obrigatória'),
+  options:         z.array(z.object({
+    id:          z.string(),
+    number:      z.number().int().min(1),
+    label:       z.string().min(1),
+    action:      z.enum(['TRANSFER_AGENT', 'SEND_TEMPLATE', 'CONFIRM_APPOINTMENT', 'SEND_TEXT', 'CLOSE']),
+    actionValue: z.string().nullable(),
+  })).default([]),
+  maxAttempts:     z.number().int().min(1).max(10).default(3),
+  fallbackMessage: z.string().default('Não consegui entender. Vou transferir para um atendente.'),
+  active:          z.boolean().default(true),
+})
+
+router.get('/fluxos', async (req: AuthRequest, res) => {
+  try {
+    const doctorId = req.user!.userId
+    const fluxos = await prisma.lightFluxo.findMany({
+      where: { doctorId },
+      orderBy: { createdAt: 'desc' },
+    })
+    res.json(fluxos)
+  } catch {
+    res.status(500).json({ message: 'Erro interno do servidor' })
+  }
+})
+
+router.post('/fluxos', async (req: AuthRequest, res) => {
+  try {
+    const doctorId = req.user!.userId
+    const data = fluxoSchema.parse(req.body)
+    const fluxo = await prisma.lightFluxo.create({
+      data: { doctorId, ...data, options: data.options as object[] },
+    })
+    res.status(201).json(fluxo)
+  } catch (error) {
+    if (error instanceof z.ZodError) {
+      res.status(400).json({ message: 'Dados inválidos', errors: error.errors })
+      return
+    }
+    res.status(500).json({ message: 'Erro interno do servidor' })
+  }
+})
+
+router.put('/fluxos/:id', async (req: AuthRequest, res) => {
+  try {
+    const doctorId = req.user!.userId
+    const { id } = req.params
+    const data = fluxoSchema.partial().parse(req.body)
+
+    const result = await prisma.lightFluxo.updateMany({
+      where: { id, doctorId },
+      data: { ...data, options: data.options as object[] | undefined },
+    })
+
+    if (result.count === 0) {
+      res.status(404).json({ message: 'Fluxo não encontrado' })
+      return
+    }
+
+    const updated = await prisma.lightFluxo.findUnique({ where: { id } })
+    res.json(updated)
+  } catch (error) {
+    if (error instanceof z.ZodError) {
+      res.status(400).json({ message: 'Dados inválidos', errors: error.errors })
+      return
+    }
+    res.status(500).json({ message: 'Erro interno do servidor' })
+  }
+})
+
+router.delete('/fluxos/:id', async (req: AuthRequest, res) => {
+  try {
+    const doctorId = req.user!.userId
+    const { id } = req.params
+    await prisma.lightFluxo.deleteMany({ where: { id, doctorId } })
+    res.json({ message: 'Fluxo removido' })
+  } catch {
+    res.status(500).json({ message: 'Erro interno do servidor' })
+  }
+})
+
+// ─── Quick Replies ────────────────────────────────────────────────────────────
+
+const quickReplySchema = z.object({
+  keyword:  z.string().min(1, 'Palavra-chave obrigatória'),
+  response: z.string().min(1, 'Resposta obrigatória'),
+  active:   z.boolean().default(true),
+})
+
+router.get('/quick-replies', async (req: AuthRequest, res) => {
+  try {
+    const doctorId = req.user!.userId
+    const replies = await prisma.lightQuickReply.findMany({
+      where: { doctorId },
+      orderBy: { createdAt: 'desc' },
+    })
+    res.json(replies)
+  } catch {
+    res.status(500).json({ message: 'Erro interno do servidor' })
+  }
+})
+
+router.post('/quick-replies', async (req: AuthRequest, res) => {
+  try {
+    const doctorId = req.user!.userId
+    const data = quickReplySchema.parse(req.body)
+    const reply = await prisma.lightQuickReply.create({ data: { doctorId, ...data } })
+    res.status(201).json(reply)
+  } catch (error) {
+    if (error instanceof z.ZodError) {
+      res.status(400).json({ message: 'Dados inválidos', errors: error.errors })
+      return
+    }
+    res.status(500).json({ message: 'Erro interno do servidor' })
+  }
+})
+
+router.put('/quick-replies/:id', async (req: AuthRequest, res) => {
+  try {
+    const doctorId = req.user!.userId
+    const { id } = req.params
+    const data = quickReplySchema.partial().parse(req.body)
+
+    const result = await prisma.lightQuickReply.updateMany({
+      where: { id, doctorId },
+      data,
+    })
+
+    if (result.count === 0) {
+      res.status(404).json({ message: 'Resposta rápida não encontrada' })
+      return
+    }
+
+    const updated = await prisma.lightQuickReply.findUnique({ where: { id } })
+    res.json(updated)
+  } catch (error) {
+    if (error instanceof z.ZodError) {
+      res.status(400).json({ message: 'Dados inválidos', errors: error.errors })
+      return
+    }
+    res.status(500).json({ message: 'Erro interno do servidor' })
+  }
+})
+
+router.delete('/quick-replies/:id', async (req: AuthRequest, res) => {
+  try {
+    const doctorId = req.user!.userId
+    const { id } = req.params
+    await prisma.lightQuickReply.deleteMany({ where: { id, doctorId } })
+    res.json({ message: 'Resposta rápida removida' })
+  } catch {
+    res.status(500).json({ message: 'Erro interno do servidor' })
+  }
+})
+
 // ─── Settings (enabled screens) ───────────────────────────────────────────────
 
 router.get('/settings', async (req: AuthRequest, res) => {

@@ -46,6 +46,14 @@ export function registerMessageHandler(fn: MessageFn) {
 
 // ─── Envio de mensagens via Baileys ──────────────────────────────────────────
 
+// Indica se existe um socket Baileys realmente ativo em memória para essa instância.
+// O status salvo no banco (CONNECTED/CONNECTING/DISCONNECTED) pode ficar desatualizado
+// se o processo reiniciar e a sessão ainda não tiver sido restaurada, ou se a
+// reconexão estiver em loop (ex: erro 515) sem nunca abrir a conexão de novo.
+export function isSessionActive(instanceKey: string): boolean {
+  return sockets.has(instanceKey)
+}
+
 export async function sendWhatsAppMessage(
   instanceKey: string,
   jid: string,

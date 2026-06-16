@@ -13,6 +13,7 @@ import {
   sendWhatsAppMessage,
   markMessagesReadWA,
   sendTypingPresence,
+  isSessionActive,
 } from '../lib/whatsapp'
 
 const router = Router()
@@ -191,7 +192,20 @@ const upsertSettingsSchema = z.object({
 // ─── Helper: resolve or create instance ──────────────────────────────────────
 
 async function resolveInstance(userId: string) {
-  return prisma.whatsAppInstance.findUnique({ where: { doctorId: userId } })
+  const instance = await prisma.whatsAppInstance.findUnique({ where: { doctorId: userId } })
+  if (!instance) return instance
+
+  // O status no banco pode ficar desatualizado se o processo reiniciou e a sessão
+  // ainda não foi restaurada, ou se a reconexão está em loop sem nunca abrir.
+  // Corrige aqui para a tela de Configurações nunca mostrar "Conectado" com a sessão morta.
+  if (instance.status === 'CONNECTED' && !isSessionActive(instance.instanceKey)) {
+    return prisma.whatsAppInstance.update({
+      where: { id: instance.id },
+      data: { status: 'DISCONNECTED', disconnectedAt: new Date() },
+    }).catch(() => instance)
+  }
+
+  return instance
 }
 
 async function resolveOrCreateInstance(userId: string) {

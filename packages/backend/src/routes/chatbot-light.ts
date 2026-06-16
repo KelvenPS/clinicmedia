@@ -2,7 +2,7 @@ import { Router } from 'express'
 import { z } from 'zod'
 import { prisma } from '../lib/prisma'
 import { authenticate, requireFeature, AuthRequest } from '../middleware/auth'
-import { sendWhatsAppMessage } from '../lib/whatsapp'
+import { sendWhatsAppMessage, isSessionActive } from '../lib/whatsapp'
 import { requireSecretaryPermission } from '../lib/secretaryAccess'
 
 const router = Router()
@@ -243,6 +243,17 @@ router.post('/test', async (req: AuthRequest, res) => {
       return
     }
 
+    // O status no banco pode estar desatualizado em relação à sessão Baileys real
+    // (processo reiniciou, sessão caiu em loop de reconexão, etc).
+    if (!isSessionActive(instance.instanceKey)) {
+      await prisma.whatsAppInstance.update({
+        where: { id: instance.id },
+        data: { status: 'DISCONNECTED', disconnectedAt: new Date() },
+      }).catch(() => {})
+      res.status(400).json({ message: 'A sessão do WhatsApp caiu. Reconecte na aba Conexão e tente novamente.' })
+      return
+    }
+
     const log = await prisma.lightMessageLog.create({
       data: { doctorId, phone, content, module: 'teste', status: 'PENDING' },
     })
@@ -250,7 +261,7 @@ router.post('/test', async (req: AuthRequest, res) => {
     try {
       const jid = `${phone.replace(/\D/g, '')}@s.whatsapp.net`
       const result = await sendWhatsAppMessage(instance.instanceKey, jid, content)
-      if (!result) throw new Error('Socket indisponível')
+      if (!result) throw new Error('Não foi possível enviar: sessão indisponível ou número inválido')
 
       const updated = await prisma.lightMessageLog.update({
         where: { id: log.id },
@@ -262,7 +273,7 @@ router.post('/test', async (req: AuthRequest, res) => {
         where: { id: log.id },
         data: { status: 'FAILED', errorMessage: String(sendErr) },
       })
-      res.status(500).json({ message: 'Falha ao enviar', log: updated })
+      res.status(502).json({ message: 'Falha ao enviar a mensagem pelo WhatsApp', log: updated })
     }
   } catch (error) {
     if (error instanceof z.ZodError) {

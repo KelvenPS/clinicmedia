@@ -342,23 +342,24 @@ export async function startSession(instanceKey: string, instanceId: string): Pro
           data: { status: 'CONNECTED', qrCode: null, qrCodeExpiresAt: null, connectedAt: new Date(), phoneNumber: phone || null, displayName: sock.user?.name ?? null },
         })
 
-        // ── Zera reconnectAttempts imediatamente ao conectar ──
-        // O backoff delay volta ao mínimo (3s) assim que a conexão abre.
-        reconnectAttempts.set(instanceKey, 0)
         console.log(`[WA] Conectado: ${instanceKey} (${phone})`)
 
         // Usa a geração atual para cancelar syncs de sessões anteriores
         const currentGen = sessionGeneration.get(instanceKey) ?? gen
         setTimeout(() => syncAvatars(instanceKey, instanceId, currentGen).catch(() => {}), 8000)
 
-        // sessionErrorStreak só é zerado depois que a conexão fica estável por
-        // 30s — se a conexão abre e cai em segundos (falso open), o streak
-        // precisa continuar acumulando para eventualmente limpar a sessão
-        // corrompida e pedir novo QR Code.
+        // reconnectAttempts e sessionErrorStreak só são zerados depois que a
+        // conexão fica estável por 30s — NÃO zerar no open imediatamente: se
+        // a conexão abre e cai em segundos (falso open), zerar aqui faria o
+        // backoff voltar ao mínimo (3s) a cada ciclo, gerando reconexões
+        // muito rápidas e repetidas que o próprio WhatsApp pode interpretar
+        // como comportamento automatizado/abusivo e passar a rejeitar a
+        // sessão — piorando exatamente o problema que estamos tentando evitar.
         stableTimer = setTimeout(() => {
           if (sockets.has(instanceKey)) {
+            reconnectAttempts.delete(instanceKey)
             sessionErrorStreak.delete(instanceKey)
-            console.log(`[WA] Conexão estável (30s), streak zerado: ${instanceKey}`)
+            console.log(`[WA] Conexão estável (30s), contadores zerados: ${instanceKey}`)
           }
         }, 30_000)
       } catch (e) { console.error('[WA] Erro ao atualizar CONNECTED:', e) }

@@ -395,6 +395,15 @@ export async function startSession(instanceKey: string, instanceId: string): Pro
       const sessionCorrupted = isSessionError && sessionErrors >= MAX_SESSION_ERROR_STREAK
 
       if (loggedOut || sessionCorrupted) {
+        // Remove os listeners ANTES de apagar os arquivos — o Baileys pode
+        // disparar um 'creds.update' final durante o teardown da conexão,
+        // o que chamaria saveCreds() e recriaria creds.json com as MESMAS
+        // credenciais corrompidas logo após o rmSync, anulando o wipe.
+        try {
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          ;(sock.ev as any).removeAllListeners()
+        } catch { /* ignorado */ }
+
         // O cleanup (limpar memória + marcar DISCONNECTED no banco) precisa
         // acontecer mesmo que a remoção dos arquivos falhe — senão o próximo
         // reconnect reaproveita as MESMAS credenciais corrompidas e repete o

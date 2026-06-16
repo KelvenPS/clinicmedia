@@ -351,7 +351,15 @@ export async function startSession(instanceKey: string, instanceId: string): Pro
       const sessionCorrupted = isSessionError && sessionErrors >= MAX_SESSION_ERROR_STREAK
 
       if (loggedOut || sessionCorrupted) {
-        fs.rmSync(path.join(SESSIONS_DIR, instanceKey), { recursive: true, force: true })
+        // O cleanup (limpar memória + marcar DISCONNECTED no banco) precisa
+        // acontecer mesmo que a remoção dos arquivos falhe — senão o próximo
+        // reconnect reaproveita as MESMAS credenciais corrompidas e repete o
+        // ciclo de falha indefinidamente sem nunca pedir QR novo.
+        try {
+          fs.rmSync(path.join(SESSIONS_DIR, instanceKey), { recursive: true, force: true })
+        } catch (e) {
+          console.error(`[WA] Falha ao remover sessão em disco (${instanceKey}):`, e)
+        }
         processedMsgs.delete(instanceKey)
         syncState.delete(instanceKey)
         reconnectAttempts.delete(instanceKey)
@@ -359,7 +367,7 @@ export async function startSession(instanceKey: string, instanceId: string): Pro
         await prisma.whatsAppInstance.update({
           where: { instanceKey },
           data: { status: 'DISCONNECTED', qrCode: null, qrCodeExpiresAt: null, phoneNumber: null, displayName: null, disconnectedAt: new Date() },
-        }).catch(() => {})
+        }).catch(e => console.error(`[WA] Falha ao marcar DISCONNECTED (${instanceKey}):`, e))
         console.log(
           loggedOut
             ? `[WA] Logout: ${instanceKey}`

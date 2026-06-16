@@ -24,7 +24,12 @@ const logger = { level: 'silent', trace: ()=>{}, debug: ()=>{}, info: ()=>{}, wa
 const sockets    = new Map<string, ReturnType<typeof makeWASocket>>()
 const stoppingKeys = new Set<string>()
 const reconnectAttempts = new Map<string, number>()
-const MAX_RECONNECT_ATTEMPTS = 5
+
+// Falhas consecutivas de erro de sessão (badSession/multideviceMismatch). Um único
+// 500 isolado costuma ser instabilidade transitória da rede da VPS, não sessão
+// corrompida de fato — só forçamos novo QR depois de várias seguidas.
+const sessionErrorStreak = new Map<string, number>()
+const MAX_SESSION_ERROR_STREAK = 3
 
 // IDs de mensagens WA já processados (evita duplicata mesmo após restart graças ao DB)
 const processedMsgs = new Map<string, Set<string>>()
@@ -280,6 +285,11 @@ export async function startSession(instanceKey: string, instanceId: string): Pro
     // o default da lib é curto demais para esta VPS.
     defaultQueryTimeoutMs: 60_000,
     connectTimeoutMs: 60_000,
+    // Mantém o socket vivo com pings periódicos — sem isso, conexões em VPS com
+    // NAT/firewall mais agressivo caem sozinhas por ociosidade e voltam como
+    // badSession/connectionLost no reconnect seguinte.
+    keepAliveIntervalMs: 25_000,
+    markOnlineOnConnect: false,
   })
 
   sockets.set(instanceKey, sock)
@@ -328,21 +338,24 @@ export async function startSession(instanceKey: string, instanceId: string): Pro
       const attempts = (reconnectAttempts.get(instanceKey) ?? 0) + 1
       reconnectAttempts.set(instanceKey, attempts)
 
-      // badSession (500): a sessão local está corrompida/dessincronizada com o
-      // WhatsApp — reconectar com as mesmas credenciais nunca vai funcionar.
-      // multideviceMismatch (411): sessão de outro formato, mesma história.
-      // Depois de muitas tentativas seguidas sem ficar estável, desiste também
-      // (evita loop infinito gravando log e batendo timeout pra sempre).
-      const unrecoverable =
-        code === DisconnectReason.badSession ||
-        code === DisconnectReason.multideviceMismatch ||
-        attempts >= MAX_RECONNECT_ATTEMPTS
+      // badSession (500) e multideviceMismatch (411) podem ser instabilidade
+      // transitória de rede (comum em VPS) e não necessariamente sessão corrompida.
+      // Só consideramos a sessão de fato corrompida quando o MESMO tipo de erro se
+      // repete várias vezes seguidas — uma ocorrência isolada não derruba as
+      // credenciais e força QR novo sem necessidade.
+      const isSessionError = code === DisconnectReason.badSession || code === DisconnectReason.multideviceMismatch
+      const sessionErrors = isSessionError ? (sessionErrorStreak.get(instanceKey) ?? 0) + 1 : 0
+      if (isSessionError) sessionErrorStreak.set(instanceKey, sessionErrors)
+      else sessionErrorStreak.delete(instanceKey)
 
-      if (loggedOut || unrecoverable) {
+      const sessionCorrupted = isSessionError && sessionErrors >= MAX_SESSION_ERROR_STREAK
+
+      if (loggedOut || sessionCorrupted) {
         fs.rmSync(path.join(SESSIONS_DIR, instanceKey), { recursive: true, force: true })
         processedMsgs.delete(instanceKey)
         syncState.delete(instanceKey)
         reconnectAttempts.delete(instanceKey)
+        sessionErrorStreak.delete(instanceKey)
         await prisma.whatsAppInstance.update({
           where: { instanceKey },
           data: { status: 'DISCONNECTED', qrCode: null, qrCodeExpiresAt: null, phoneNumber: null, displayName: null, disconnectedAt: new Date() },
@@ -350,11 +363,16 @@ export async function startSession(instanceKey: string, instanceId: string): Pro
         console.log(
           loggedOut
             ? `[WA] Logout: ${instanceKey}`
-            : `[WA] Sessão irrecuperável (código ${code}, ${attempts} tentativas): ${instanceKey}. Necessário reconectar via QR Code.`
+            : `[WA] Sessão irrecuperável (código ${code}, ${sessionErrors} falhas seguidas): ${instanceKey}. Necessário reconectar via QR Code.`
         )
       } else {
-        console.log(`[WA] Reconectando em 3s: ${instanceKey} (código ${code}, tentativa ${attempts}/${MAX_RECONNECT_ATTEMPTS})`)
-        setTimeout(() => startSession(instanceKey, instanceId).catch(console.error), 3000)
+        // Mantém tentando reconectar indefinidamente com backoff progressivo
+        // (cap em 60s) — credenciais só são descartadas em logout real ou
+        // sessão comprovadamente corrompida (acima). Instabilidade de rede na
+        // VPS não deve exigir reconexão manual via QR Code.
+        const delay = Math.min(3000 * attempts, 60_000)
+        console.log(`[WA] Reconectando em ${delay / 1000}s: ${instanceKey} (código ${code}, tentativa ${attempts})`)
+        setTimeout(() => startSession(instanceKey, instanceId).catch(console.error), delay)
       }
     }
   })
@@ -473,6 +491,7 @@ export async function stopSession(instanceKey: string): Promise<void> {
   processedMsgs.delete(instanceKey)
   syncState.delete(instanceKey)
   reconnectAttempts.delete(instanceKey)
+  sessionErrorStreak.delete(instanceKey)
 
   if (sock) {
     try {

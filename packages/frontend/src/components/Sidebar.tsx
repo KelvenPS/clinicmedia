@@ -171,7 +171,7 @@ export default function Sidebar({ collapsed = false, onToggleCollapse }: Sidebar
         {/* ── Automação ── */}
         <div className={`${collapsed ? 'mt-3 pt-3' : 'mt-5 pt-4'} border-t border-white/8`}>
           {!collapsed && (
-            <p className="section-label mb-2">Automação</p>
+            <p className="section-label mb-2">WhatsApp</p>
           )}
 
           {/* Chatbot — expandable in expanded mode, direct nav in collapsed */}
@@ -183,7 +183,7 @@ export default function Sidebar({ collapsed = false, onToggleCollapse }: Sidebar
               }
             >
               <Bot className={`w-5 h-5 flex-shrink-0 transition-all duration-200 ${isChatbotRoute ? 'text-white' : 'text-slate-400 group-hover:text-white group-hover:scale-110'}`} />
-              <span className="tooltip">Chatbot IA</span>
+              <span className="tooltip">Chatbot</span>
             </NavLink>
           ) : (
             <div>
@@ -193,7 +193,7 @@ export default function Sidebar({ collapsed = false, onToggleCollapse }: Sidebar
                 className={`sidebar-link group w-full text-left ${isChatbotRoute ? 'active' : ''}`}
               >
                 <Bot className={`w-5 h-5 flex-shrink-0 transition-all duration-200 ${isChatbotRoute ? 'text-white' : 'text-slate-400 group-hover:text-white group-hover:scale-110'}`} />
-                <span className="flex-1 overflow-hidden whitespace-nowrap">Chatbot IA</span>
+                <span className="flex-1 overflow-hidden whitespace-nowrap">Chatbot</span>
                 <span className="inline-flex items-center gap-1 text-xs bg-cyan-500/20 text-cyan-400 px-1.5 py-0.5 rounded-md font-semibold border border-cyan-500/20 mr-1">
                   <span className="w-1.5 h-1.5 rounded-full bg-cyan-400 animate-pulse-soft" />
                   NOVO

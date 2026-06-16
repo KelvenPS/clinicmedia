@@ -10,7 +10,7 @@ import {
   Plus, Pencil, Trash2, Send, Wifi, WifiOff,
   CheckCircle2, XCircle, Clock, Loader2, AlertCircle,
   ToggleLeft, ToggleRight, Eye, EyeOff, QrCode,
-  Zap, Sparkles, GitBranch, Reply, X, FileText,
+  Zap, GitBranch, Reply, X, FileText,
 } from 'lucide-react'
 import toast from 'react-hot-toast'
 import api from '../lib/api'
@@ -1889,17 +1889,6 @@ export default function ChatbotLight() {
             />
           ))}
 
-          <div className="border-t border-white/8 mt-4 pt-4">
-            <p className="text-xs font-semibold text-slate-500 uppercase tracking-widest px-3 mb-2">Outros módulos</p>
-            <Link
-              to="/chatbot/agente"
-              className="flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium text-slate-400 hover:text-white hover:bg-white/6 transition-all duration-150"
-            >
-              <Sparkles className="w-4 h-4 flex-shrink-0" />
-              <span>Agente Clínico</span>
-              <span className="ml-auto text-xs bg-violet-500/20 text-violet-400 px-1.5 py-0.5 rounded-md border border-violet-500/20">IA</span>
-            </Link>
-          </div>
         </nav>
 
         {/* WhatsApp connection status */}

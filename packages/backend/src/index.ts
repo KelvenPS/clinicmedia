@@ -21,7 +21,7 @@ import subscriptionRoutes from './routes/subscriptions'
 import integrationRoutes from './routes/integrations'
 import chatbotRoutes from './routes/chatbot'
 import chatbotLightRoutes from './routes/chatbot-light'
-import { restoreSessions } from './lib/whatsapp'
+import { restoreSessions, startHealthWatchdog } from './lib/whatsapp'
 import adminRoutes from './routes/admin'
 import adminSqlRoutes from './routes/admin-sql'
 
@@ -100,6 +100,9 @@ app.listen(PORT, () => {
 
   // Restaura sessões WhatsApp ativas após restart do servidor
   restoreSessions().catch(err => console.error('[WA] Erro ao restaurar sessões:', err))
+
+  // Inicia watchdog que monitora e restaura sessões WhatsApp que morrem silenciosamente
+  startHealthWatchdog()
 })
 
 export default app

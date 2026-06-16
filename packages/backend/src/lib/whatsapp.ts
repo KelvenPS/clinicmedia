@@ -29,10 +29,17 @@ const reconnectAttempts = new Map<string, number>()
 // 500 isolado costuma ser instabilidade transitória da rede da VPS, não sessão
 // corrompida de fato — só forçamos novo QR depois de várias seguidas.
 const sessionErrorStreak = new Map<string, number>()
-const MAX_SESSION_ERROR_STREAK = 3
+const MAX_SESSION_ERROR_STREAK = 5
 
 // IDs de mensagens WA já processados (evita duplicata mesmo após restart graças ao DB)
 const processedMsgs = new Map<string, Set<string>>()
+
+// Geração da sessão — incrementa a cada startSession para cancelar syncAvatars
+// que ficaram pendentes de uma sessão anterior (evita N syncs em paralelo).
+const sessionGeneration = new Map<string, number>()
+
+// Lock para evitar chamadas concorrentes a startSession para a mesma instanceKey
+const startingKeys = new Set<string>()
 
 // Estado de sincronização
 interface SyncState { syncing: boolean; total: number; syncedAt: Date | null }
@@ -126,7 +133,7 @@ export async function refreshContactAvatar(
   return null
 }
 
-async function syncAvatars(instanceKey: string, instanceId: string): Promise<void> {
+async function syncAvatars(instanceKey: string, instanceId: string, generation: number): Promise<void> {
   const convs = await prisma.conversation.findMany({
     where: { instanceId, contactAvatar: null },
     select: { id: true, contactPhone: true, isGroup: true },
@@ -134,12 +141,16 @@ async function syncAvatars(instanceKey: string, instanceId: string): Promise<voi
     take: 80,
   })
   for (const conv of convs) {
-    if (!sockets.has(instanceKey)) break
+    // Cancela se o socket morreu ou se uma nova sessão (geração) foi iniciada
+    if (!sockets.has(instanceKey) || sessionGeneration.get(instanceKey) !== generation) break
     const jid = conv.isGroup ? `${conv.contactPhone}@g.us` : `${conv.contactPhone}@s.whatsapp.net`
     await refreshContactAvatar(instanceKey, jid, conv.id)
     await new Promise(r => setTimeout(r, 600))
   }
-  console.log(`[WA] Avatar sync concluído: ${instanceKey}`)
+  // Só loga se ainda é a mesma geração (evita log poluído de syncs cancelados)
+  if (sessionGeneration.get(instanceKey) === generation) {
+    console.log(`[WA] Avatar sync concluído: ${instanceKey}`)
+  }
 }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -259,7 +270,18 @@ async function syncHistory(
 // ─── Inicia sessão Baileys ────────────────────────────────────────────────────
 
 export async function startSession(instanceKey: string, instanceId: string): Promise<void> {
+  // Proteção contra chamadas concorrentes — se já está iniciando esta sessão, ignora
+  if (startingKeys.has(instanceKey)) {
+    console.log(`[WA] startSession ignorado (já em andamento): ${instanceKey}`)
+    return
+  }
+  startingKeys.add(instanceKey)
+
   closeSocket(instanceKey)
+
+  // Incrementa a geração para cancelar syncAvatars pendentes da sessão anterior
+  const gen = (sessionGeneration.get(instanceKey) ?? 0) + 1
+  sessionGeneration.set(instanceKey, gen)
 
   processedMsgs.set(instanceKey, new Set())
   syncState.set(instanceKey, { syncing: false, total: 0, syncedAt: null })
@@ -293,11 +315,11 @@ export async function startSession(instanceKey: string, instanceId: string): Pro
   })
 
   sockets.set(instanceKey, sock)
+  startingKeys.delete(instanceKey) // Libera o lock agora que o socket foi criado
 
   // ── Conexão ──────────────────────────────────────────────────────────────────
 
-  // Só zera o contador de tentativas depois que a conexão fica estável por um
-  // tempo — senão um ciclo "abre e cai na hora" (ex: badSession) nunca acumula.
+  // Timer que loga conexão estável após 30s sem cair de novo (apenas telemetria).
   let stableTimer: NodeJS.Timeout | null = null
 
   sock.ev.on('connection.update', async ({ connection, lastDisconnect, qr }) => {
@@ -319,10 +341,24 @@ export async function startSession(instanceKey: string, instanceId: string): Pro
           where: { instanceKey },
           data: { status: 'CONNECTED', qrCode: null, qrCodeExpiresAt: null, connectedAt: new Date(), phoneNumber: phone || null, displayName: sock.user?.name ?? null },
         })
+
+        // ── Zera contadores imediatamente ao conectar ──
+        // Se a conexão abriu, as credenciais funcionaram — sessionErrorStreak
+        // não deve acumular entre ciclos "abre e cai".
+        reconnectAttempts.set(instanceKey, 0)
+        sessionErrorStreak.delete(instanceKey)
         console.log(`[WA] Conectado: ${instanceKey} (${phone})`)
-        setTimeout(() => syncAvatars(instanceKey, instanceId).catch(() => {}), 8000)
-        // Conexão considerada estável depois de 15s sem cair de novo.
-        stableTimer = setTimeout(() => reconnectAttempts.set(instanceKey, 0), 15_000)
+
+        // Usa a geração atual para cancelar syncs de sessões anteriores
+        const currentGen = sessionGeneration.get(instanceKey) ?? gen
+        setTimeout(() => syncAvatars(instanceKey, instanceId, currentGen).catch(() => {}), 8000)
+
+        // Timer de telemetria — loga quando a conexão fica estável por 30s
+        stableTimer = setTimeout(() => {
+          if (sockets.has(instanceKey)) {
+            console.log(`[WA] Conexão estável (30s): ${instanceKey}`)
+          }
+        }, 30_000)
       } catch (e) { console.error('[WA] Erro ao atualizar CONNECTED:', e) }
     }
 
@@ -343,10 +379,17 @@ export async function startSession(instanceKey: string, instanceId: string): Pro
       // Só consideramos a sessão de fato corrompida quando o MESMO tipo de erro se
       // repete várias vezes seguidas — uma ocorrência isolada não derruba as
       // credenciais e força QR novo sem necessidade.
-      const isSessionError = code === DisconnectReason.badSession || code === DisconnectReason.multideviceMismatch
+      //
+      // NOTA: código 515 (restartRequired / stream restart) NÃO é erro de sessão —
+      // é o WhatsApp pedindo para reiniciar o stream, comportamento normal em
+      // conexões de longa duração. Não deve contar no streak.
+      const isSessionError = (
+        code === DisconnectReason.badSession ||
+        code === DisconnectReason.multideviceMismatch
+      ) && code !== 515 // 515 = restartRequired, não é sessão corrompida
       const sessionErrors = isSessionError ? (sessionErrorStreak.get(instanceKey) ?? 0) + 1 : 0
       if (isSessionError) sessionErrorStreak.set(instanceKey, sessionErrors)
-      else sessionErrorStreak.delete(instanceKey)
+      else if (!isSessionError && code !== 515) sessionErrorStreak.delete(instanceKey)
 
       const sessionCorrupted = isSessionError && sessionErrors >= MAX_SESSION_ERROR_STREAK
 
@@ -488,6 +531,8 @@ export async function startSession(instanceKey: string, instanceId: string): Pro
       }).catch(() => {})
     }
   })
+  // Libera lock caso startSession falhe antes de criar o socket
+  startingKeys.delete(instanceKey)
 }
 
 // ─── Encerra sessão ───────────────────────────────────────────────────────────
@@ -545,4 +590,72 @@ export async function restoreSessions(): Promise<void> {
       }).catch(() => {})
     }
   }
+}
+
+// ─── Health Watchdog ──────────────────────────────────────────────────────────
+// Verifica periodicamente se instâncias marcadas como CONNECTED no banco
+// realmente têm um socket ativo em memória. Se não, tenta restaurar.
+// Também detecta instâncias com active=true que estão DISCONNECTED há muito
+// tempo e têm credenciais em disco (sessão que morreu sem reconectar).
+
+let watchdogInterval: NodeJS.Timeout | null = null
+
+export function startHealthWatchdog(): void {
+  if (watchdogInterval) return // já está rodando
+
+  const WATCHDOG_INTERVAL_MS = 60_000 // 1 minuto
+
+  watchdogInterval = setInterval(async () => {
+    try {
+      // 1. Instâncias que o banco diz CONNECTED mas não têm socket em memória
+      const connectedInstances = await prisma.whatsAppInstance.findMany({
+        where: { status: 'CONNECTED' },
+        select: { id: true, instanceKey: true },
+      }).catch(() => [])
+
+      for (const inst of connectedInstances) {
+        if (!sockets.has(inst.instanceKey) && !startingKeys.has(inst.instanceKey)) {
+          const sessDir = path.join(SESSIONS_DIR, inst.instanceKey)
+          if (fs.existsSync(sessDir)) {
+            console.log(`[WA] Watchdog: restaurando sessão zumbi (CONNECTED sem socket): ${inst.instanceKey}`)
+            startSession(inst.instanceKey, inst.id).catch(console.error)
+          } else {
+            // Sem credenciais em disco — marcar como DISCONNECTED
+            console.log(`[WA] Watchdog: marcando DISCONNECTED (sem credenciais): ${inst.instanceKey}`)
+            await prisma.whatsAppInstance.update({
+              where: { id: inst.id },
+              data: { status: 'DISCONNECTED', disconnectedAt: new Date() },
+            }).catch(() => {})
+          }
+        }
+      }
+
+      // 2. Instâncias DISCONNECTED com active=true que têm credenciais em disco
+      //    (sessão que caiu e o reconnect falhou, mas as credenciais ainda existem)
+      const disconnectedInstances = await prisma.whatsAppInstance.findMany({
+        where: {
+          status: 'DISCONNECTED',
+          active: true,
+          // Só tenta restaurar se desconectou há mais de 2 minutos
+          // (evita conflito com reconexão que já está em andamento)
+          disconnectedAt: { lt: new Date(Date.now() - 120_000) },
+        },
+        select: { id: true, instanceKey: true },
+      }).catch(() => [])
+
+      for (const inst of disconnectedInstances) {
+        if (!sockets.has(inst.instanceKey) && !startingKeys.has(inst.instanceKey)) {
+          const sessDir = path.join(SESSIONS_DIR, inst.instanceKey)
+          if (fs.existsSync(sessDir)) {
+            console.log(`[WA] Watchdog: tentando restaurar sessão DISCONNECTED com credenciais: ${inst.instanceKey}`)
+            startSession(inst.instanceKey, inst.id).catch(console.error)
+          }
+        }
+      }
+    } catch (e) {
+      console.error('[WA] Watchdog erro:', e)
+    }
+  }, WATCHDOG_INTERVAL_MS)
+
+  console.log('[WA] Health watchdog iniciado (intervalo: 60s)')
 }

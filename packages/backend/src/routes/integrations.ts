@@ -3,10 +3,12 @@ import { z } from 'zod'
 import { prisma } from '../lib/prisma'
 import { authenticate, requireRole, AuthRequest } from '../middleware/auth'
 import { fireWebhooks } from '../lib/webhook'
+import { getEffectiveDoctorId, requireSecretaryPermission } from '../lib/secretaryAccess'
 
 const router = Router()
 router.use(authenticate)
-router.use(requireRole('DOCTOR', 'ADMIN'))
+router.use(requireRole('DOCTOR', 'ADMIN', 'SECRETARY'))
+router.use(requireSecretaryPermission('integracoes'))
 
 const ALLOWED_EVENTS = [
   'appointment.created',
@@ -27,9 +29,9 @@ const integrationSchema = z.object({
 
 router.get('/', async (req: AuthRequest, res) => {
   try {
-    const doctorId = req.user!.userId
+    const doctorId = await getEffectiveDoctorId(req)
     const integrations = await prisma.integration.findMany({
-      where: { doctorId },
+      where: { doctorId: doctorId ?? undefined },
       include: {
         _count: { select: { webhookLogs: true } },
       },
@@ -43,7 +45,11 @@ router.get('/', async (req: AuthRequest, res) => {
 
 router.post('/', async (req: AuthRequest, res) => {
   try {
-    const doctorId = req.user!.userId
+    const doctorId = await getEffectiveDoctorId(req)
+    if (!doctorId) {
+      res.status(400).json({ message: 'Não foi possível identificar o médico responsável' })
+      return
+    }
     const data = integrationSchema.parse(req.body)
 
     const integration = await prisma.integration.create({
@@ -69,7 +75,7 @@ router.post('/', async (req: AuthRequest, res) => {
 router.put('/:id', async (req: AuthRequest, res) => {
   try {
     const { id } = req.params
-    const doctorId = req.user!.userId
+    const doctorId = await getEffectiveDoctorId(req)
     const data = integrationSchema.partial().parse(req.body)
 
     const existing = await prisma.integration.findUnique({ where: { id } })
@@ -100,7 +106,7 @@ router.put('/:id', async (req: AuthRequest, res) => {
 router.patch('/:id/toggle', async (req: AuthRequest, res) => {
   try {
     const { id } = req.params
-    const doctorId = req.user!.userId
+    const doctorId = await getEffectiveDoctorId(req)
 
     const existing = await prisma.integration.findUnique({ where: { id } })
     if (!existing || existing.doctorId !== doctorId) {
@@ -121,7 +127,7 @@ router.patch('/:id/toggle', async (req: AuthRequest, res) => {
 router.delete('/:id', async (req: AuthRequest, res) => {
   try {
     const { id } = req.params
-    const doctorId = req.user!.userId
+    const doctorId = await getEffectiveDoctorId(req)
 
     const existing = await prisma.integration.findUnique({ where: { id } })
     if (!existing || existing.doctorId !== doctorId) {
@@ -140,7 +146,7 @@ router.delete('/:id', async (req: AuthRequest, res) => {
 router.post('/:id/test', async (req: AuthRequest, res) => {
   try {
     const { id } = req.params
-    const doctorId = req.user!.userId
+    const doctorId = await getEffectiveDoctorId(req)
 
     const integration = await prisma.integration.findUnique({ where: { id } })
     if (!integration || integration.doctorId !== doctorId) {
@@ -178,7 +184,7 @@ router.post('/:id/test', async (req: AuthRequest, res) => {
 router.get('/:id/logs', async (req: AuthRequest, res) => {
   try {
     const { id } = req.params
-    const doctorId = req.user!.userId
+    const doctorId = await getEffectiveDoctorId(req)
 
     const integration = await prisma.integration.findUnique({ where: { id } })
     if (!integration || integration.doctorId !== doctorId) {

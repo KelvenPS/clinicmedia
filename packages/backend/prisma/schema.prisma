@@ -119,6 +119,7 @@ model DoctorSecretary {
   doctorId    String
   secretaryId String
   active      Boolean  @default(true)
+  permissions Json     @default("{}")
   createdAt   DateTime @default(now())
 
   doctor    User @relation("DoctorTeam", fields: [doctorId], references: [id])

@@ -1,7 +1,7 @@
-import { Zap, ArrowLeft, MessageSquare, Clock, ListFilter, Users, ClipboardList, GitBranch, Settings, ChevronDown, UsersRound } from 'lucide-react'
+import { Zap, ArrowLeft, MessageSquare, Clock, ListFilter, Users, ClipboardList, GitBranch, Settings, ChevronDown, UsersRound, WifiOff } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
-import { type ActivePanel, type ConversationCategory, type Conversation } from '../../types/chatbot'
+import { type ActivePanel, type ConversationCategory, type Conversation, type ChatbotInstance } from '../../types/chatbot'
 import api from '../../lib/api'
 
 interface Props {
@@ -22,6 +22,14 @@ export default function AppSidebar({
   userSpecialty,
 }: Props) {
   const navigate = useNavigate()
+
+  const { data: instance } = useQuery<ChatbotInstance | null>({
+    queryKey: ['chatbot-instance'],
+    queryFn: () => api.get('/chatbot/instance').then(r => r.data),
+    retry: 1,
+    refetchInterval: 10_000,
+  })
+  const isConnected = instance?.status === 'CONNECTED'
 
   const { data: conversations } = useQuery<Conversation[]>({
     queryKey: ['chatbot-conversations', 'TODOS'],
@@ -70,6 +78,15 @@ export default function AppSidebar({
           <ArrowLeft className="w-3.5 h-3.5" />
           <span>Voltar ao Menu Principal</span>
         </button>
+
+        {!isConnected && (
+          <div className="mt-3 flex items-center gap-2 px-3 py-2 bg-amber-500/10 border border-amber-500/20 rounded-lg">
+            <WifiOff className="w-3.5 h-3.5 text-amber-400 flex-shrink-0" />
+            <p className="text-[10.5px] text-amber-300 leading-tight">
+              WhatsApp desconectado — exibindo histórico
+            </p>
+          </div>
+        )}
       </div>
 
       {/* Main Navigation */}

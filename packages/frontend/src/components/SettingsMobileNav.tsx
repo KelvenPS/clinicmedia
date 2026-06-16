@@ -1,11 +1,13 @@
 import { NavLink, useLocation } from 'react-router-dom'
 import { useAuthStore } from '../store/authStore'
 import { getVisibleSettingsNav } from '../config/settingsNav'
+import { useSecretaryPermissions } from '../hooks/useSecretaryPermissions'
 
 export default function SettingsMobileNav() {
   const { user } = useAuthStore()
   const location = useLocation()
-  const items = getVisibleSettingsNav(user?.role)
+  const { permissions } = useSecretaryPermissions()
+  const items = getVisibleSettingsNav(user?.role, permissions)
 
   if (items.length === 0) return null
 

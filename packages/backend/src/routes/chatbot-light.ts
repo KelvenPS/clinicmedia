@@ -3,10 +3,12 @@ import { z } from 'zod'
 import { prisma } from '../lib/prisma'
 import { authenticate, requireFeature, AuthRequest } from '../middleware/auth'
 import { sendWhatsAppMessage } from '../lib/whatsapp'
+import { requireSecretaryPermission } from '../lib/secretaryAccess'
 
 const router = Router()
 router.use(authenticate)
 router.use(requireFeature('chatbot'))
+router.use(requireSecretaryPermission('chatbot'))
 
 // ─── Dashboard ────────────────────────────────────────────────────────────────
 
@@ -279,11 +281,15 @@ const fluxoSchema = z.object({
   keywords:        z.string().min(1, 'Palavras-chave obrigatórias'),
   welcomeMessage:  z.string().min(5, 'Mensagem obrigatória'),
   options:         z.array(z.object({
-    id:          z.string(),
-    number:      z.number().int().min(1),
-    label:       z.string().min(1),
-    action:      z.enum(['TRANSFER_AGENT', 'SEND_TEMPLATE', 'CONFIRM_APPOINTMENT', 'SEND_TEXT', 'CLOSE']),
-    actionValue: z.string().nullable(),
+    id:           z.string(),
+    number:       z.number().int().min(1),
+    label:        z.string().min(1),
+    triggers:     z.string().min(1),
+    response:     z.string().min(1),
+    actionType:   z.enum(['SEND_MESSAGE', 'TRANSFER_QUEUE', 'OPEN_MENU', 'SYSTEM_ACTION', 'END_CHAT']),
+    queueId:      z.string().nullable().optional(),
+    nextFlowId:   z.string().nullable().optional(),
+    systemAction: z.string().nullable().optional(),
   })).default([]),
   maxAttempts:     z.number().int().min(1).max(10).default(3),
   fallbackMessage: z.string().default('Não consegui entender. Vou transferir para um atendente.'),

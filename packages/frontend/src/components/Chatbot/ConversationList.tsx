@@ -1,7 +1,7 @@
 import { useState, type ReactNode } from 'react'
-import { MessageSquare, Search, Users } from 'lucide-react'
+import { MessageSquare, Search, Users, WifiOff } from 'lucide-react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { type Conversation, type ConversationCategory } from '../../types/chatbot'
+import { type Conversation, type ConversationCategory, type ChatbotInstance } from '../../types/chatbot'
 import api from '../../lib/api'
 import ConversationItem from './ConversationItem'
 
@@ -24,6 +24,14 @@ export default function ConversationList({
 }: Props) {
   const queryClient = useQueryClient()
   const [showSearch, setShowSearch] = useState(false)
+
+  const { data: instance } = useQuery<ChatbotInstance | null>({
+    queryKey: ['chatbot-instance'],
+    queryFn: () => api.get('/chatbot/instance').then(r => r.data),
+    retry: 1,
+    refetchInterval: 10_000,
+  })
+  const isConnected = instance?.status === 'CONNECTED'
 
   const { data: conversations, isLoading } = useQuery<Conversation[]>({
     queryKey: ['chatbot-conversations', category],
@@ -145,6 +153,16 @@ export default function ConversationList({
           <Search className="w-4.5 h-4.5" />
         </button>
       </div>
+
+      {/* Disconnected warning */}
+      {!isConnected && (
+        <div className="px-4 py-2 bg-amber-50 border-b border-amber-100 flex items-center gap-2 flex-shrink-0">
+          <WifiOff className="w-3.5 h-3.5 text-amber-500 flex-shrink-0" />
+          <p className="text-[11px] text-amber-700 leading-tight">
+            WhatsApp desconectado — exibindo apenas histórico, novas mensagens não serão recebidas.
+          </p>
+        </div>
+      )}
 
       {/* Search Input */}
       {showSearch && (

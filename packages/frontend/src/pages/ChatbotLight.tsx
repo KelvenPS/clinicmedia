@@ -21,7 +21,7 @@ import Modal from '../components/ui/Modal'
 
 type Panel = 'relatorio' | 'fluxos' | 'mensagens' | 'templates' | 'respostas' | 'historico' | 'configuracoes'
 type ConfigTab = 'conexao' | 'teste' | 'telas'
-type FluxoActionType = 'TRANSFER_AGENT' | 'SEND_TEMPLATE' | 'CONFIRM_APPOINTMENT' | 'SEND_TEXT' | 'CLOSE'
+type FluxoActionType = 'SEND_MESSAGE' | 'TRANSFER_QUEUE' | 'OPEN_MENU' | 'SYSTEM_ACTION' | 'END_CHAT'
 
 interface LightTemplate {
   id: string
@@ -71,8 +71,12 @@ interface FluxoOption {
   id: string
   number: number
   label: string
-  action: FluxoActionType
-  actionValue: string | null
+  triggers: string
+  response: string
+  actionType: FluxoActionType
+  queueId: string | null
+  nextFlowId: string | null
+  systemAction: string | null
 }
 
 interface LightFluxo {
@@ -168,11 +172,26 @@ const MODULE_COLORS: Record<string, string> = Object.fromEntries(MODULES.map(m =
 const VARIABLES = ['{nome}', '{data}', '{hora}', '{medico}', '{valor}', '{link}']
 
 const FLUXO_ACTIONS: { value: FluxoActionType; label: string }[] = [
-  { value: 'CONFIRM_APPOINTMENT', label: 'Confirmar agendamento' },
-  { value: 'TRANSFER_AGENT',      label: 'Transferir para atendente' },
-  { value: 'SEND_TEMPLATE',       label: 'Enviar template' },
-  { value: 'SEND_TEXT',           label: 'Enviar texto personalizado' },
-  { value: 'CLOSE',               label: 'Encerrar atendimento' },
+  { value: 'SEND_MESSAGE',   label: 'Enviar apenas mensagem' },
+  { value: 'TRANSFER_QUEUE', label: 'Transferir para atendimento' },
+  { value: 'OPEN_MENU',      label: 'Abrir outro menu' },
+  { value: 'SYSTEM_ACTION',  label: 'Executar ação do sistema' },
+  { value: 'END_CHAT',       label: 'Encerrar atendimento' },
+]
+
+const FLUXO_QUEUES = [
+  { value: 'recepcao',   label: 'Recepção' },
+  { value: 'agenda',     label: 'Agenda' },
+  { value: 'financeiro', label: 'Financeiro' },
+  { value: 'suporte',    label: 'Suporte' },
+]
+
+const FLUXO_SYSTEM_ACTIONS = [
+  { value: 'CONFIRM_APPOINTMENT', label: 'Confirmar consulta' },
+  { value: 'CANCEL_APPOINTMENT',  label: 'Cancelar consulta' },
+  { value: 'SEND_PAYMENT_LINK',   label: 'Enviar link de pagamento' },
+  { value: 'SEND_REVIEW_FORM',    label: 'Enviar formulário de avaliação' },
+  { value: 'UPDATE_PATIENT_DATA', label: 'Atualizar cadastro do paciente' },
 ]
 
 const CATEGORIES = [
@@ -403,11 +422,6 @@ function FluxosPanel() {
     queryFn:  () => api.get('/chatbot-light/fluxos').then(r => r.data),
   })
 
-  const { data: templates = [] } = useQuery<LightTemplate[]>({
-    queryKey: ['light-templates'],
-    queryFn:  () => api.get('/chatbot-light/templates').then(r => r.data),
-  })
-
   const [form, setForm] = useState({
     name: '', description: '', keywords: '', welcomeMessage: '',
     maxAttempts: 3, fallbackMessage: 'Não consegui entender. Vou transferir para um atendente.',
@@ -441,9 +455,22 @@ function FluxosPanel() {
       id: crypto.randomUUID(),
       number: prev.length + 1,
       label: '',
-      action: 'TRANSFER_AGENT',
-      actionValue: null,
+      triggers: String(prev.length + 1),
+      response: '',
+      actionType: 'SEND_MESSAGE',
+      queueId: null,
+      nextFlowId: null,
+      systemAction: null,
     }])
+  }
+
+  const generateWelcomeMessage = () => {
+    const menu = options
+      .filter(o => o.label.trim() !== '')
+      .map(o => `${o.number} - ${o.label}`)
+      .join('\n')
+    if (!menu) return
+    setForm(p => ({ ...p, welcomeMessage: `Olá, {nome}! Seja bem-vindo(a).\n\nEscolha uma opção:\n${menu}` }))
   }
 
   const removeOption = (id: string) => {
@@ -460,9 +487,17 @@ function FluxosPanel() {
     if (!form.keywords.trim())       e.keywords = 'Pelo menos uma palavra-chave'
     if (!form.welcomeMessage.trim()) e.welcomeMessage = 'Mensagem obrigatória'
     for (const opt of options) {
-      if (!opt.label.trim()) { e.options = 'Todas as opções precisam ter um rótulo'; break }
-      if (opt.action === 'SEND_TEXT' && !opt.actionValue?.trim()) {
-        e.options = 'Preencha o texto para todas as opções "Enviar texto"'; break
+      if (!opt.label.trim())    { e.options = `Informe o texto da opção ${opt.number}`; break }
+      if (!opt.triggers.trim()) { e.options = `Informe as palavras aceitas da opção ${opt.number}`; break }
+      if (!opt.response.trim()) { e.options = `Informe a resposta do bot da opção ${opt.number}`; break }
+      if (opt.actionType === 'TRANSFER_QUEUE' && !opt.queueId) {
+        e.options = `Selecione a fila de destino da opção ${opt.number}`; break
+      }
+      if (opt.actionType === 'OPEN_MENU' && !opt.nextFlowId) {
+        e.options = `Selecione o submenu da opção ${opt.number}`; break
+      }
+      if (opt.actionType === 'SYSTEM_ACTION' && !opt.systemAction) {
+        e.options = `Selecione a ação do sistema da opção ${opt.number}`; break
       }
     }
     setErrors(e)
@@ -571,6 +606,17 @@ function FluxosPanel() {
                 <p className="text-xs text-slate-400 mb-0.5 font-medium">Mensagem de abertura</p>
                 <p className="text-xs text-slate-600 line-clamp-2 whitespace-pre-wrap">{f.welcomeMessage}</p>
               </div>
+
+              {/* Preview menu options */}
+              {f.options?.length > 0 && (
+                <div className="mt-2 flex flex-wrap gap-1.5">
+                  {f.options.map(o => (
+                    <span key={o.id} className="text-xs bg-slate-50 text-slate-600 border border-slate-200 px-2 py-0.5 rounded-full">
+                      {o.number} - {o.label || '(sem texto)'}
+                    </span>
+                  ))}
+                </div>
+              )}
             </div>
           ))}
         </div>
@@ -612,7 +658,18 @@ function FluxosPanel() {
 
           {/* Welcome message */}
           <div>
-            <label className="label">Mensagem de abertura *</label>
+            <div className="flex items-center justify-between">
+              <label className="label mb-0">Mensagem de abertura *</label>
+              {options.length > 0 && (
+                <button
+                  type="button"
+                  onClick={generateWelcomeMessage}
+                  className="text-xs flex items-center gap-1 text-cyan-600 hover:text-cyan-700 font-medium"
+                >
+                  Gerar mensagem com opções
+                </button>
+              )}
+            </div>
             <textarea
               ref={welcomeRef}
               value={form.welcomeMessage}
@@ -646,58 +703,115 @@ function FluxosPanel() {
                 <p className="text-xs text-slate-400">Nenhuma opção. Clique em "Adicionar opção" para criar os itens do menu.</p>
               </div>
             ) : (
-              <div className="space-y-2">
+              <div className="space-y-3">
                 {options.map((opt, i) => (
-                  <div key={opt.id} className="bg-slate-50 border border-slate-200 rounded-xl p-3 space-y-2">
-                    <div className="flex items-center gap-2">
-                      <span className="w-6 h-6 bg-cyan-100 text-cyan-700 text-xs font-bold rounded-full flex items-center justify-center flex-shrink-0">
-                        {i + 1}
+                  <div key={opt.id} className="bg-slate-50 border border-slate-200 rounded-xl p-3 space-y-2.5">
+                    <div className="flex items-center justify-between">
+                      <span className="flex items-center gap-2 text-xs font-bold text-slate-600">
+                        <span className="w-6 h-6 bg-cyan-100 text-cyan-700 text-xs font-bold rounded-full flex items-center justify-center flex-shrink-0">
+                          {i + 1}
+                        </span>
+                        Opção {i + 1}
                       </span>
-                      <input
-                        value={opt.label}
-                        onChange={e => updateOption(opt.id, { label: e.target.value })}
-                        className="input-field text-sm flex-1 py-1.5"
-                        placeholder="Ex: Confirmar consulta"
-                      />
-                      <button type="button" onClick={() => removeOption(opt.id)} className="p-1.5 text-slate-400 hover:text-red-500 rounded-lg">
-                        <X className="w-3.5 h-3.5" />
+                      <button type="button" onClick={() => removeOption(opt.id)} className="text-xs flex items-center gap-1 text-slate-400 hover:text-red-500 font-medium">
+                        <X className="w-3.5 h-3.5" /> Remover opção
                       </button>
                     </div>
-                    <div className="flex gap-2 items-start pl-8">
-                      <div className="flex-1">
+
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+                      <div>
+                        <label className="label text-[11px] mb-0.5">Texto da opção *</label>
+                        <input
+                          value={opt.label}
+                          onChange={e => updateOption(opt.id, { label: e.target.value })}
+                          className="input-field text-sm py-1.5"
+                          placeholder="Ex: Confirmar consulta"
+                        />
+                      </div>
+                      <div>
+                        <label className="label text-[11px] mb-0.5">Quando o paciente digitar *</label>
+                        <input
+                          value={opt.triggers}
+                          onChange={e => updateOption(opt.id, { triggers: e.target.value })}
+                          className="input-field text-sm py-1.5 font-mono"
+                          placeholder={`Ex: ${i + 1}, confirmar, sim`}
+                        />
+                      </div>
+                    </div>
+
+                    <div>
+                      <label className="label text-[11px] mb-0.5">Resposta do bot *</label>
+                      <textarea
+                        value={opt.response}
+                        onChange={e => updateOption(opt.id, { response: e.target.value })}
+                        rows={2}
+                        className="input-field text-sm py-1.5 resize-none"
+                        placeholder="Ex: Perfeito, {nome}! Sua consulta foi confirmada."
+                      />
+                    </div>
+
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+                      <div>
+                        <label className="label text-[11px] mb-0.5">Ação após resposta *</label>
                         <select
-                          value={opt.action}
-                          onChange={e => updateOption(opt.id, { action: e.target.value as FluxoActionType, actionValue: null })}
-                          className="input-field text-xs py-1.5"
+                          value={opt.actionType}
+                          onChange={e => updateOption(opt.id, {
+                            actionType: e.target.value as FluxoActionType,
+                            queueId: null, nextFlowId: null, systemAction: null,
+                          })}
+                          className="input-field text-sm py-1.5"
                         >
                           {FLUXO_ACTIONS.map(a => (
                             <option key={a.value} value={a.value}>{a.label}</option>
                           ))}
                         </select>
                       </div>
-                      {opt.action === 'SEND_TEMPLATE' && (
-                        <div className="flex-1">
+
+                      {opt.actionType === 'TRANSFER_QUEUE' && (
+                        <div>
+                          <label className="label text-[11px] mb-0.5">Fila de destino *</label>
                           <select
-                            value={opt.actionValue ?? ''}
-                            onChange={e => updateOption(opt.id, { actionValue: e.target.value || null })}
-                            className="input-field text-xs py-1.5"
+                            value={opt.queueId ?? ''}
+                            onChange={e => updateOption(opt.id, { queueId: e.target.value || null })}
+                            className="input-field text-sm py-1.5"
                           >
-                            <option value="">— Selecionar template —</option>
-                            {templates.filter(t => t.active).map(t => (
-                              <option key={t.id} value={t.id}>{t.name}</option>
+                            <option value="">— Selecionar fila —</option>
+                            {FLUXO_QUEUES.map(q => (
+                              <option key={q.value} value={q.value}>{q.label}</option>
                             ))}
                           </select>
                         </div>
                       )}
-                      {opt.action === 'SEND_TEXT' && (
-                        <div className="flex-1">
-                          <textarea
-                            value={opt.actionValue ?? ''}
-                            onChange={e => updateOption(opt.id, { actionValue: e.target.value })}
-                            rows={2}
-                            className="input-field text-xs py-1.5 resize-none"
-                            placeholder="Mensagem a enviar..."
-                          />
+
+                      {opt.actionType === 'OPEN_MENU' && (
+                        <div>
+                          <label className="label text-[11px] mb-0.5">Submenu (fluxo) *</label>
+                          <select
+                            value={opt.nextFlowId ?? ''}
+                            onChange={e => updateOption(opt.id, { nextFlowId: e.target.value || null })}
+                            className="input-field text-sm py-1.5"
+                          >
+                            <option value="">— Selecionar fluxo —</option>
+                            {fluxos.filter(f => f.id !== editing?.id).map(f => (
+                              <option key={f.id} value={f.id}>{f.name}</option>
+                            ))}
+                          </select>
+                        </div>
+                      )}
+
+                      {opt.actionType === 'SYSTEM_ACTION' && (
+                        <div>
+                          <label className="label text-[11px] mb-0.5">Ação do sistema *</label>
+                          <select
+                            value={opt.systemAction ?? ''}
+                            onChange={e => updateOption(opt.id, { systemAction: e.target.value || null })}
+                            className="input-field text-sm py-1.5"
+                          >
+                            <option value="">— Selecionar ação —</option>
+                            {FLUXO_SYSTEM_ACTIONS.map(a => (
+                              <option key={a.value} value={a.value}>{a.label}</option>
+                            ))}
+                          </select>
                         </div>
                       )}
                     </div>

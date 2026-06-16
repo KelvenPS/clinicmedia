@@ -2,11 +2,13 @@ import { NavLink, useNavigate } from 'react-router-dom'
 import { Home, Settings, ChevronRight } from 'lucide-react'
 import { useAuthStore } from '../store/authStore'
 import { getVisibleSettingsNav } from '../config/settingsNav'
+import { useSecretaryPermissions } from '../hooks/useSecretaryPermissions'
 
 export default function SettingsSidebar() {
   const { user } = useAuthStore()
   const navigate = useNavigate()
-  const visible = getVisibleSettingsNav(user?.role)
+  const { permissions } = useSecretaryPermissions()
+  const visible = getVisibleSettingsNav(user?.role, permissions)
 
   const initials = user?.name
     ?.split(' ')

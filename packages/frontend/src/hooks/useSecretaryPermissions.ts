@@ -1,0 +1,44 @@
+import { useQuery } from '@tanstack/react-query'
+import api from '../lib/api'
+import { useAuthStore } from '../store/authStore'
+
+export const SECRETARY_PERMISSION_KEYS = [
+  'chatbot',
+  'nota_fiscal',
+  'teleconsulta',
+  'documentos',
+  'salas',
+  'integracoes',
+] as const
+
+export type SecretaryPermissionKey = typeof SECRETARY_PERMISSION_KEYS[number]
+export type SecretaryPermissions = Partial<Record<SecretaryPermissionKey, boolean>>
+
+export const SECRETARY_PERMISSION_LABELS: Record<SecretaryPermissionKey, string> = {
+  chatbot: 'Chatbot (Light e Agente Clínico)',
+  nota_fiscal: 'Nota Fiscal (NFS-e)',
+  teleconsulta: 'Teleconsulta',
+  documentos: 'Documentos',
+  salas: 'Salas',
+  integracoes: 'Integrações',
+}
+
+/**
+ * DOCTOR e ADMIN não são afetados por esse sistema (sempre liberado).
+ * SECRETARY só vê o que o médico marcou em "Gestão de Acessos".
+ */
+export function useSecretaryPermissions() {
+  const { user } = useAuthStore()
+  const isSecretary = user?.role === 'SECRETARY'
+
+  const { data, isLoading } = useQuery<SecretaryPermissions>({
+    queryKey: ['secretary-my-permissions'],
+    queryFn: () => api.get('/team/my-permissions').then(r => r.data),
+    enabled: isSecretary,
+    staleTime: 60 * 1000,
+  })
+
+  const can = (key: SecretaryPermissionKey) => !isSecretary || !!data?.[key]
+
+  return { isSecretary, permissions: data ?? {}, isLoading: isSecretary && isLoading, can }
+}

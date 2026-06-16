@@ -170,6 +170,7 @@ export interface DoctorSecretary {
   doctorId: string
   secretaryId: string
   active: boolean
+  permissions?: Partial<Record<'chatbot' | 'nota_fiscal' | 'teleconsulta' | 'documentos' | 'salas' | 'integracoes', boolean>>
   createdAt: string
   secretary: {
     id: string

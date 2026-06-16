@@ -25,6 +25,7 @@ import {
   CreditCard,
 } from 'lucide-react'
 import { useAuthStore } from '../store/authStore'
+import { useSecretaryPermissions } from '../hooks/useSecretaryPermissions'
 
 const roleLabel: Record<string, string> = {
   ADMIN: 'Administrador',
@@ -87,6 +88,7 @@ function NavItem({ to, icon: Icon, label, collapsed, badge }: NavItemProps) {
 
 export default function Sidebar({ collapsed = false, onToggleCollapse }: SidebarProps) {
   const { user, logout } = useAuthStore()
+  const { can } = useSecretaryPermissions()
   const navigate = useNavigate()
   const location = useLocation()
   const isChatbotRoute = location.pathname.startsWith('/chatbot')
@@ -169,6 +171,7 @@ export default function Sidebar({ collapsed = false, onToggleCollapse }: Sidebar
         ))}
 
         {/* ── Automação ── */}
+        {can('chatbot') && (
         <div className={`${collapsed ? 'mt-3 pt-3' : 'mt-5 pt-4'} border-t border-white/8`}>
           {!collapsed && (
             <p className="section-label mb-2">WhatsApp</p>
@@ -235,8 +238,10 @@ export default function Sidebar({ collapsed = false, onToggleCollapse }: Sidebar
             </div>
           )}
         </div>
+        )}
 
         {/* ── NFS-e ── */}
+        {can('nota_fiscal') && (
         <div className={`${collapsed ? 'mt-3 pt-3' : 'mt-3 pt-3'} border-t border-white/8`}>
           {!collapsed && (
             <p className="section-label mb-2">Nota Fiscal</p>
@@ -253,8 +258,10 @@ export default function Sidebar({ collapsed = false, onToggleCollapse }: Sidebar
             }
           />
         </div>
+        )}
 
         {/* ── Teleconsulta ── */}
+        {can('teleconsulta') && (
         <div className={`mt-0.5`}>
           {!collapsed && (
             <p className="section-label mb-2 mt-3">Consulta Online</p>
@@ -271,6 +278,7 @@ export default function Sidebar({ collapsed = false, onToggleCollapse }: Sidebar
             }
           />
         </div>
+        )}
 
         {/* ── Admin ── */}
         {user?.role === 'ADMIN' && (

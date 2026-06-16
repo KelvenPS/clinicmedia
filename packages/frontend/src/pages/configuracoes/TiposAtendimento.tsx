@@ -8,6 +8,7 @@ import toast from 'react-hot-toast'
 import api from '../../lib/api'
 import type { AppointmentType } from '../../types'
 import Modal from '../../components/ui/Modal'
+import { useAuthStore } from '../../store/authStore'
 
 const schema = z.object({
   name: z.string().min(2, 'Nome obrigatório'),
@@ -109,6 +110,8 @@ function TypeForm({
 
 export default function TiposAtendimento() {
   const qc = useQueryClient()
+  const { user } = useAuthStore()
+  const canManage = user?.role !== 'SECRETARY'
   const [modalOpen, setModalOpen] = useState(false)
   const [editType, setEditType] = useState<AppointmentType | null>(null)
   const [showAll, setShowAll] = useState(false)
@@ -153,10 +156,12 @@ export default function TiposAtendimento() {
           <h1 className="page-title">Tipos de Atendimento</h1>
           <p className="page-subtitle">Cadastre os tipos de consulta com seus valores base</p>
         </div>
-        <button onClick={handleNew} className="btn-primary animate-stagger-1">
-          <Plus className="w-4 h-4" />
-          Novo Tipo
-        </button>
+        {canManage && (
+          <button onClick={handleNew} className="btn-primary animate-stagger-1">
+            <Plus className="w-4 h-4" />
+            Novo Tipo
+          </button>
+        )}
       </div>
 
       {/* Stats */}
@@ -202,9 +207,11 @@ export default function TiposAtendimento() {
           <div className="text-center py-12">
             <Stethoscope className="w-10 h-10 text-slate-300 mx-auto mb-3" />
             <p className="text-slate-400">Nenhum tipo cadastrado</p>
-            <button onClick={handleNew} className="text-blue-600 text-sm font-medium mt-2 hover:underline">
-              Criar primeiro tipo
-            </button>
+            {canManage && (
+              <button onClick={handleNew} className="text-blue-600 text-sm font-medium mt-2 hover:underline">
+                Criar primeiro tipo
+              </button>
+            )}
           </div>
         ) : (
           <div className="divide-y divide-slate-100">
@@ -241,22 +248,24 @@ export default function TiposAtendimento() {
                     <p className="text-xs text-slate-400 mt-0.5">Sem valor base definido</p>
                   )}
                 </div>
-                <div className="flex items-center gap-1 flex-shrink-0">
-                  <button
-                    onClick={() => handleEdit(t)}
-                    className="p-1.5 text-slate-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-colors"
-                    title="Editar"
-                  >
-                    <Edit2 className="w-4 h-4" />
-                  </button>
-                  <button
-                    onClick={() => toggleMutation.mutate(t.id)}
-                    className={`p-1.5 rounded-lg transition-colors ${t.active ? 'text-slate-400 hover:text-red-600 hover:bg-red-50' : 'text-slate-400 hover:text-emerald-600 hover:bg-emerald-50'}`}
-                    title={t.active ? 'Desativar' : 'Ativar'}
-                  >
-                    {t.active ? <XCircle className="w-4 h-4" /> : <CheckCircle className="w-4 h-4" />}
-                  </button>
-                </div>
+                {canManage && (
+                  <div className="flex items-center gap-1 flex-shrink-0">
+                    <button
+                      onClick={() => handleEdit(t)}
+                      className="p-1.5 text-slate-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-colors"
+                      title="Editar"
+                    >
+                      <Edit2 className="w-4 h-4" />
+                    </button>
+                    <button
+                      onClick={() => toggleMutation.mutate(t.id)}
+                      className={`p-1.5 rounded-lg transition-colors ${t.active ? 'text-slate-400 hover:text-red-600 hover:bg-red-50' : 'text-slate-400 hover:text-emerald-600 hover:bg-emerald-50'}`}
+                      title={t.active ? 'Desativar' : 'Ativar'}
+                    >
+                      {t.active ? <XCircle className="w-4 h-4" /> : <CheckCircle className="w-4 h-4" />}
+                    </button>
+                  </div>
+                )}
               </div>
             ))}
           </div>

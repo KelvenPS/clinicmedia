@@ -22,17 +22,19 @@ export interface SettingsNavItem {
   label: string
   shortLabel?: string
   roles: string[]
+  /** Para SECRETARY, exige além do role que o médico tenha liberado esta permissão em "Gestão de Acessos". */
+  secretaryPermission?: string
 }
 
 export const SETTINGS_NAV_ITEMS: SettingsNavItem[] = [
   { to: '/configuracoes/perfil', icon: User, label: 'Meu Perfil', shortLabel: 'Perfil', roles: ['ADMIN', 'DOCTOR', 'SECRETARY'] },
   { to: '/configuracoes/plano-financeiro', icon: CreditCard, label: 'Planos de Saúde', shortLabel: 'Planos', roles: ['ADMIN', 'DOCTOR', 'SECRETARY'] },
-  { to: '/configuracoes/tipos-atendimento', icon: Stethoscope, label: 'Tipos de Atendimento', shortLabel: 'Tipos', roles: ['ADMIN', 'DOCTOR'] },
-  { to: '/configuracoes/salas', icon: MapPin, label: 'Salas', roles: ['ADMIN', 'DOCTOR'] },
-  { to: '/configuracoes/documentos', icon: FileText, label: 'Documentos', roles: ['ADMIN', 'DOCTOR'] },
+  { to: '/configuracoes/tipos-atendimento', icon: Stethoscope, label: 'Tipos de Atendimento', shortLabel: 'Tipos', roles: ['ADMIN', 'DOCTOR', 'SECRETARY'] },
+  { to: '/configuracoes/salas', icon: MapPin, label: 'Salas', roles: ['ADMIN', 'DOCTOR', 'SECRETARY'], secretaryPermission: 'salas' },
+  { to: '/configuracoes/documentos', icon: FileText, label: 'Documentos', roles: ['ADMIN', 'DOCTOR', 'SECRETARY'], secretaryPermission: 'documentos' },
   { to: '/configuracoes/formas-pagamento', icon: Wallet, label: 'Formas de Pagamento', shortLabel: 'Pagamento', roles: ['ADMIN', 'DOCTOR'] },
   { to: '/configuracoes/notificacoes', icon: Bell, label: 'Notificações', shortLabel: 'Alertas', roles: ['ADMIN', 'DOCTOR', 'SECRETARY'] },
-  { to: '/configuracoes/integracoes', icon: Webhook, label: 'Integrações', roles: ['ADMIN', 'DOCTOR'] },
+  { to: '/configuracoes/integracoes', icon: Webhook, label: 'Integrações', roles: ['ADMIN', 'DOCTOR', 'SECRETARY'], secretaryPermission: 'integracoes' },
   { to: '/configuracoes/planos', icon: Zap, label: 'Meu Plano', roles: ['ADMIN', 'DOCTOR'] },
   { to: '/configuracoes/equipe', icon: Users, label: 'Minha Equipe', shortLabel: 'Equipe', roles: ['DOCTOR'] },
   { to: '/configuracoes/ajuda', icon: HelpCircle, label: 'Ajuda & Suporte', shortLabel: 'Ajuda', roles: ['ADMIN', 'DOCTOR', 'SECRETARY'] },
@@ -42,7 +44,13 @@ export const SETTINGS_NAV_ITEMS: SettingsNavItem[] = [
   { to: '/admin/planos', icon: CreditCard, label: 'Gestão de Planos', shortLabel: 'Planos', roles: ['ADMIN'] },
 ]
 
-export function getVisibleSettingsNav(role?: string) {
+export function getVisibleSettingsNav(role?: string, secretaryPermissions?: Record<string, boolean>) {
   if (!role) return []
-  return SETTINGS_NAV_ITEMS.filter(item => item.roles.includes(role))
+  return SETTINGS_NAV_ITEMS.filter(item => {
+    if (!item.roles.includes(role)) return false
+    if (role === 'SECRETARY' && item.secretaryPermission) {
+      return !!secretaryPermissions?.[item.secretaryPermission]
+    }
+    return true
+  })
 }

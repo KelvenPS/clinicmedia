@@ -25,12 +25,12 @@ export function useSubscription(): SubscriptionStatus {
   const { data: subscription, isLoading } = useQuery<DoctorSubscription | null>({
     queryKey: ['my-subscription'],
     queryFn: () => api.get('/subscriptions/me').then(r => r.data).catch(() => null),
-    enabled: !!user && user.role !== 'ADMIN',
+    enabled: !!user && user.role === 'DOCTOR',
     staleTime: 5 * 60 * 1000,
   })
 
-  // Admins and secretaries bypass plan checks
-  if (!user || user.role === 'ADMIN') {
+  // Admins and secretaries bypass plan checks (secretaries inherit the linked doctor's plan via backend requireFeature)
+  if (!user || user.role === 'ADMIN' || user.role === 'SECRETARY') {
     return {
       subscription: null,
       plan: 'CLINIC',

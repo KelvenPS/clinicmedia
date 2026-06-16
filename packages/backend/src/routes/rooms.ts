@@ -2,6 +2,7 @@ import { Router } from 'express'
 import { z } from 'zod'
 import { prisma } from '../lib/prisma'
 import { authenticate, requireRole, AuthRequest } from '../middleware/auth'
+import { getEffectiveDoctorId, requireSecretaryPermission } from '../lib/secretaryAccess'
 
 const router = Router()
 router.use(authenticate)
@@ -67,10 +68,10 @@ router.get('/', async (req: AuthRequest, res) => {
   }
 })
 
-router.post('/', requireRole('ADMIN', 'DOCTOR'), async (req: AuthRequest, res) => {
+router.post('/', requireRole('ADMIN', 'DOCTOR', 'SECRETARY'), requireSecretaryPermission('salas'), async (req: AuthRequest, res) => {
   try {
     const { secretaryIds, ...data } = roomSchema.parse(req.body)
-    const doctorId = req.user!.role === 'DOCTOR' ? req.user!.userId : req.body.doctorId
+    const doctorId = req.user!.role === 'ADMIN' ? req.body.doctorId : await getEffectiveDoctorId(req)
 
     const room = await prisma.room.create({
       data: {
@@ -95,25 +96,26 @@ router.post('/', requireRole('ADMIN', 'DOCTOR'), async (req: AuthRequest, res) =
   }
 })
 
-router.put('/:id', requireRole('ADMIN', 'DOCTOR'), async (req: AuthRequest, res) => {
+router.put('/:id', requireRole('ADMIN', 'DOCTOR', 'SECRETARY'), requireSecretaryPermission('salas'), async (req: AuthRequest, res) => {
   try {
     const { id } = req.params
     const { secretaryIds, ...data } = roomSchema.partial().parse(req.body)
 
-    // Ownership check: DOCTOR can only edit their own rooms
+    // Ownership check: DOCTOR/SECRETARY can only edit rooms of their own tenant
+    const effectiveDoctorId = await getEffectiveDoctorId(req)
     const existing = await prisma.room.findUnique({ where: { id } })
     if (!existing) {
       res.status(404).json({ message: 'Sala não encontrada' })
       return
     }
-    if (req.user!.role === 'DOCTOR' && existing.doctorId !== req.user!.userId) {
+    if (effectiveDoctorId && existing.doctorId !== effectiveDoctorId) {
       res.status(403).json({ message: 'Acesso negado. Esta sala pertence a outro médico.' })
       return
     }
 
-    if (secretaryIds !== undefined && req.user!.role === 'DOCTOR') {
+    if (secretaryIds !== undefined && effectiveDoctorId) {
       const teamLinks = await prisma.doctorSecretary.findMany({
-        where: { doctorId: req.user!.userId, active: true },
+        where: { doctorId: effectiveDoctorId, active: true },
         select: { secretaryId: true }
       })
       const validIds = new Set(teamLinks.map(l => l.secretaryId))
@@ -152,12 +154,13 @@ router.put('/:id', requireRole('ADMIN', 'DOCTOR'), async (req: AuthRequest, res)
   }
 })
 
-router.patch('/:id/toggle', requireRole('ADMIN', 'DOCTOR'), async (req: AuthRequest, res) => {
+router.patch('/:id/toggle', requireRole('ADMIN', 'DOCTOR', 'SECRETARY'), requireSecretaryPermission('salas'), async (req: AuthRequest, res) => {
   try {
     const { id } = req.params
+    const effectiveDoctorId = await getEffectiveDoctorId(req)
     const current = await prisma.room.findUnique({ where: { id } })
     if (!current) { res.status(404).json({ message: 'Sala não encontrada' }); return }
-    if (req.user!.role === 'DOCTOR' && current.doctorId !== req.user!.userId) {
+    if (effectiveDoctorId && current.doctorId !== effectiveDoctorId) {
       res.status(403).json({ message: 'Acesso negado. Esta sala pertence a outro médico.' })
       return
     }
@@ -168,15 +171,16 @@ router.patch('/:id/toggle', requireRole('ADMIN', 'DOCTOR'), async (req: AuthRequ
   }
 })
 
-router.delete('/:id', requireRole('ADMIN', 'DOCTOR'), async (req: AuthRequest, res) => {
+router.delete('/:id', requireRole('ADMIN', 'DOCTOR', 'SECRETARY'), requireSecretaryPermission('salas'), async (req: AuthRequest, res) => {
   try {
     const { id } = req.params
+    const effectiveDoctorId = await getEffectiveDoctorId(req)
     const existing = await prisma.room.findUnique({ where: { id } })
     if (!existing) {
       res.status(404).json({ message: 'Sala não encontrada' })
       return
     }
-    if (req.user!.role === 'DOCTOR' && existing.doctorId !== req.user!.userId) {
+    if (effectiveDoctorId && existing.doctorId !== effectiveDoctorId) {
       res.status(403).json({ message: 'Acesso negado. Esta sala pertence a outro médico.' })
       return
     }

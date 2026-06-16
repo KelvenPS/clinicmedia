@@ -15,10 +15,13 @@ import {
   X,
   Plus,
   UserCircle2,
+  Settings2,
 } from 'lucide-react'
 import toast from 'react-hot-toast'
 import api from '../../lib/api'
 import type { DoctorSecretary } from '../../types'
+import Modal from '../../components/ui/Modal'
+import { SECRETARY_PERMISSION_KEYS, SECRETARY_PERMISSION_LABELS, type SecretaryPermissionKey, type SecretaryPermissions } from '../../hooks/useSecretaryPermissions'
 
 const createSchema = z.object({
   name: z.string().min(2, 'Nome obrigatório'),
@@ -45,6 +48,7 @@ const AVATAR_COLORS = [
 export default function Equipe() {
   const qc = useQueryClient()
   const [mode, setMode] = useState<'list' | 'create' | 'link'>('list')
+  const [accessLink, setAccessLink] = useState<DoctorSecretary | null>(null)
 
   const { data: team = [], isLoading } = useQuery<DoctorSecretary[]>({
     queryKey: ['team'],
@@ -95,6 +99,17 @@ export default function Equipe() {
       toast.success('Secretaria desvinculada')
     },
     onError: () => toast.error('Erro ao desvincular'),
+  })
+
+  const permissionsMutation = useMutation({
+    mutationFn: ({ linkId, permissions }: { linkId: string; permissions: SecretaryPermissions }) =>
+      api.patch(`/team/${linkId}/permissions`, permissions).then(r => r.data),
+    onSuccess: (updated: DoctorSecretary) => {
+      qc.invalidateQueries({ queryKey: ['team'] })
+      setAccessLink(updated)
+      toast.success('Acessos atualizados')
+    },
+    onError: () => toast.error('Erro ao atualizar acessos'),
   })
 
   const activeCount = team.filter(t => t.active).length
@@ -349,6 +364,13 @@ export default function Equipe() {
 
                 <div className="flex items-center gap-1 flex-shrink-0">
                   <button
+                    onClick={() => setAccessLink(link)}
+                    title="Gestão de acessos"
+                    className="p-2 rounded-lg hover:bg-blue-50 text-slate-400 hover:text-blue-600 transition-colors opacity-0 group-hover:opacity-100 sm:opacity-100"
+                  >
+                    <Settings2 className="w-4 h-4" />
+                  </button>
+                  <button
                     onClick={() => toggleMutation.mutate(link.id)}
                     disabled={toggleMutation.isPending}
                     title={link.active ? 'Desativar acesso' : 'Ativar acesso'}
@@ -401,6 +423,54 @@ export default function Equipe() {
           </ul>
         </div>
       )}
+
+      {/* Access management modal */}
+      <Modal
+        isOpen={!!accessLink}
+        onClose={() => setAccessLink(null)}
+        title="Gestão de Acessos"
+        subtitle={accessLink ? accessLink.secretary.name : undefined}
+      >
+        {accessLink && (
+          <div className="space-y-4">
+            <p className="text-xs text-slate-500">
+              Marque as telas e funcionalidades extras que <strong>{accessLink.secretary.name}</strong> pode acessar.
+              Agenda, Pacientes, Prontuário e Planos de Saúde já estão sempre liberados; Avaliações, Financeiro e
+              agendas de outros médicos/salas continuam sempre bloqueados.
+            </p>
+            <div className="space-y-2">
+              {SECRETARY_PERMISSION_KEYS.map((key: SecretaryPermissionKey) => {
+                const checked = !!accessLink.permissions?.[key]
+                return (
+                  <label
+                    key={key}
+                    className="flex items-center gap-3 p-3 rounded-xl border border-slate-200 hover:border-blue-200 hover:bg-blue-50/40 cursor-pointer transition-colors"
+                  >
+                    <input
+                      type="checkbox"
+                      checked={checked}
+                      disabled={permissionsMutation.isPending}
+                      onChange={(e) =>
+                        permissionsMutation.mutate({
+                          linkId: accessLink.id,
+                          permissions: { [key]: e.target.checked },
+                        })
+                      }
+                      className="w-4 h-4 rounded border-slate-300 text-blue-600 focus:ring-blue-500"
+                    />
+                    <span className="text-sm font-medium text-slate-700">{SECRETARY_PERMISSION_LABELS[key]}</span>
+                  </label>
+                )
+              })}
+            </div>
+            <div className="flex justify-end pt-2 border-t border-slate-100">
+              <button type="button" onClick={() => setAccessLink(null)} className="btn-secondary">
+                Concluído
+              </button>
+            </div>
+          </div>
+        )}
+      </Modal>
     </div>
   )
 }

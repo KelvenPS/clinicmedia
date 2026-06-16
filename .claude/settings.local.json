@@ -16,7 +16,10 @@
       "Bash(node -e ' *)",
       "Bash(ls -la /c/clinicmedia/ 2>/dev/null || ls -la /mnt/c/clinicmedia/ 2>/dev/null || echo \"Testing with absolute path\")",
       "Read(//mnt/c/**)",
-      "Bash(grep -E \"\\\\.ts$|^total|^d\")"
+      "Bash(grep -E \"\\\\.ts$|^total|^d\")",
+      "PowerShell(cd c:\\\\clinicmedia; npx tsc -p packages/backend/tsconfig.json --noEmit 2>&1 | Where-Object { $_ -notmatch \"baileys|@whiskeysockets|node_modules\" } | Select-Object -First 20)",
+      "PowerShell(cd c:\\\\clinicmedia; npx tsc -p packages/backend/tsconfig.json --noEmit 2>&1 | Where-Object { $_ -match \"chatbot-light|appointments\" })",
+      "Bash(git checkout *)"
     ],
     "additionalDirectories": [
       "c:\\clinicmedia\\packages\\backend\\prisma\\migrations"

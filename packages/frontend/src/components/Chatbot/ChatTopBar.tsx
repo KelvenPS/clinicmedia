@@ -54,9 +54,17 @@ export default function ChatTopBar({
       <div className="flex items-center gap-4">
         {/* Connection/Status Dropdown Pill */}
         <div className="relative">
-          <button className="flex items-center gap-2 px-3 py-1.5 bg-[#eafaf1] text-[#0f7642] hover:bg-[#dff5e9] border border-[#bbf7d0] rounded-full text-xs font-semibold transition-all">
+          <button
+            className={`flex items-center gap-2 px-3 py-1.5 rounded-full text-xs font-semibold transition-all border ${
+              isConnected
+                ? 'bg-[#eafaf1] text-[#0f7642] hover:bg-[#dff5e9] border-[#bbf7d0]'
+                : isConnecting
+                  ? 'bg-amber-50 text-amber-700 hover:bg-amber-100 border-amber-200'
+                  : 'bg-slate-100 text-slate-500 hover:bg-slate-200 border-slate-200'
+            }`}
+          >
             <span className={`w-2 h-2 rounded-full ${isConnected ? 'bg-[#10b981]' : isConnecting ? 'bg-[#f59e0b]' : 'bg-slate-400'}`} />
-            <span>Online</span>
+            <span>{isConnected ? 'Online' : isConnecting ? 'Conectando' : 'Offline'}</span>
             <ChevronDown className="w-3.5 h-3.5 opacity-60" />
           </button>
         </div>

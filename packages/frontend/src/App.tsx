@@ -30,6 +30,7 @@ import AdminPlanos from './pages/AdminPlanos'
 import NotaFiscal from './pages/NotaFiscal'
 import ConsultaOnline from './pages/ConsultaOnline'
 import { FeatureGate } from './components/ui/FeatureGate'
+import { SecretaryGate } from './components/ui/SecretaryGate'
 
 function ProtectedRoute({ children, allowedRoles }: { children: React.ReactNode; allowedRoles?: string[] }) {
   const { isAuthenticated, user } = useAuthStore()
@@ -47,8 +48,8 @@ export default function App() {
         <Route path="/login" element={isAuthenticated ? <Navigate to="/dashboard" replace /> : <Login />} />
         <Route path="/" element={isAuthenticated ? <Navigate to="/dashboard" replace /> : <LandingPage />} />
 
-        <Route path="/chatbot/agente/*" element={<ProtectedRoute allowedRoles={['ADMIN', 'DOCTOR']}><ChatbotIA /></ProtectedRoute>} />
-        <Route path="/chatbot/light/*" element={<ProtectedRoute allowedRoles={['ADMIN', 'DOCTOR']}><ChatbotLight /></ProtectedRoute>} />
+        <Route path="/chatbot/agente/*" element={<ProtectedRoute allowedRoles={['ADMIN', 'DOCTOR', 'SECRETARY']}><SecretaryGate permission="chatbot"><ChatbotIA /></SecretaryGate></ProtectedRoute>} />
+        <Route path="/chatbot/light/*" element={<ProtectedRoute allowedRoles={['ADMIN', 'DOCTOR', 'SECRETARY']}><SecretaryGate permission="chatbot"><ChatbotLight /></SecretaryGate></ProtectedRoute>} />
         <Route path="/chatbot" element={<Navigate to="/chatbot/light" replace />} />
         <Route path="/chatbot/*" element={<Navigate to="/chatbot/light" replace />} />
 
@@ -64,8 +65,8 @@ export default function App() {
           <Route path="admin/gestao" element={<ProtectedRoute allowedRoles={['ADMIN']}><AdminGestao /></ProtectedRoute>} />
           <Route path="admin/sql" element={<ProtectedRoute allowedRoles={['ADMIN']}><AdminSQL /></ProtectedRoute>} />
           <Route path="admin/planos" element={<ProtectedRoute allowedRoles={['ADMIN']}><AdminPlanos /></ProtectedRoute>} />
-          <Route path="nota-fiscal" element={<FeatureGate feature="nota_fiscal"><NotaFiscal /></FeatureGate>} />
-          <Route path="consulta-online" element={<FeatureGate feature="teleconsulta"><ConsultaOnline /></FeatureGate>} />
+          <Route path="nota-fiscal" element={<FeatureGate feature="nota_fiscal"><SecretaryGate permission="nota_fiscal"><NotaFiscal /></SecretaryGate></FeatureGate>} />
+          <Route path="consulta-online" element={<FeatureGate feature="teleconsulta"><SecretaryGate permission="teleconsulta"><ConsultaOnline /></SecretaryGate></FeatureGate>} />
 
           <Route path="configuracoes" element={<Navigate to="/configuracoes/perfil" replace />} />
           <Route path="configuracoes/perfil" element={<Perfil />} />
@@ -73,13 +74,13 @@ export default function App() {
           <Route path="configuracoes/equipe" element={<ProtectedRoute allowedRoles={['DOCTOR', 'ADMIN']}><Equipe /></ProtectedRoute>} />
           <Route path="configuracoes/ajuda" element={<Ajuda />} />
           <Route path="configuracoes/documentacao" element={<Documentacao />} />
-          <Route path="configuracoes/tipos-atendimento" element={<ProtectedRoute allowedRoles={['ADMIN', 'DOCTOR']}><TiposAtendimento /></ProtectedRoute>} />
-          <Route path="configuracoes/salas" element={<ProtectedRoute allowedRoles={['ADMIN', 'DOCTOR']}><Salas /></ProtectedRoute>} />
-          <Route path="configuracoes/documentos" element={<ProtectedRoute allowedRoles={['ADMIN', 'DOCTOR']}><Documentos /></ProtectedRoute>} />
+          <Route path="configuracoes/tipos-atendimento" element={<ProtectedRoute allowedRoles={['ADMIN', 'DOCTOR', 'SECRETARY']}><TiposAtendimento /></ProtectedRoute>} />
+          <Route path="configuracoes/salas" element={<ProtectedRoute allowedRoles={['ADMIN', 'DOCTOR', 'SECRETARY']}><SecretaryGate permission="salas"><Salas /></SecretaryGate></ProtectedRoute>} />
+          <Route path="configuracoes/documentos" element={<ProtectedRoute allowedRoles={['ADMIN', 'DOCTOR', 'SECRETARY']}><SecretaryGate permission="documentos"><Documentos /></SecretaryGate></ProtectedRoute>} />
           <Route path="configuracoes/formas-pagamento" element={<ProtectedRoute allowedRoles={['ADMIN', 'DOCTOR']}><FormasPagamento /></ProtectedRoute>} />
           <Route path="configuracoes/planos" element={<ProtectedRoute allowedRoles={['ADMIN', 'DOCTOR']}><Planos /></ProtectedRoute>} />
           <Route path="configuracoes/notificacoes" element={<ConfigNotificacoes />} />
-          <Route path="configuracoes/integracoes" element={<ProtectedRoute allowedRoles={['ADMIN', 'DOCTOR']}><Integracoes /></ProtectedRoute>} />
+          <Route path="configuracoes/integracoes" element={<ProtectedRoute allowedRoles={['ADMIN', 'DOCTOR', 'SECRETARY']}><SecretaryGate permission="integracoes"><Integracoes /></SecretaryGate></ProtectedRoute>} />
         </Route>
 
         <Route path="*" element={<Navigate to="/" replace />} />

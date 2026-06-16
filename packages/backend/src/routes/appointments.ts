@@ -46,6 +46,15 @@ router.get('/', async (req: AuthRequest, res) => {
       } else {
         where.doctorId = { in: linkedIds }
       }
+
+      // Secretaries assigned to specific rooms only see appointments from those rooms.
+      const roomAssignments = await prisma.roomSecretary.findMany({
+        where: { secretaryId: req.user!.userId },
+        select: { roomId: true },
+      })
+      if (roomAssignments.length > 0) {
+        where.roomId = { in: roomAssignments.map(r => r.roomId) }
+      }
     } else if (doctorId) {
       where.doctorId = doctorId as string
     }
@@ -102,6 +111,18 @@ router.post('/', async (req: AuthRequest, res) => {
         res.status(403).json({ message: 'Acesso negado: profissional não vinculado a esta secretária' })
         return
       }
+
+      const roomAssignments = await prisma.roomSecretary.findMany({
+        where: { secretaryId: req.user!.userId },
+        select: { roomId: true },
+      })
+      if (roomAssignments.length > 0) {
+        const allowedRoomIds = new Set(roomAssignments.map(r => r.roomId))
+        if (!apptData.roomId || !allowedRoomIds.has(apptData.roomId)) {
+          res.status(403).json({ message: 'Acesso negado: você não está vinculada a esta sala' })
+          return
+        }
+      }
     }
 
     const baseDate = new Date(apptData.date)
@@ -113,6 +134,20 @@ router.post('/', async (req: AuthRequest, res) => {
       const d = new Date(baseDate)
       d.setDate(d.getDate() + i * 7)
       dates.push(d)
+    }
+
+    // Secretaries cannot book over time slots the doctor has explicitly blocked.
+    if (req.user!.role === 'SECRETARY' && !apptData.isBlocked) {
+      const blocks = await prisma.appointmentBlock.findMany({ where: { doctorId: apptData.doctorId } })
+      const durationMs = (apptData.duration ?? 30) * 60000
+      const hasConflict = dates.some(d => {
+        const occEnd = new Date(d.getTime() + durationMs)
+        return blocks.some(b => b.date < occEnd && b.endDate > d)
+      })
+      if (hasConflict) {
+        res.status(409).json({ message: 'Este horário está bloqueado pelo médico.' })
+        return
+      }
     }
 
     // Create all appointments in a transaction
@@ -215,6 +250,19 @@ router.put('/:id', async (req: AuthRequest, res) => {
       where: { id },
       include: { transaction: true },
     })
+
+    // Secretaries cannot reschedule into a time slot the doctor has explicitly blocked.
+    if (req.user!.role === 'SECRETARY' && data.date && !(data.isBlocked ?? current?.isBlocked)) {
+      const blocks = await prisma.appointmentBlock.findMany({ where: { doctorId: existing.doctorId } })
+      const durationMs = ((data.duration as number | undefined) ?? current?.duration ?? 30) * 60000
+      const newDate = data.date as Date
+      const newEnd = new Date(newDate.getTime() + durationMs)
+      const hasConflict = blocks.some(b => b.date < newEnd && b.endDate > newDate)
+      if (hasConflict) {
+        res.status(409).json({ message: 'Este horário está bloqueado pelo médico.' })
+        return
+      }
+    }
 
     const appointment = await prisma.appointment.update({
       where: { id },

@@ -60,7 +60,7 @@ router.get('/', async (req: AuthRequest, res: Response) => {
 })
 
 // ─── GET /all — todos os tipos do tenant (inclusive inativos) ────────────────
-router.get('/all', requireRole('ADMIN', 'DOCTOR'), async (req: AuthRequest, res: Response) => {
+router.get('/all', requireRole('ADMIN', 'DOCTOR', 'SECRETARY'), async (req: AuthRequest, res: Response) => {
   try {
     const doctorId = await getEffectiveDoctorId(req)
 

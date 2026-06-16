@@ -3,9 +3,30 @@ import { z } from 'zod'
 import bcrypt from 'bcryptjs'
 import { prisma } from '../lib/prisma'
 import { authenticate, requireRole, AuthRequest } from '../middleware/auth'
+import { SECRETARY_PERMISSION_KEYS, normalizeSecretaryPermissions } from '../lib/secretaryAccess'
 
 const router = Router()
 router.use(authenticate)
+
+// A própria secretária consulta o que o médico liberou para ela (usado pelo
+// frontend para esconder/mostrar menus). Precisa vir antes do requireRole
+// abaixo, que restringe o resto das rotas de equipe a DOCTOR/ADMIN.
+router.get('/my-permissions', async (req: AuthRequest, res) => {
+  try {
+    if (req.user!.role !== 'SECRETARY') {
+      res.json({})
+      return
+    }
+    const link = await prisma.doctorSecretary.findFirst({
+      where: { secretaryId: req.user!.userId, active: true },
+      select: { permissions: true },
+    })
+    res.json(normalizeSecretaryPermissions(link?.permissions))
+  } catch {
+    res.status(500).json({ message: 'Erro interno do servidor' })
+  }
+})
+
 router.use(requireRole('DOCTOR', 'ADMIN'))
 
 router.get('/', async (req: AuthRequest, res) => {
@@ -175,6 +196,49 @@ router.patch('/:linkId/toggle', async (req: AuthRequest, res) => {
 
     res.json(updated)
   } catch {
+    res.status(500).json({ message: 'Erro interno do servidor' })
+  }
+})
+
+const permissionsSchema = z.object(
+  Object.fromEntries(SECRETARY_PERMISSION_KEYS.map(key => [key, z.boolean().optional()])),
+)
+
+router.patch('/:linkId/permissions', async (req: AuthRequest, res) => {
+  try {
+    const { linkId } = req.params
+    const doctorId = req.user!.userId
+    const data = permissionsSchema.parse(req.body)
+
+    const link = await prisma.doctorSecretary.findUnique({ where: { id: linkId } })
+    if (!link) {
+      res.status(404).json({ message: 'Vínculo não encontrado' })
+      return
+    }
+
+    if (link.doctorId !== doctorId && req.user!.role !== 'ADMIN') {
+      res.status(403).json({ message: 'Sem permissão' })
+      return
+    }
+
+    const merged = { ...normalizeSecretaryPermissions(link.permissions), ...data }
+
+    const updated = await prisma.doctorSecretary.update({
+      where: { id: linkId },
+      data: { permissions: merged },
+      include: {
+        secretary: {
+          select: { id: true, name: true, email: true, phone: true, active: true, createdAt: true },
+        },
+      },
+    })
+
+    res.json(updated)
+  } catch (error) {
+    if (error instanceof z.ZodError) {
+      res.status(400).json({ message: 'Dados inválidos', errors: error.errors })
+      return
+    }
     res.status(500).json({ message: 'Erro interno do servidor' })
   }
 })

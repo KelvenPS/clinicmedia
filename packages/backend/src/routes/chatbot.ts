@@ -2,6 +2,7 @@ import { Router, Response } from 'express'
 import { z } from 'zod'
 import { prisma } from '../lib/prisma'
 import { authenticate, AuthRequest } from '../middleware/auth'
+import { requireSecretaryPermission } from '../lib/secretaryAccess'
 import type { WAMessage } from '@whiskeysockets/baileys'
 import {
   registerMessageHandler,
@@ -363,6 +364,7 @@ registerMessageHandler(handleIncomingMessage)
 // ─── All routes below require authentication ──────────────────────────────────
 
 router.use(authenticate)
+router.use(requireSecretaryPermission('chatbot'))
 
 // ─── Instance Management ─────────────────────────────────────────────────────
 

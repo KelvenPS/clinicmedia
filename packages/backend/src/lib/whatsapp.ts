@@ -383,10 +383,9 @@ export async function startSession(instanceKey: string, instanceId: string): Pro
       // NOTA: código 515 (restartRequired / stream restart) NÃO é erro de sessão —
       // é o WhatsApp pedindo para reiniciar o stream, comportamento normal em
       // conexões de longa duração. Não deve contar no streak.
-      const isSessionError = (
+      const isSessionError =
         code === DisconnectReason.badSession ||
         code === DisconnectReason.multideviceMismatch
-      ) && code !== 515 // 515 = restartRequired, não é sessão corrompida
       const sessionErrors = isSessionError ? (sessionErrorStreak.get(instanceKey) ?? 0) + 1 : 0
       if (isSessionError) sessionErrorStreak.set(instanceKey, sessionErrors)
       else if (!isSessionError && code !== 515) sessionErrorStreak.delete(instanceKey)

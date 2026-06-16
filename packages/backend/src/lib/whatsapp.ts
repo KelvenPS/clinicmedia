@@ -272,7 +272,14 @@ export async function startSession(instanceKey: string, instanceId: string): Pro
     printQRInTerminal: false,
     browser: ['ClinicMedia', 'Safari', '1.0'],
     getMessage: async () => undefined,
-    syncFullHistory: true,
+    // Histórico completo logo na conexão sobrecarrega o handshake inicial (upload
+    // de pre-keys) em redes mais lentas, causando timeout e badSession em loop.
+    // Conversas continuam chegando normalmente via messages.upsert em tempo real.
+    syncFullHistory: false,
+    // Dá mais tempo pras respostas do WhatsApp antes de declarar timeout —
+    // o default da lib é curto demais para esta VPS.
+    defaultQueryTimeoutMs: 60_000,
+    connectTimeoutMs: 60_000,
   })
 
   sockets.set(instanceKey, sock)

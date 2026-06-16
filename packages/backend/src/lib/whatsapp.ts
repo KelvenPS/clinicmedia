@@ -427,6 +427,18 @@ export async function startSession(instanceKey: string, instanceId: string): Pro
             : `[WA] Sessão irrecuperável (código ${code}, ${sessionErrors} falhas seguidas): ${instanceKey}. Necessário reconectar via QR Code.`
         )
       } else {
+        // Marca CONNECTING imediatamente — se o banco continuar dizendo
+        // CONNECTED enquanto não há socket vivo, o health watchdog (a cada
+        // 60s) entende a instância como "zumbi" e dispara seu PRÓPRIO
+        // startSession() para a mesma instanceKey, correndo em paralelo com
+        // este retry agendado. Dois sockets Baileys escrevendo nas mesmas
+        // credenciais ao mesmo tempo é exatamente o que faz o WhatsApp
+        // rejeitar a sessão (bad session) mesmo em um pareamento novo.
+        await prisma.whatsAppInstance.update({
+          where: { instanceKey },
+          data: { status: 'CONNECTING' },
+        }).catch(() => {})
+
         // Mantém tentando reconectar indefinidamente com backoff progressivo
         // (cap em 60s) — credenciais só são descartadas em logout real ou
         // sessão comprovadamente corrompida (acima). Instabilidade de rede na

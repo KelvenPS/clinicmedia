@@ -342,21 +342,23 @@ export async function startSession(instanceKey: string, instanceId: string): Pro
           data: { status: 'CONNECTED', qrCode: null, qrCodeExpiresAt: null, connectedAt: new Date(), phoneNumber: phone || null, displayName: sock.user?.name ?? null },
         })
 
-        // ── Zera contadores imediatamente ao conectar ──
-        // Se a conexão abriu, as credenciais funcionaram — sessionErrorStreak
-        // não deve acumular entre ciclos "abre e cai".
+        // ── Zera reconnectAttempts imediatamente ao conectar ──
+        // O backoff delay volta ao mínimo (3s) assim que a conexão abre.
         reconnectAttempts.set(instanceKey, 0)
-        sessionErrorStreak.delete(instanceKey)
         console.log(`[WA] Conectado: ${instanceKey} (${phone})`)
 
         // Usa a geração atual para cancelar syncs de sessões anteriores
         const currentGen = sessionGeneration.get(instanceKey) ?? gen
         setTimeout(() => syncAvatars(instanceKey, instanceId, currentGen).catch(() => {}), 8000)
 
-        // Timer de telemetria — loga quando a conexão fica estável por 30s
+        // sessionErrorStreak só é zerado depois que a conexão fica estável por
+        // 30s — se a conexão abre e cai em segundos (falso open), o streak
+        // precisa continuar acumulando para eventualmente limpar a sessão
+        // corrompida e pedir novo QR Code.
         stableTimer = setTimeout(() => {
           if (sockets.has(instanceKey)) {
-            console.log(`[WA] Conexão estável (30s): ${instanceKey}`)
+            sessionErrorStreak.delete(instanceKey)
+            console.log(`[WA] Conexão estável (30s), streak zerado: ${instanceKey}`)
           }
         }, 30_000)
       } catch (e) { console.error('[WA] Erro ao atualizar CONNECTED:', e) }

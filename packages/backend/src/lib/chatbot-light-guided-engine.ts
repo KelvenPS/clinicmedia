@@ -465,7 +465,80 @@ async function updateConversationPhoneMapping(
   }
 }
 
+export function interpolateTemplate(template: string, data: Record<string, any>): string {
+  if (!template) return '';
+  return template.replace(/\{([a-zA-Z0-9_]+)\}/g, (match, key) => {
+    if (key in data && data[key] !== undefined && data[key] !== null) {
+      return String(data[key]);
+    }
+    return '';
+  });
+}
+
+export function maskCpf(cpf: string): string {
+  if (!cpf) return '';
+  const clean = cpf.replace(/\D/g, '');
+  if (clean.length !== 11) return '***';
+  // Format: ***.456.789-10  (hides first 3, keeps middle and last digits)
+  return `***.${clean.substring(3, 6)}.${clean.substring(6, 9)}-${clean.substring(9)}`;
+}
+
+export async function getMessageWithLog(params: {
+  templateKey: string
+  configuredText: string | undefined
+  defaultFallback: string
+  data: Record<string, any>
+  instanceId: string
+  actionConfigId: string
+  actionKey: string
+  contactPhone: string
+  sessionId: string
+  stepKey: string
+}): Promise<string> {
+  const hasConfigured = !!params.configuredText && params.configuredText.trim() !== '';
+  const template = hasConfigured ? params.configuredText! : params.defaultFallback;
+  const source = hasConfigured ? 'configured_template' : 'default_fallback';
+  
+  const rendered = interpolateTemplate(template, params.data);
+
+  console.log(`[guided_action.message_template_rendered] key=${params.templateKey} source=${source} step=${params.stepKey}`);
+  
+  await auditLogAction({
+    instanceId: params.instanceId,
+    actionConfigId: params.actionConfigId,
+    actionKey: params.actionKey,
+    contactPhone: params.contactPhone,
+    sessionId: params.sessionId,
+    status: 'MESSAGE_RENDERED',
+    stepKey: params.stepKey,
+    message: `Template de mensagem renderizado (${source}): ${params.templateKey}`,
+    metadata: {
+      templateKey: params.templateKey,
+      source,
+      renderedLength: rendered.length
+    }
+  }).catch(err => console.error('[getMessageWithLog audit failed]', err));
+
+  return rendered;
+}
+
 // ─── Step State Machine Engine ────────────────────────────────────────────────
+
+/**
+ * Sanitizes an incoming text for safe audit logging.
+ * When the current step involves sensitive data (e.g. CPF), replaces
+ * numeric-only content that looks like a CPF with a masked placeholder.
+ */
+function safeLogInput(text: string, currentStep: string): string {
+  if (currentStep === 'ASK_CPF') {
+    const cleaned = text.replace(/\D/g, '');
+    if (cleaned.length >= 9) {
+      return maskCpf(cleaned) || '[cpf-coletado]';
+    }
+  }
+  return text;
+}
+
 export async function processGuidedStep(
   instance: any,
   session: any,
@@ -502,28 +575,19 @@ export async function processGuidedStep(
   const limitSlots = parseInt(cfg.limitSlots) || 3
   const searchWindowDays = parseInt(cfg.searchWindowDays) || 15
   const durationMinutes = parseInt(cfg.durationMinutes) || 30
-  const requireCpf = cfg.requireCpf === true || cfg.requireCpf === 'true'
   const requireConvenio = cfg.requireConvenio === true || cfg.requireConvenio === 'true'
   const appointmentInitialStatus = cfg.appointmentInitialStatus || 'SCHEDULED'
+  
+  let cpfOption = cfg.cpfOption;
+  if (!cpfOption) {
+    cpfOption = (cfg.requireCpf === true || cfg.requireCpf === 'true') ? 'ASK_REQUIRED' : 'DONT_ASK';
+  }
 
   // Messages configuration
   const messages = cfg.messages || {}
-  const askNameMsg = messages.askName || 'Para prosseguir, qual o seu nome completo?'
-  const askPhoneConfirmMsg = messages.askPhoneConfirm || 'Posso usar este número de WhatsApp como telefone de contato?\n\n1 - Sim\n2 - Informar outro número'
-  const askPhoneTextMsg = messages.askPhoneText || 'Por favor, informe seu telefone com DDD:'
-  const askCpfMsg = messages.askCpf || 'Por favor, digite seu CPF (apenas números):'
-  const askDateMsg = messages.askDate || 'Qual melhor data ou período para você?\n(Ex: amanhã, sexta-feira, próxima semana pela tarde)'
-  const successMsgTemplate = messages.success || 'Agendamento confirmado com sucesso!\n\nConsulta: {planoNome}\nData: {data}'
-  const noSlotsMsg = messages.noSlots || 'Infelizmente não encontrei horários livres para este período. O que deseja fazer?\n\n1 - Escolher outra data\n2 - Falar com atendente'
-  const summaryMsg = messages.summary || 'Confira os dados do seu agendamento:'
-  const cancelMsg = messages.cancel || 'Tudo bem, o agendamento não foi confirmado.'
 
   const collected = session.collectedData ? (typeof session.collectedData === 'string' ? JSON.parse(session.collectedData) : session.collectedData) as any : {}
   const dynamicMap = session.dynamicOptions ? (typeof session.dynamicOptions === 'string' ? JSON.parse(session.dynamicOptions) : session.dynamicOptions) as any : {}
-
-  const contactIdentity = collected._contactIdentity || {}
-  const canUseWhatsappAsPhone = !!contactIdentity.normalizedPhone
-  const useWhatsappPhone = (cfg.useWhatsappPhone === true || cfg.useWhatsappPhone === 'true') && canUseWhatsappAsPhone
 
   const doctorId = instance.doctorId
   let step = session.currentStepKey
@@ -550,19 +614,54 @@ export async function processGuidedStep(
     })
   }
 
+  // Context variables mapping for rendering templates
+  const contextVariables: Record<string, any> = {
+    nome: collected.nome || '',
+    telefone: collected.telefone || '',
+    cpf: collected.cpf ? maskCpf(collected.cpf) : '',
+    planoNome: collected.planoNome || '',
+    convenioNome: collected.convenioNome || '',
+    medico: '',
+    data: ''
+  }
+
   // Step 1: PLAN CHOOSING
   if (step === 'CHOOSE_PLAN') {
     const selectedId = dynamicMap[incomingText]
     if (!selectedId) {
       const attempts = session.invalidAttempts + 1
       if (attempts >= 3) {
-        return failSession('Limite de tentativas inválidas excedido. Agendamento encerrado.')
+        const renderedLimitExceeded = await getMessageWithLog({
+          templateKey: 'limitExceeded',
+          configuredText: messages.limitExceeded,
+          defaultFallback: 'Limite de tentativas inválidas excedido. Agendamento encerrado.',
+          data: contextVariables,
+          instanceId: instance.id,
+          actionConfigId,
+          actionKey: actionConfig.actionKey,
+          contactPhone,
+          sessionId: session.id,
+          stepKey: step
+        })
+        return failSession(renderedLimitExceeded)
       }
       await prisma.lightFlowSession.update({
         where: { id: session.id },
         data: { invalidAttempts: attempts }
       })
-      await sendStepMessage('Opção inválida. Selecione o número correspondente ao plano desejado.')
+      const renderedInvalidPlan = await getMessageWithLog({
+        templateKey: 'invalidPlan',
+        configuredText: messages.invalidPlan,
+        defaultFallback: 'Opção inválida. Selecione o número correspondente ao plano desejado.',
+        data: contextVariables,
+        instanceId: instance.id,
+        actionConfigId,
+        actionKey: actionConfig.actionKey,
+        contactPhone,
+        sessionId: session.id,
+        stepKey: step
+      })
+      await sendStepMessage(renderedInvalidPlan)
       return
     }
 
@@ -586,6 +685,8 @@ export async function processGuidedStep(
       message: `Plano selecionado: ${collected.planoNome}`
     })
 
+    contextVariables.planoNome = collected.planoNome;
+
     step = 'ASK_NAME'
     await prisma.lightFlowSession.update({
       where: { id: session.id },
@@ -596,17 +697,42 @@ export async function processGuidedStep(
         invalidAttempts: 0
       }
     })
-    await sendStepMessage(askNameMsg)
+    
+    const renderedAskName = await getMessageWithLog({
+      templateKey: 'askName',
+      configuredText: messages.askName,
+      defaultFallback: 'Para prosseguir, qual o seu nome completo?',
+      data: contextVariables,
+      instanceId: instance.id,
+      actionConfigId,
+      actionKey: actionConfig.actionKey,
+      contactPhone,
+      sessionId: session.id,
+      stepKey: step
+    })
+    await sendStepMessage(renderedAskName)
     return
   }
 
   // Step 2: NAME COLLECTION
   if (step === 'ASK_NAME') {
-    if (incomingText.length < 3) {
-      await sendStepMessage('Por favor, informe seu nome completo para registro.')
+    if (incomingText.trim().length < 3) {
+      const renderedAskNameInvalid = await getMessageWithLog({
+        templateKey: 'askNameInvalid',
+        configuredText: messages.askNameInvalid || messages.askName,
+        defaultFallback: 'Por favor, informe seu nome completo para registro.',
+        data: contextVariables,
+        instanceId: instance.id,
+        actionConfigId,
+        actionKey: actionConfig.actionKey,
+        contactPhone,
+        sessionId: session.id,
+        stepKey: step
+      })
+      await sendStepMessage(renderedAskNameInvalid)
       return
     }
-    collected.nome = incomingText
+    collected.nome = incomingText.trim()
     await auditLogAction({
       instanceId: instance.id,
       actionConfigId,
@@ -617,6 +743,26 @@ export async function processGuidedStep(
       stepKey: step,
       message: `Nome coletado: ${collected.nome}`
     })
+
+    contextVariables.nome = collected.nome;
+
+    const contactIdentity = collected._contactIdentity || {}
+    const canUseWhatsappAsPhone = !!contactIdentity.normalizedPhone
+    const useWhatsappPhone = (cfg.useWhatsappPhone === true || cfg.useWhatsappPhone === 'true') && canUseWhatsappAsPhone
+
+    if ((cfg.useWhatsappPhone === true || cfg.useWhatsappPhone === 'true') && !canUseWhatsappAsPhone) {
+      console.log(`[guided_action.whatsapp_phone_skipped_no_normalized_phone] Skipping phone confirmation because normalizedPhone is empty for contact ${contactPhone}`);
+      await auditLogAction({
+        instanceId: instance.id,
+        actionConfigId,
+        actionKey: actionConfig.actionKey,
+        contactPhone,
+        sessionId: session.id,
+        status: 'PHONE_SKIP_LID',
+        stepKey: step,
+        message: 'guided_action.whatsapp_phone_skipped_no_normalized_phone'
+      }).catch(err => console.error('[skip phone audit failed]', err));
+    }
 
     if (useWhatsappPhone) {
       step = 'ASK_PHONE_CONFIRM'
@@ -630,7 +776,19 @@ export async function processGuidedStep(
           invalidAttempts: 0
         }
       })
-      await sendStepMessage(askPhoneConfirmMsg)
+      const renderedPhoneConfirm = await getMessageWithLog({
+        templateKey: 'askPhoneConfirm',
+        configuredText: messages.askPhoneConfirm,
+        defaultFallback: 'Posso usar este número de WhatsApp como telefone de contato?\n\n1 - Sim\n2 - Informar outro número',
+        data: contextVariables,
+        instanceId: instance.id,
+        actionConfigId,
+        actionKey: actionConfig.actionKey,
+        contactPhone,
+        sessionId: session.id,
+        stepKey: step
+      })
+      await sendStepMessage(renderedPhoneConfirm)
       return
     } else {
       step = 'ASK_PHONE_TEXT'
@@ -643,7 +801,19 @@ export async function processGuidedStep(
           invalidAttempts: 0
         }
       })
-      await sendStepMessage(askPhoneTextMsg)
+      const renderedPhoneText = await getMessageWithLog({
+        templateKey: 'askPhoneText',
+        configuredText: messages.askPhoneText,
+        defaultFallback: 'Por favor, informe seu telefone com DDD:',
+        data: contextVariables,
+        instanceId: instance.id,
+        actionConfigId,
+        actionKey: actionConfig.actionKey,
+        contactPhone,
+        sessionId: session.id,
+        stepKey: step
+      })
+      await sendStepMessage(renderedPhoneText)
       return
     }
   }
@@ -664,14 +834,29 @@ export async function processGuidedStep(
         stepKey: step,
         message: `Telefone confirmado: ${collected.telefone}`
       })
+
+      contextVariables.telefone = collected.telefone;
       
-      if (requireCpf) {
+      const hasCpf = cpfOption === 'ASK_REQUIRED' || cpfOption === 'ASK_OPTIONAL';
+      if (hasCpf) {
         step = 'ASK_CPF'
         await prisma.lightFlowSession.update({
           where: { id: session.id },
           data: { currentStepKey: step, collectedData: collected, dynamicOptions: {} }
         })
-        await sendStepMessage(askCpfMsg)
+        const renderedAskCpf = await getMessageWithLog({
+          templateKey: 'askCpf',
+          configuredText: messages.askCpf,
+          defaultFallback: 'Por favor, digite seu CPF (apenas números):',
+          data: contextVariables,
+          instanceId: instance.id,
+          actionConfigId,
+          actionKey: actionConfig.actionKey,
+          contactPhone,
+          sessionId: session.id,
+          stepKey: step
+        })
+        await sendStepMessage(renderedAskCpf)
       } else if (requireConvenio) {
         step = 'ASK_CONVENIO'
         const convenios = await prisma.healthPlan.findMany({ where: { doctorId, active: true } })
@@ -686,15 +871,38 @@ export async function processGuidedStep(
             where: { id: session.id },
             data: { currentStepKey: step, collectedData: collected, dynamicOptions: mapOpts }
           })
-          const askConvMsg = messages.askConvenio || 'Qual o seu convênio/plano de saúde?'
-          await sendStepMessage(`${askConvMsg}\n\n${menuStr}\n\nSe for particular, digite 0.`)
+          const renderedAskConv = await getMessageWithLog({
+            templateKey: 'askConvenio',
+            configuredText: messages.askConvenio,
+            defaultFallback: 'Qual o seu convênio/plano de saúde?',
+            data: contextVariables,
+            instanceId: instance.id,
+            actionConfigId,
+            actionKey: actionConfig.actionKey,
+            contactPhone,
+            sessionId: session.id,
+            stepKey: step
+          })
+          await sendStepMessage(`${renderedAskConv}\n\n${menuStr}\n\nSe for particular, digite 0.`)
         } else {
           step = 'ASK_DATE'
           await prisma.lightFlowSession.update({
             where: { id: session.id },
             data: { currentStepKey: step, collectedData: collected }
           })
-          await sendStepMessage(askDateMsg)
+          const renderedAskDate = await getMessageWithLog({
+            templateKey: 'askDate',
+            configuredText: messages.askDate,
+            defaultFallback: 'Qual melhor data ou período para você?\n(Ex: amanhã, sexta-feira, próxima semana pela tarde)',
+            data: contextVariables,
+            instanceId: instance.id,
+            actionConfigId,
+            actionKey: actionConfig.actionKey,
+            contactPhone,
+            sessionId: session.id,
+            stepKey: step
+          })
+          await sendStepMessage(renderedAskDate)
         }
       } else {
         step = 'ASK_DATE'
@@ -702,7 +910,19 @@ export async function processGuidedStep(
           where: { id: session.id },
           data: { currentStepKey: step, collectedData: collected }
         })
-        await sendStepMessage(askDateMsg)
+        const renderedAskDate = await getMessageWithLog({
+          templateKey: 'askDate',
+          configuredText: messages.askDate,
+          defaultFallback: 'Qual melhor data ou período para você?\n(Ex: amanhã, sexta-feira, próxima semana pela tarde)',
+          data: contextVariables,
+          instanceId: instance.id,
+          actionConfigId,
+          actionKey: actionConfig.actionKey,
+          contactPhone,
+          sessionId: session.id,
+          stepKey: step
+        })
+        await sendStepMessage(renderedAskDate)
       }
       return;
     } else if (choice === 'CONFIRM_NO') {
@@ -711,10 +931,34 @@ export async function processGuidedStep(
         where: { id: session.id },
         data: { currentStepKey: step, dynamicOptions: {} }
       })
-      await sendStepMessage(askPhoneTextMsg)
+      const renderedPhoneText = await getMessageWithLog({
+        templateKey: 'askPhoneText',
+        configuredText: messages.askPhoneText,
+        defaultFallback: 'Por favor, informe seu telefone com DDD:',
+        data: contextVariables,
+        instanceId: instance.id,
+        actionConfigId,
+        actionKey: actionConfig.actionKey,
+        contactPhone,
+        sessionId: session.id,
+        stepKey: step
+      })
+      await sendStepMessage(renderedPhoneText)
       return
     } else {
-      await sendStepMessage('Escolha inválida. Digite 1 ou 2.')
+      const renderedInvalidChoice = await getMessageWithLog({
+        templateKey: 'invalidPhoneConfirmChoice',
+        configuredText: messages.invalidPhoneConfirmChoice,
+        defaultFallback: 'Escolha inválida. Digite 1 ou 2.',
+        data: contextVariables,
+        instanceId: instance.id,
+        actionConfigId,
+        actionKey: actionConfig.actionKey,
+        contactPhone,
+        sessionId: session.id,
+        stepKey: step
+      })
+      await sendStepMessage(renderedInvalidChoice)
       return
     }
   }
@@ -723,7 +967,19 @@ export async function processGuidedStep(
   if (step === 'ASK_PHONE_TEXT') {
     const cleaned = incomingText.replace(/\D/g, '')
     if (cleaned.length < 10) {
-      await sendStepMessage('Telefone inválido. Digite o número com o DDD.')
+      const renderedInvalidPhoneText = await getMessageWithLog({
+        templateKey: 'invalidPhoneText',
+        configuredText: messages.invalidPhoneText,
+        defaultFallback: 'Telefone inválido. Digite o número com o DDD.',
+        data: contextVariables,
+        instanceId: instance.id,
+        actionConfigId,
+        actionKey: actionConfig.actionKey,
+        contactPhone,
+        sessionId: session.id,
+        stepKey: step
+      })
+      await sendStepMessage(renderedInvalidPhoneText)
       return
     }
     collected.telefone = cleaned
@@ -739,13 +995,28 @@ export async function processGuidedStep(
       message: `Telefone informado: ${collected.telefone}`
     })
 
-    if (requireCpf) {
+    contextVariables.telefone = collected.telefone;
+
+    const hasCpf = cpfOption === 'ASK_REQUIRED' || cpfOption === 'ASK_OPTIONAL';
+    if (hasCpf) {
       step = 'ASK_CPF'
       await prisma.lightFlowSession.update({
         where: { id: session.id },
         data: { currentStepKey: step, collectedData: collected }
       })
-      await sendStepMessage(askCpfMsg)
+      const renderedAskCpf = await getMessageWithLog({
+        templateKey: 'askCpf',
+        configuredText: messages.askCpf,
+        defaultFallback: 'Por favor, digite seu CPF (apenas números):',
+        data: contextVariables,
+        instanceId: instance.id,
+        actionConfigId,
+        actionKey: actionConfig.actionKey,
+        contactPhone,
+        sessionId: session.id,
+        stepKey: step
+      })
+      await sendStepMessage(renderedAskCpf)
     } else if (requireConvenio) {
       step = 'ASK_CONVENIO'
       const convenios = await prisma.healthPlan.findMany({ where: { doctorId, active: true } })
@@ -760,15 +1031,38 @@ export async function processGuidedStep(
           where: { id: session.id },
           data: { currentStepKey: step, collectedData: collected, dynamicOptions: mapOpts }
         })
-        const askConvMsg = messages.askConvenio || 'Qual o seu convênio/plano de saúde?'
-        await sendStepMessage(`${askConvMsg}\n\n${menuStr}\n\nSe for particular, digite 0.`)
+        const renderedAskConv = await getMessageWithLog({
+          templateKey: 'askConvenio',
+          configuredText: messages.askConvenio,
+          defaultFallback: 'Qual o seu convênio/plano de saúde?',
+          data: contextVariables,
+          instanceId: instance.id,
+          actionConfigId,
+          actionKey: actionConfig.actionKey,
+          contactPhone,
+          sessionId: session.id,
+          stepKey: step
+        })
+        await sendStepMessage(`${renderedAskConv}\n\n${menuStr}\n\nSe for particular, digite 0.`)
       } else {
         step = 'ASK_DATE'
         await prisma.lightFlowSession.update({
           where: { id: session.id },
           data: { currentStepKey: step, collectedData: collected }
         })
-        await sendStepMessage(askDateMsg)
+        const renderedAskDate = await getMessageWithLog({
+          templateKey: 'askDate',
+          configuredText: messages.askDate,
+          defaultFallback: 'Qual melhor data ou período para você?\n(Ex: amanhã, sexta-feira, próxima semana pela tarde)',
+          data: contextVariables,
+          instanceId: instance.id,
+          actionConfigId,
+          actionKey: actionConfig.actionKey,
+          contactPhone,
+          sessionId: session.id,
+          stepKey: step
+        })
+        await sendStepMessage(renderedAskDate)
       }
     } else {
       step = 'ASK_DATE'
@@ -776,29 +1070,75 @@ export async function processGuidedStep(
         where: { id: session.id },
         data: { currentStepKey: step, collectedData: collected }
       })
-      await sendStepMessage(askDateMsg)
+      const renderedAskDate = await getMessageWithLog({
+        templateKey: 'askDate',
+        configuredText: messages.askDate,
+        defaultFallback: 'Qual melhor data ou período para você?\n(Ex: amanhã, sexta-feira, próxima semana pela tarde)',
+        data: contextVariables,
+        instanceId: instance.id,
+        actionConfigId,
+        actionKey: actionConfig.actionKey,
+        contactPhone,
+        sessionId: session.id,
+        stepKey: step
+      })
+      await sendStepMessage(renderedAskDate)
     }
     return
   }
 
   // Step 5: CPF COLLECTION
   if (step === 'ASK_CPF') {
-    const cleanedCpf = incomingText.replace(/\D/g, '')
-    if (cleanedCpf.length !== 11) {
-      await sendStepMessage('CPF inválido. Por favor, informe os 11 dígitos do seu CPF.')
-      return
+    const textLower = incomingText.trim().toLowerCase();
+    const isSkip = textLower === '0' || textLower === 'pular' || textLower === 'ignorar';
+    // Log the incoming input safely — CPF digits are never stored in audit logs in clear text
+    const safeInput = safeLogInput(incomingText.trim(), step);
+    
+    if (cpfOption === 'ASK_OPTIONAL' && isSkip) {
+      collected.cpf = null;
+      await auditLogAction({
+        instanceId: instance.id,
+        actionConfigId,
+        actionKey: actionConfig.actionKey,
+        contactPhone,
+        sessionId: session.id,
+        status: 'INPUT_COLLECTED',
+        stepKey: step,
+        message: `CPF ignorado (opcional)`
+      });
+      contextVariables.cpf = '';
+    } else {
+      const cleanedCpf = incomingText.replace(/\D/g, '')
+      if (cleanedCpf.length !== 11) {
+        const renderedInvalidCpf = await getMessageWithLog({
+          templateKey: 'invalidCpf',
+          configuredText: messages.invalidCpf,
+          defaultFallback: 'CPF inválido. Por favor, informe os 11 dígitos do seu CPF.',
+          data: contextVariables,
+          instanceId: instance.id,
+          actionConfigId,
+          actionKey: actionConfig.actionKey,
+          contactPhone,
+          sessionId: session.id,
+          stepKey: step
+        })
+        await sendStepMessage(renderedInvalidCpf);
+        return
+      }
+      collected.cpf = cleanedCpf
+      await auditLogAction({
+        instanceId: instance.id,
+        actionConfigId,
+        actionKey: actionConfig.actionKey,
+        contactPhone,
+        sessionId: session.id,
+        status: 'INPUT_COLLECTED',
+        stepKey: step,
+        message: `CPF coletado: ${maskCpf(cleanedCpf)}`,
+        metadata: { maskedInput: safeInput, privacy: 'cpf_sanitized' }
+      })
+      contextVariables.cpf = maskCpf(cleanedCpf);
     }
-    collected.cpf = cleanedCpf
-    await auditLogAction({
-      instanceId: instance.id,
-      actionConfigId,
-      actionKey: actionConfig.actionKey,
-      contactPhone,
-      sessionId: session.id,
-      status: 'INPUT_COLLECTED',
-      stepKey: step,
-      message: `CPF coletado`
-    })
 
     if (requireConvenio) {
       step = 'ASK_CONVENIO'
@@ -814,15 +1154,38 @@ export async function processGuidedStep(
           where: { id: session.id },
           data: { currentStepKey: step, collectedData: collected, dynamicOptions: mapOpts }
         })
-        const askConvMsg = messages.askConvenio || 'Qual o seu convênio/plano de saúde?'
-        await sendStepMessage(`${askConvMsg}\n\n${menuStr}\n\nSe for particular, digite 0.`)
+        const renderedAskConv = await getMessageWithLog({
+          templateKey: 'askConvenio',
+          configuredText: messages.askConvenio,
+          defaultFallback: 'Qual o seu convênio/plano de saúde?',
+          data: contextVariables,
+          instanceId: instance.id,
+          actionConfigId,
+          actionKey: actionConfig.actionKey,
+          contactPhone,
+          sessionId: session.id,
+          stepKey: step
+        })
+        await sendStepMessage(`${renderedAskConv}\n\n${menuStr}\n\nSe for particular, digite 0.`)
       } else {
         step = 'ASK_DATE'
         await prisma.lightFlowSession.update({
           where: { id: session.id },
           data: { currentStepKey: step, collectedData: collected }
         })
-        await sendStepMessage(askDateMsg)
+        const renderedAskDate = await getMessageWithLog({
+          templateKey: 'askDate',
+          configuredText: messages.askDate,
+          defaultFallback: 'Qual melhor data ou período para você?\n(Ex: amanhã, sexta-feira, próxima semana pela tarde)',
+          data: contextVariables,
+          instanceId: instance.id,
+          actionConfigId,
+          actionKey: actionConfig.actionKey,
+          contactPhone,
+          sessionId: session.id,
+          stepKey: step
+        })
+        await sendStepMessage(renderedAskDate)
       }
     } else {
       step = 'ASK_DATE'
@@ -830,7 +1193,19 @@ export async function processGuidedStep(
         where: { id: session.id },
         data: { currentStepKey: step, collectedData: collected }
       })
-      await sendStepMessage(askDateMsg)
+      const renderedAskDate = await getMessageWithLog({
+        templateKey: 'askDate',
+        configuredText: messages.askDate,
+        defaultFallback: 'Qual melhor data ou período para você?\n(Ex: amanhã, sexta-feira, próxima semana pela tarde)',
+        data: contextVariables,
+        instanceId: instance.id,
+        actionConfigId,
+        actionKey: actionConfig.actionKey,
+        contactPhone,
+        sessionId: session.id,
+        stepKey: step
+      })
+      await sendStepMessage(renderedAskDate)
     }
     return
   }
@@ -843,7 +1218,19 @@ export async function processGuidedStep(
     } else {
       const convId = dynamicMap[incomingText]
       if (!convId) {
-        await sendStepMessage('Opção inválida. Digite o número do seu convênio ou 0 para Particular.')
+        const renderedInvalidConvenio = await getMessageWithLog({
+          templateKey: 'invalidConvenio',
+          configuredText: messages.invalidConvenio,
+          defaultFallback: 'Opção inválida. Digite o número do seu convênio ou 0 para Particular.',
+          data: contextVariables,
+          instanceId: instance.id,
+          actionConfigId,
+          actionKey: actionConfig.actionKey,
+          contactPhone,
+          sessionId: session.id,
+          stepKey: step
+        })
+        await sendStepMessage(renderedInvalidConvenio)
         return
       }
       collected.convenioId = convId
@@ -861,13 +1248,27 @@ export async function processGuidedStep(
       stepKey: step,
       message: `Convênio selecionado: ${collected.convenioNome}`
     })
+
+    contextVariables.convenioNome = collected.convenioNome;
     
     step = 'ASK_DATE'
     await prisma.lightFlowSession.update({
       where: { id: session.id },
       data: { currentStepKey: step, collectedData: collected, dynamicOptions: {} }
     })
-    await sendStepMessage(askDateMsg)
+    const renderedAskDate = await getMessageWithLog({
+      templateKey: 'askDate',
+      configuredText: messages.askDate,
+      defaultFallback: 'Qual melhor data ou período para você?\n(Ex: amanhã, sexta-feira, próxima semana pela tarde)',
+      data: contextVariables,
+      instanceId: instance.id,
+      actionConfigId,
+      actionKey: actionConfig.actionKey,
+      contactPhone,
+      sessionId: session.id,
+      stepKey: step
+    })
+    await sendStepMessage(renderedAskDate)
     return
   }
 
@@ -900,7 +1301,19 @@ export async function processGuidedStep(
         where: { id: session.id },
         data: { currentStepKey: step, collectedData: collected, dynamicOptions: newMap }
       })
-      await sendStepMessage(noSlotsMsg)
+      const renderedNoSlots = await getMessageWithLog({
+        templateKey: 'noSlots',
+        configuredText: messages.noSlots,
+        defaultFallback: 'Infelizmente não encontrei horários livres para este período. O que deseja fazer?\n\n1 - Escolher outra data\n2 - Falar com atendente',
+        data: contextVariables,
+        instanceId: instance.id,
+        actionConfigId,
+        actionKey: actionConfig.actionKey,
+        contactPhone,
+        sessionId: session.id,
+        stepKey: step
+      })
+      await sendStepMessage(renderedNoSlots)
       return
     }
 
@@ -928,7 +1341,18 @@ export async function processGuidedStep(
       data: { currentStepKey: step, collectedData: collected, dynamicOptions: mapOpts }
     })
 
-    const slotsFoundHeader = messages.slotsFound || 'Encontrei estes horários disponíveis:'
+    const slotsFoundHeader = await getMessageWithLog({
+      templateKey: 'slotsFound',
+      configuredText: messages.slotsFound,
+      defaultFallback: 'Encontrei estes horários disponíveis:',
+      data: contextVariables,
+      instanceId: instance.id,
+      actionConfigId,
+      actionKey: actionConfig.actionKey,
+      contactPhone,
+      sessionId: session.id,
+      stepKey: step
+    })
     await sendStepMessage(`${slotsFoundHeader}\n\n${menuStr}\n\nPor favor, escolha a opção desejada.`)
     return
   }
@@ -942,10 +1366,34 @@ export async function processGuidedStep(
         where: { id: session.id },
         data: { currentStepKey: step, dynamicOptions: {} }
       })
-      await sendStepMessage(askDateMsg)
+      const renderedAskDate = await getMessageWithLog({
+        templateKey: 'askDate',
+        configuredText: messages.askDate,
+        defaultFallback: 'Qual melhor data ou período para você?\n(Ex: amanhã, sexta-feira, próxima semana pela tarde)',
+        data: contextVariables,
+        instanceId: instance.id,
+        actionConfigId,
+        actionKey: actionConfig.actionKey,
+        contactPhone,
+        sessionId: session.id,
+        stepKey: step
+      })
+      await sendStepMessage(renderedAskDate)
       return
     } else if (choice === 'TRANSFER_HUMAN') {
-      await sendStepMessage('Certo. Vou transferir sua conversa para um de nossos atendentes. Por favor, aguarde.')
+      const renderedTransferHuman = await getMessageWithLog({
+        templateKey: 'transferHuman',
+        configuredText: messages.transferHuman,
+        defaultFallback: 'Certo. Vou transferir sua conversa para um de nossos atendentes. Por favor, aguarde.',
+        data: contextVariables,
+        instanceId: instance.id,
+        actionConfigId,
+        actionKey: actionConfig.actionKey,
+        contactPhone,
+        sessionId: session.id,
+        stepKey: step
+      })
+      await sendStepMessage(renderedTransferHuman)
       await prisma.lightFlowSession.update({
         where: { id: session.id },
         data: { status: 'TRANSFER' }
@@ -962,7 +1410,19 @@ export async function processGuidedStep(
       })
       return
     } else {
-      await sendStepMessage('Escolha inválida. Digite 1 ou 2.')
+      const renderedInvalidChoice = await getMessageWithLog({
+        templateKey: 'invalidChoiceEmptyDate',
+        configuredText: messages.invalidChoiceEmptyDate,
+        defaultFallback: 'Escolha inválida. Digite 1 ou 2.',
+        data: contextVariables,
+        instanceId: instance.id,
+        actionConfigId,
+        actionKey: actionConfig.actionKey,
+        contactPhone,
+        sessionId: session.id,
+        stepKey: step
+      })
+      await sendStepMessage(renderedInvalidChoice)
       return
     }
   }
@@ -971,7 +1431,19 @@ export async function processGuidedStep(
   if (step === 'CHOOSE_SLOT') {
     const chosenSlot = dynamicMap[incomingText]
     if (!chosenSlot) {
-      await sendStepMessage('Opção inválida. Digite o número correspondente ao horário desejado.')
+      const renderedInvalidSlot = await getMessageWithLog({
+        templateKey: 'invalidSlot',
+        configuredText: messages.invalidSlot,
+        defaultFallback: 'Opção inválida. Digite o número correspondente ao horário desejado.',
+        data: contextVariables,
+        instanceId: instance.id,
+        actionConfigId,
+        actionKey: actionConfig.actionKey,
+        contactPhone,
+        sessionId: session.id,
+        stepKey: step
+      })
+      await sendStepMessage(renderedInvalidSlot)
       return
     }
 
@@ -1008,17 +1480,89 @@ export async function processGuidedStep(
 
     const dataFormatted = formatSlotDateTime(chosenSlot.startAt)
 
-    await sendStepMessage(
-      `${summaryMsg}\n\n` +
-      `👤 Nome: ${collected.nome}\n` +
-      `📞 Telefone: ${collected.telefone}\n` +
-      `💼 Plano/Serviço: ${collected.planoNome}\n` +
-      `🩺 Médico: ${doctor?.name || 'Médico'}\n` +
-      `📅 Data/Horário: ${dataFormatted}\n\n` +
-      `1 - Sim, confirmar agendamento\n` +
-      `2 - Escolher outro horário\n` +
-      `3 - Cancelar`
-    )
+    contextVariables.medico = doctor?.name || 'Médico';
+    contextVariables.data = dataFormatted;
+
+    const summaryHeader = await getMessageWithLog({
+      templateKey: 'summaryHeader',
+      configuredText: messages.summaryHeader || messages.summary,
+      defaultFallback: 'Confira os dados do seu agendamento:',
+      data: contextVariables,
+      instanceId: instance.id,
+      actionConfigId,
+      actionKey: actionConfig.actionKey,
+      contactPhone,
+      sessionId: session.id,
+      stepKey: step
+    });
+
+    const summaryBody = await getMessageWithLog({
+      templateKey: 'summaryBody',
+      configuredText: messages.summaryBody,
+      defaultFallback: '👤 Nome: {nome}\n📞 Telefone: {telefone}\n💼 Plano/Serviço: {planoNome}\n🩺 Médico: {medico}\n📅 Data/Horário: {data}',
+      data: contextVariables,
+      instanceId: instance.id,
+      actionConfigId,
+      actionKey: actionConfig.actionKey,
+      contactPhone,
+      sessionId: session.id,
+      stepKey: step
+    });
+
+    const askConfirm = await getMessageWithLog({
+      templateKey: 'askConfirm',
+      configuredText: messages.askConfirm,
+      defaultFallback: 'Posso confirmar seu agendamento?',
+      data: contextVariables,
+      instanceId: instance.id,
+      actionConfigId,
+      actionKey: actionConfig.actionKey,
+      contactPhone,
+      sessionId: session.id,
+      stepKey: step
+    });
+
+    const optionConfirm = await getMessageWithLog({
+      templateKey: 'optionConfirm',
+      configuredText: messages.optionConfirm,
+      defaultFallback: 'Sim, confirmar agendamento',
+      data: contextVariables,
+      instanceId: instance.id,
+      actionConfigId,
+      actionKey: actionConfig.actionKey,
+      contactPhone,
+      sessionId: session.id,
+      stepKey: step
+    });
+
+    const optionChange = await getMessageWithLog({
+      templateKey: 'optionChange',
+      configuredText: messages.optionChange,
+      defaultFallback: 'Escolher outro horário',
+      data: contextVariables,
+      instanceId: instance.id,
+      actionConfigId,
+      actionKey: actionConfig.actionKey,
+      contactPhone,
+      sessionId: session.id,
+      stepKey: step
+    });
+
+    const optionCancel = await getMessageWithLog({
+      templateKey: 'optionCancel',
+      configuredText: messages.optionCancel,
+      defaultFallback: 'Cancelar',
+      data: contextVariables,
+      instanceId: instance.id,
+      actionConfigId,
+      actionKey: actionConfig.actionKey,
+      contactPhone,
+      sessionId: session.id,
+      stepKey: step
+    });
+
+    const fullMessage = `${summaryHeader}\n\n${summaryBody}\n\n${askConfirm}\n\n1 - ${optionConfirm}\n2 - ${optionChange}\n3 - ${optionCancel}`;
+    await sendStepMessage(fullMessage);
     return
   }
 
@@ -1070,11 +1614,21 @@ export async function processGuidedStep(
         })
 
         const dateFormatted = formatSlotDateTime(collected.horarioEscolhido)
-        const successMsg = successMsgTemplate
-          .replace('{nome}', collected.nome)
-          .replace('{planoNome}', collected.planoNome)
-          .replace('{medico}', appt.doctor?.name || 'Médico')
-          .replace('{data}', dateFormatted)
+        contextVariables.medico = appt.doctor?.name || 'Médico';
+        contextVariables.data = dateFormatted;
+
+        const successMsg = await getMessageWithLog({
+          templateKey: 'success',
+          configuredText: messages.success,
+          defaultFallback: 'Agendamento confirmado com sucesso!\n\nConsulta: {planoNome}\nData: {data}',
+          data: contextVariables,
+          instanceId: instance.id,
+          actionConfigId,
+          actionKey: actionConfig.actionKey,
+          contactPhone,
+          sessionId: session.id,
+          stepKey: step
+        })
 
         await sendStepMessage(successMsg)
         return
@@ -1085,11 +1639,36 @@ export async function processGuidedStep(
             where: { id: session.id },
             data: { currentStepKey: step, dynamicOptions: {} }
           })
-          await sendStepMessage('Esse horário acabou de ser ocupado. Por favor, escolha uma outra data ou período:')
+          const renderedSlotOccupied = await getMessageWithLog({
+            templateKey: 'slotOccupied',
+            configuredText: messages.slotOccupied,
+            defaultFallback: 'Esse horário acabou de ser ocupado. Por favor, escolha uma outra data ou período:',
+            data: contextVariables,
+            instanceId: instance.id,
+            actionConfigId,
+            actionKey: actionConfig.actionKey,
+            contactPhone,
+            sessionId: session.id,
+            stepKey: step
+          })
+          await sendStepMessage(renderedSlotOccupied)
           return
         }
         console.error('[GuidedFlow Config-Driven Confirmation Error]', err)
-        return failSession('Desculpe, ocorreu um erro ao registrar seu agendamento no sistema. Por favor, tente novamente mais tarde.')
+        
+        const renderedConfirmError = await getMessageWithLog({
+          templateKey: 'confirmError',
+          configuredText: messages.confirmError,
+          defaultFallback: 'Desculpe, ocorreu um erro ao registrar seu agendamento no sistema. Por favor, tente novamente mais tarde.',
+          data: contextVariables,
+          instanceId: instance.id,
+          actionConfigId,
+          actionKey: actionConfig.actionKey,
+          contactPhone,
+          sessionId: session.id,
+          stepKey: step
+        })
+        return failSession(renderedConfirmError)
       }
     } else if (choice === 'CHANGE_SLOT') {
       step = 'ASK_DATE'
@@ -1097,14 +1676,38 @@ export async function processGuidedStep(
         where: { id: session.id },
         data: { currentStepKey: step, dynamicOptions: {} }
       })
-      await sendStepMessage(askDateMsg)
+      const renderedAskDate = await getMessageWithLog({
+        templateKey: 'askDate',
+        configuredText: messages.askDate,
+        defaultFallback: 'Qual melhor data ou período para você?\n(Ex: amanhã, sexta-feira, próxima semana pela tarde)',
+        data: contextVariables,
+        instanceId: instance.id,
+        actionConfigId,
+        actionKey: actionConfig.actionKey,
+        contactPhone,
+        sessionId: session.id,
+        stepKey: step
+      })
+      await sendStepMessage(renderedAskDate)
       return
     } else if (choice === 'CANCEL_SESSION') {
       await prisma.lightFlowSession.update({
         where: { id: session.id },
         data: { status: 'CANCELLED' }
       })
-      await sendStepMessage(cancelMsg)
+      const renderedCancel = await getMessageWithLog({
+        templateKey: 'cancel',
+        configuredText: messages.cancel,
+        defaultFallback: 'Tudo bem, o agendamento não foi confirmado.',
+        data: contextVariables,
+        instanceId: instance.id,
+        actionConfigId,
+        actionKey: actionConfig.actionKey,
+        contactPhone,
+        sessionId: session.id,
+        stepKey: step
+      })
+      await sendStepMessage(renderedCancel)
       await auditLogAction({
         instanceId: instance.id,
         actionConfigId,
@@ -1117,7 +1720,27 @@ export async function processGuidedStep(
       })
       return
     } else {
-      await sendStepMessage('Para confirmar o agendamento, responda:\n\n1 - Sim, confirmar\n2 - Escolher outro horário\n3 - Cancelar')
+      const optConfirm = messages.optionConfirm || 'Sim, confirmar agendamento'
+      const optChange = messages.optionChange || 'Escolher outro horário'
+      const optCancel = messages.optionCancel || 'Cancelar'
+      
+      const renderedInvalidConfirm = await getMessageWithLog({
+        templateKey: 'invalidConfirm',
+        configuredText: messages.invalidConfirm,
+        defaultFallback: 'Desculpe, não entendi. Para prosseguir, por favor escolha uma das opções abaixo digitando apenas o número:\n\n1 - {optionConfirm}\n2 - {optionChange}\n3 - {optionCancel}',
+        data: {
+          optionConfirm: optConfirm,
+          optionChange: optChange,
+          optionCancel: optCancel
+        },
+        instanceId: instance.id,
+        actionConfigId,
+        actionKey: actionConfig.actionKey,
+        contactPhone,
+        sessionId: session.id,
+        stepKey: step
+      })
+      await sendStepMessage(renderedInvalidConfirm)
       return
     }
   }

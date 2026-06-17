@@ -1,7 +1,7 @@
 import NodeCache from 'node-cache'
 import { prisma } from './prisma'
 import { sendWhatsAppMessage, isSessionActive, resolveWhatsAppContactIdentity, resolveDeliveryJid } from './whatsapp'
-import { processGuidedStep } from './chatbot-light-guided-engine'
+import { processGuidedStep, interpolateTemplate } from './chatbot-light-guided-engine'
 
 
 const lightFlowStateCache = new NodeCache({
@@ -243,12 +243,50 @@ export async function handleIncomingLightMessage(params: {
         let prevStep = 'CHOOSE_PLAN'
         const currentStep = activeSession.currentStepKey
 
+        // Carregar config para saber quais passos estavam ativos
+        let actionConfig: any = null
+        let requireConvenio = false
+        let cpfOption = 'DONT_ASK'
+        if (activeSession.actionConfigId) {
+          actionConfig = await prisma.lightSystemActionConfig.findUnique({
+            where: { id: activeSession.actionConfigId }
+          })
+          if (actionConfig) {
+            const cfg = (typeof actionConfig.config === 'string' ? JSON.parse(actionConfig.config) : actionConfig.config) as any
+            requireConvenio = cfg.requireConvenio === true || cfg.requireConvenio === 'true'
+            cpfOption = cfg.cpfOption || ((cfg.requireCpf === true || cfg.requireCpf === 'true') ? 'ASK_REQUIRED' : 'DONT_ASK')
+          }
+        }
+
         if (currentStep === 'ASK_NAME') prevStep = 'CHOOSE_PLAN'
         else if (currentStep === 'ASK_PHONE_CONFIRM' || currentStep === 'ASK_PHONE_TEXT') prevStep = 'ASK_NAME'
-        else if (currentStep === 'ASK_CPF') prevStep = 'ASK_PHONE_TEXT'
-        else if (currentStep === 'ASK_CONVENIO') prevStep = 'ASK_PHONE_TEXT'
+        else if (currentStep === 'ASK_CPF') {
+          const hasConfirm = actionConfig && (typeof actionConfig.config === 'string' ? JSON.parse(actionConfig.config) : actionConfig.config).useWhatsappPhone;
+          const canUseWhatsappAsPhone = !!collected._contactIdentity?.normalizedPhone;
+          const useWhatsappPhone = (hasConfirm === true || hasConfirm === 'true') && canUseWhatsappAsPhone;
+          prevStep = useWhatsappPhone ? 'ASK_PHONE_CONFIRM' : 'ASK_PHONE_TEXT';
+        }
+        else if (currentStep === 'ASK_CONVENIO') {
+          if (cpfOption === 'ASK_REQUIRED' || cpfOption === 'ASK_OPTIONAL') {
+            prevStep = 'ASK_CPF'
+          } else {
+            const hasConfirm = actionConfig && (typeof actionConfig.config === 'string' ? JSON.parse(actionConfig.config) : actionConfig.config).useWhatsappPhone;
+            const canUseWhatsappAsPhone = !!collected._contactIdentity?.normalizedPhone;
+            const useWhatsappPhone = (hasConfirm === true || hasConfirm === 'true') && canUseWhatsappAsPhone;
+            prevStep = useWhatsappPhone ? 'ASK_PHONE_CONFIRM' : 'ASK_PHONE_TEXT';
+          }
+        }
         else if (currentStep === 'ASK_DATE') {
-          prevStep = collected.cpf ? 'ASK_CPF' : 'ASK_NAME'
+          if (requireConvenio) {
+            prevStep = 'ASK_CONVENIO'
+          } else if (cpfOption === 'ASK_REQUIRED' || cpfOption === 'ASK_OPTIONAL') {
+            prevStep = 'ASK_CPF'
+          } else {
+            const hasConfirm = actionConfig && (typeof actionConfig.config === 'string' ? JSON.parse(actionConfig.config) : actionConfig.config).useWhatsappPhone;
+            const canUseWhatsappAsPhone = !!collected._contactIdentity?.normalizedPhone;
+            const useWhatsappPhone = (hasConfirm === true || hasConfirm === 'true') && canUseWhatsappAsPhone;
+            prevStep = useWhatsappPhone ? 'ASK_PHONE_CONFIRM' : 'ASK_PHONE_TEXT';
+          }
         }
         else if (currentStep === 'CHOOSE_SLOT') prevStep = 'ASK_DATE'
         else if (currentStep === 'CONFIRMATION') prevStep = 'CHOOSE_SLOT'
@@ -399,7 +437,7 @@ export async function handleIncomingLightMessage(params: {
 
                 const messagesCfg = cfg.messages || {}
                 const askPlanMsg = messagesCfg.askPlan || 'Temos os seguintes planos/serviços disponíveis:\n\n{opcoes}\n\nQual opção você deseja? (Digite o número)'
-                const interpolatedPlanMsg = askPlanMsg.replace('{opcoes}', menuStr)
+                const interpolatedPlanMsg = interpolateTemplate(askPlanMsg, { opcoes: menuStr })
 
                 await sendLightMessage(instance, sessionDeliveryJid, interpolatedPlanMsg, 'fluxo')
               } else {

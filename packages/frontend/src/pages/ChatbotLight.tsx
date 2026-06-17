@@ -521,6 +521,13 @@ function FluxosPanel() {
       if (!opt.label.trim())    { e.options = `Informe o texto da opção ${opt.number}`; break }
       if (!opt.triggers.trim()) { e.options = `Informe as palavras aceitas da opção ${opt.number}`; break }
       if (!opt.response.trim()) { e.options = `Informe a resposta do bot da opção ${opt.number}`; break }
+      if (opt.actionType === 'SYSTEM_ACTION') {
+        const hasVariables = ['{nome}', '{data}', '{telefone}', '{cpf}', '{medico}'].some(v => opt.response.includes(v));
+        if (hasVariables) {
+          e.options = `A "Mensagem antes de iniciar a ação" da opção ${opt.number} não pode usar variáveis como {nome} ou {data} antes que esses dados sejam coletados.`;
+          break;
+        }
+      }
       if (opt.actionType === 'TRANSFER_QUEUE' && !opt.queueId) {
         e.options = `Selecione a fila de destino da opção ${opt.number}`; break
       }
@@ -771,7 +778,9 @@ function FluxosPanel() {
                     </div>
 
                     <div>
-                      <label className="label text-[11px] mb-0.5">Resposta do bot *</label>
+                      <label className="label text-[11px] mb-0.5">
+                        {opt.actionType === 'SYSTEM_ACTION' ? 'Mensagem antes de iniciar a ação *' : 'Resposta do bot *'}
+                      </label>
                       <textarea
                         value={opt.response}
                         onChange={e => updateOption(opt.id, { response: e.target.value })}
@@ -1615,6 +1624,12 @@ interface SystemActionConfig {
   updatedAt: string
 }
 
+interface SimBubble {
+  id: string
+  sender: 'bot' | 'user'
+  text: string
+}
+
 function SystemActionsPanel() {
   const qc = useQueryClient()
   const [modalOpen, setModalOpen] = useState(false)
@@ -1638,6 +1653,7 @@ function SystemActionsPanel() {
   const [searchWindowDays, setSearchWindowDays] = useState(15)
   const [durationMinutes, setDurationMinutes] = useState(30)
   const [requireCpf, setRequireCpf] = useState(false)
+  const [cpfOption, setCpfOption] = useState('DONT_ASK')
   const [requireConvenio, setRequireConvenio] = useState(false)
   const [useWhatsappPhone, setUseWhatsappPhone] = useState(true)
   const [appointmentInitialStatus, setAppointmentInitialStatus] = useState('SCHEDULED')
@@ -1652,11 +1668,25 @@ function SystemActionsPanel() {
   const [msgSuccess, setMsgSuccess] = useState('Agendamento confirmado com sucesso!\n\nConsulta: {planoNome}\nData: {data}')
   const [msgNoSlots, setMsgNoSlots] = useState('Infelizmente não encontrei horários livres para este período. O que deseja fazer?\n\n1 - Escolher outra data\n2 - Falar com atendente')
   const [msgSummary, setMsgSummary] = useState('Confira os dados do seu agendamento:')
+  const [msgSummaryBody, setMsgSummaryBody] = useState('👤 Nome: {nome}\n📞 Telefone: {telefone}\n💳 CPF: {cpf}\n💼 Plano/Serviço: {planoNome}\n🩺 Médico: {medico}\n📅 Data/Horário: {data}')
+  const [msgAskConfirm, setMsgAskConfirm] = useState('Posso confirmar seu agendamento?')
+  const [msgOptionConfirm, setMsgOptionConfirm] = useState('Sim, confirmar agendamento')
+  const [msgOptionChange, setMsgOptionChange] = useState('Escolher outro horário')
+  const [msgOptionCancel, setMsgOptionCancel] = useState('Cancelar')
   const [msgCancel, setMsgCancel] = useState('Tudo bem, o agendamento não foi confirmado.')
 
   // Fallbacks
   const [maxAttempts, setMaxAttempts] = useState(3)
   const [fallbackMessage, setFallbackMessage] = useState('Não consegui entender. Vou transferir para um atendente.')
+
+  // Simulator states
+  const [simIsLid, setSimIsLid] = useState(false)
+  const [simStep, setSimStep] = useState('START')
+  const [simMessages, setSimMessages] = useState<SimBubble[]>([])
+  const [simCollected, setSimCollected] = useState<Record<string, string>>({
+    nome: '', telefone: '', cpf: '', planoNome: '', medico: 'Dr. Kelven Pereira', data: ''
+  })
+  const [simInput, setSimInput] = useState('')
 
   // Queries
   const { data: catalog = [] } = useQuery<CatalogItem[]>({
@@ -1720,6 +1750,7 @@ function SystemActionsPanel() {
     setSearchWindowDays(15)
     setDurationMinutes(30)
     setRequireCpf(false)
+    setCpfOption('DONT_ASK')
     setRequireConvenio(false)
     setUseWhatsappPhone(true)
     setAppointmentInitialStatus('SCHEDULED')
@@ -1732,9 +1763,16 @@ function SystemActionsPanel() {
     setMsgSuccess('Agendamento confirmado com sucesso!\n\nConsulta: {planoNome}\nData: {data}')
     setMsgNoSlots('Infelizmente não encontrei horários livres para este período. O que deseja fazer?\n\n1 - Escolher outra data\n2 - Falar com atendente')
     setMsgSummary('Confira os dados do seu agendamento:')
+    setMsgSummaryBody('👤 Nome: {nome}\n📞 Telefone: {telefone}\n💳 CPF: {cpf}\n💼 Plano/Serviço: {planoNome}\n🩺 Médico: {medico}\n📅 Data/Horário: {data}')
+    setMsgAskConfirm('Posso confirmar seu agendamento?')
+    setMsgOptionConfirm('Sim, confirmar agendamento')
+    setMsgOptionChange('Escolher outro horário')
+    setMsgOptionCancel('Cancelar')
     setMsgCancel('Tudo bem, o agendamento não foi confirmado.')
     setMaxAttempts(3)
     setFallbackMessage('Não consegui entender. Vou transferir para um atendente.')
+    setSimStep('START')
+    setSimMessages([])
 
     setModalOpen(true)
   }
@@ -1756,7 +1794,14 @@ function SystemActionsPanel() {
     setLimitSlots(parseInt(c.limitSlots) || 3)
     setSearchWindowDays(parseInt(c.searchWindowDays) || 15)
     setDurationMinutes(parseInt(c.durationMinutes) || 30)
-    setRequireCpf(c.requireCpf === true || c.requireCpf === 'true')
+    
+    let valCpf = c.cpfOption
+    if (!valCpf) {
+      valCpf = (c.requireCpf === true || c.requireCpf === 'true') ? 'ASK_REQUIRED' : 'DONT_ASK'
+    }
+    setCpfOption(valCpf)
+    setRequireCpf(valCpf === 'ASK_REQUIRED')
+
     setRequireConvenio(c.requireConvenio === true || c.requireConvenio === 'true')
     setUseWhatsappPhone(c.useWhatsappPhone === true || c.useWhatsappPhone === 'true')
     setAppointmentInitialStatus(c.appointmentInitialStatus || 'SCHEDULED')
@@ -1771,11 +1816,18 @@ function SystemActionsPanel() {
     setMsgSuccess(msgs.success || 'Agendamento confirmado com sucesso!\n\nConsulta: {planoNome}\nData: {data}')
     setMsgNoSlots(msgs.noSlots || 'Infelizmente não encontrei horários livres para este período. O que deseja fazer?\n\n1 - Escolher outra data\n2 - Falar com atendente')
     setMsgSummary(msgs.summary || 'Confira os dados do seu agendamento:')
+    setMsgSummaryBody(msgs.summaryBody || '👤 Nome: {nome}\n📞 Telefone: {telefone}\n💳 CPF: {cpf}\n💼 Plano/Serviço: {planoNome}\n🩺 Médico: {medico}\n📅 Data/Horário: {data}')
+    setMsgAskConfirm(msgs.askConfirm || 'Posso confirmar seu agendamento?')
+    setMsgOptionConfirm(msgs.optionConfirm || 'Sim, confirmar agendamento')
+    setMsgOptionChange(msgs.optionChange || 'Escolher outro horário')
+    setMsgOptionCancel(msgs.optionCancel || 'Cancelar')
     setMsgCancel(msgs.cancel || 'Tudo bem, o agendamento não foi confirmado.')
 
     const fback = c.fallback || {}
     setMaxAttempts(parseInt(fback.maxAttempts) || 3)
     setFallbackMessage(fback.fallbackMessage || 'Não consegui entender. Vou transferir para um atendente.')
+    setSimStep('START')
+    setSimMessages([])
 
     setModalOpen(true)
   }
@@ -1797,7 +1849,8 @@ function SystemActionsPanel() {
         limitSlots,
         searchWindowDays,
         durationMinutes,
-        requireCpf,
+        cpfOption,
+        requireCpf: cpfOption === 'ASK_REQUIRED',
         requireConvenio,
         useWhatsappPhone,
         appointmentInitialStatus,
@@ -1811,6 +1864,11 @@ function SystemActionsPanel() {
           success: msgSuccess,
           noSlots: msgNoSlots,
           summary: msgSummary,
+          summaryBody: msgSummaryBody,
+          askConfirm: msgAskConfirm,
+          optionConfirm: msgOptionConfirm,
+          optionChange: msgOptionChange,
+          optionCancel: msgOptionCancel,
           cancel: msgCancel
         },
         fallback: {
@@ -1846,7 +1904,8 @@ function SystemActionsPanel() {
     { label: '5. Captura' },
     { label: '6. Confirmação' },
     { label: '7. Fallbacks' },
-    { label: '8. Validar' }
+    { label: '8. Ordem' },
+    { label: '9. Simulador' }
   ]
 
   return (
@@ -2015,48 +2074,68 @@ function SystemActionsPanel() {
 
             {/* Tab 2: Paciente */}
             {activeTab === 1 && (
-              <div className="space-y-4 bg-slate-50 p-4 rounded-xl border border-slate-200">
-                <p className="text-xs font-bold text-slate-600 uppercase tracking-wider mb-2">Dados do Paciente</p>
-                
-                <div className="space-y-3">
-                  <label className="flex items-start gap-3 cursor-pointer p-2 rounded-lg hover:bg-white transition-colors">
-                    <input
-                      type="checkbox"
-                      checked={requireCpf}
-                      onChange={e => setRequireCpf(e.target.checked)}
-                      className="rounded text-cyan-600 focus:ring-cyan-500 mt-1"
-                    />
-                    <div>
-                      <p className="text-sm font-semibold text-slate-800">Solicitar CPF</p>
-                      <p className="text-xs text-slate-400">O robô perguntará o CPF do paciente para vincular ou criar o cadastro.</p>
-                    </div>
-                  </label>
+              <div className="space-y-4">
+                {/* CPF Radio Group */}
+                <div className="bg-slate-50 p-4 rounded-xl border border-slate-200 space-y-2">
+                  <p className="text-xs font-bold text-slate-600 uppercase tracking-wider mb-3">CPF do Paciente</p>
+                  {[
+                    { value: 'DONT_ASK', label: 'Não solicitar', desc: 'O robô não pedirá CPF. Recomendado para consultas simples.' },
+                    { value: 'ASK_OPTIONAL', label: 'Opcional (pode pular)', desc: 'O robô pede o CPF mas o paciente pode digitar 0, "pular" ou "ignorar" para avançar.' },
+                    { value: 'ASK_REQUIRED', label: 'Obrigatório', desc: 'O robô exige o CPF. O paciente não avança sem informar.' },
+                  ].map(opt => (
+                    <label key={opt.value} className={`flex items-start gap-3 cursor-pointer p-3 rounded-lg border transition-colors ${
+                      cpfOption === opt.value ? 'bg-cyan-50 border-cyan-300' : 'bg-white border-slate-200 hover:border-slate-300'
+                    }`}>
+                      <input
+                        type="radio"
+                        name="cpfOption"
+                        value={opt.value}
+                        checked={cpfOption === opt.value}
+                        onChange={() => { setCpfOption(opt.value); setRequireCpf(opt.value === 'ASK_REQUIRED') }}
+                        className="text-cyan-600 focus:ring-cyan-500 mt-0.5"
+                      />
+                      <div>
+                        <p className="text-sm font-semibold text-slate-800">{opt.label}</p>
+                        <p className="text-xs text-slate-400 mt-0.5">{opt.desc}</p>
+                      </div>
+                    </label>
+                  ))}
+                </div>
 
-                  <label className="flex items-start gap-3 cursor-pointer p-2 rounded-lg hover:bg-white transition-colors">
-                    <input
-                      type="checkbox"
-                      checked={requireConvenio}
-                      onChange={e => setRequireConvenio(e.target.checked)}
-                      className="rounded text-cyan-600 focus:ring-cyan-500 mt-1"
-                    />
-                    <div>
-                      <p className="text-sm font-semibold text-slate-800">Solicitar Convênio</p>
-                      <p className="text-xs text-slate-400">O robô listará os convênios do médico para o paciente escolher.</p>
-                    </div>
-                  </label>
+                {/* Convênio */}
+                <label className="flex items-start gap-3 cursor-pointer p-3 rounded-lg border border-slate-200 bg-white hover:border-slate-300 transition-colors">
+                  <input
+                    type="checkbox"
+                    checked={requireConvenio}
+                    onChange={e => setRequireConvenio(e.target.checked)}
+                    className="rounded text-cyan-600 focus:ring-cyan-500 mt-1"
+                  />
+                  <div>
+                    <p className="text-sm font-semibold text-slate-800">Solicitar Convênio</p>
+                    <p className="text-xs text-slate-400">O robô listará os convênios do médico para o paciente escolher.</p>
+                  </div>
+                </label>
 
-                  <label className="flex items-start gap-3 cursor-pointer p-2 rounded-lg hover:bg-white transition-colors">
-                    <input
-                      type="checkbox"
-                      checked={useWhatsappPhone}
-                      onChange={e => setUseWhatsappPhone(e.target.checked)}
-                      className="rounded text-cyan-600 focus:ring-cyan-500 mt-1"
-                    />
-                    <div>
-                      <p className="text-sm font-semibold text-slate-800">Usar telefone do WhatsApp</p>
-                      <p className="text-xs text-slate-400">Se ativo, usará o próprio número do WhatsApp do paciente. Caso inativo ou negado pelo paciente, solicitará outro número de contato.</p>
-                    </div>
-                  </label>
+                {/* WhatsApp Phone */}
+                <label className="flex items-start gap-3 cursor-pointer p-3 rounded-lg border border-slate-200 bg-white hover:border-slate-300 transition-colors">
+                  <input
+                    type="checkbox"
+                    checked={useWhatsappPhone}
+                    onChange={e => setUseWhatsappPhone(e.target.checked)}
+                    className="rounded text-cyan-600 focus:ring-cyan-500 mt-1"
+                  />
+                  <div>
+                    <p className="text-sm font-semibold text-slate-800">Usar telefone do WhatsApp</p>
+                    <p className="text-xs text-slate-400">Se ativo, perguntará se pode usar o número do WhatsApp do paciente como telefone. Se o contato for identificado por LID (sem telefone visível), o bot coletará o número manualmente.</p>
+                  </div>
+                </label>
+
+                {/* LID warning */}
+                <div className="flex items-start gap-2 p-3 bg-amber-50 border border-amber-200 rounded-xl">
+                  <span className="text-amber-500 text-base leading-none mt-0.5">⚠️</span>
+                  <p className="text-xs text-amber-800">
+                    <strong>Contatos LID:</strong> alguns usuários do WhatsApp aparecem com um identificador interno (ex: <code className="font-mono bg-amber-100 px-1 rounded">73444@lid</code>) em vez do telefone real. Nesses casos, o bot sempre coletará o número manualmente, independente desta configuração.
+                  </p>
                 </div>
               </div>
             )}
@@ -2201,7 +2280,7 @@ function SystemActionsPanel() {
                     />
                   </div>
 
-                  {requireCpf && (
+                  {cpfOption !== 'DONT_ASK' && (
                     <div>
                       <label className="label text-[11px]">Pergunta: Solicitar CPF</label>
                       <textarea
@@ -2229,33 +2308,73 @@ function SystemActionsPanel() {
             {/* Tab 6: Confirmação */}
             {activeTab === 5 && (
               <div className="space-y-4">
-                <p className="text-xs font-bold text-slate-500 uppercase tracking-wider">Mensagens de finalização e confirmação do agendamento</p>
+                <p className="text-xs font-bold text-slate-500 uppercase tracking-wider">Resumo e confirmação antes de criar o agendamento</p>
 
                 <div className="space-y-3">
                   <div>
-                    <label className="label text-[11px]">Mensagem: Resumo dos dados</label>
+                    <label className="label text-[11px]">Cabeçalho do resumo</label>
                     <textarea
                       value={msgSummary}
                       onChange={e => setMsgSummary(e.target.value)}
                       rows={2}
                       className="input-field text-xs font-mono"
                     />
-                    <p className="text-[9px] text-slate-400 font-sans mt-0.5">Cabeçalho enviado antes dos dados coletados.</p>
+                    <p className="text-[9px] text-slate-400 font-sans mt-0.5">Texto enviado antes dos dados coletados. Ex: "Confira os dados do seu agendamento:"</p>
                   </div>
 
                   <div>
-                    <label className="label text-[11px]">Mensagem: Agendamento Confirmado com Sucesso</label>
+                    <label className="label text-[11px]">Corpo do resumo (variáveis disponíveis)</label>
+                    <textarea
+                      value={msgSummaryBody}
+                      onChange={e => setMsgSummaryBody(e.target.value)}
+                      rows={5}
+                      className="input-field text-xs font-mono"
+                    />
+                    <p className="text-[9px] text-slate-400 font-sans mt-0.5">
+                      Variáveis: <span className="font-mono">{'{nome}'} {'{telefone}'} {'{cpf}'} {'{planoNome}'} {'{medico}'} {'{data}'}</span><br/>
+                      Variáveis ainda não coletadas serão removidas automaticamente do resumo.
+                    </p>
+                  </div>
+
+                  <div>
+                    <label className="label text-[11px]">Pergunta de confirmação</label>
+                    <textarea
+                      value={msgAskConfirm}
+                      onChange={e => setMsgAskConfirm(e.target.value)}
+                      rows={2}
+                      className="input-field text-xs font-mono"
+                    />
+                    <p className="text-[9px] text-slate-400 font-sans mt-0.5">Enviada após o resumo. O paciente deve responder 1, 2 ou 3.</p>
+                  </div>
+
+                  <div className="grid grid-cols-1 gap-2">
+                    <div>
+                      <label className="label text-[11px]">Opção 1 — Confirmar agendamento</label>
+                      <input value={msgOptionConfirm} onChange={e => setMsgOptionConfirm(e.target.value)} className="input-field text-xs" />
+                    </div>
+                    <div>
+                      <label className="label text-[11px]">Opção 2 — Escolher outro horário</label>
+                      <input value={msgOptionChange} onChange={e => setMsgOptionChange(e.target.value)} className="input-field text-xs" />
+                    </div>
+                    <div>
+                      <label className="label text-[11px]">Opção 3 — Cancelar</label>
+                      <input value={msgOptionCancel} onChange={e => setMsgOptionCancel(e.target.value)} className="input-field text-xs" />
+                    </div>
+                  </div>
+
+                  <div>
+                    <label className="label text-[11px]">Mensagem após confirmação com sucesso</label>
                     <textarea
                       value={msgSuccess}
                       onChange={e => setMsgSuccess(e.target.value)}
                       rows={3}
                       className="input-field text-xs font-mono"
                     />
-                    <p className="text-[9px] text-slate-400 font-sans mt-0.5 font-semibold">Variáveis: {"{nome}"}, {"{planoNome}"}, {"{medico}"}, {"{data}"}</p>
+                    <p className="text-[9px] text-slate-400 font-sans mt-0.5 font-semibold">Variáveis: {'{nome}'} {'{planoNome}'} {'{medico}'} {'{data}'}</p>
                   </div>
 
                   <div>
-                    <label className="label text-[11px]">Mensagem: Agendamento Cancelado</label>
+                    <label className="label text-[11px]">Mensagem quando o paciente cancela (opção 3)</label>
                     <textarea
                       value={msgCancel}
                       onChange={e => setMsgCancel(e.target.value)}
@@ -2309,41 +2428,273 @@ function SystemActionsPanel() {
               </div>
             )}
 
-            {/* Tab 8: Validar */}
+            {/* Tab 8: Ordem da Conversa */}
             {activeTab === 7 && (
               <div className="space-y-4">
-                <div className="bg-slate-50 p-4 rounded-xl border border-slate-200">
-                  <h4 className="font-semibold text-slate-800 text-sm mb-1.5 font-sans">Validar no Servidor</h4>
-                  <p className="text-xs text-slate-500 mb-4">
-                    Isso testará a configuração criada em relação ao seu perfil do sistema (regras de salas, médicos e serviços cadastrados) para confirmar que nada quebrará o bot em produção.
-                  </p>
+                <p className="text-xs font-bold text-slate-500 uppercase tracking-wider">Ordem real das etapas da conversa</p>
+                <p className="text-xs text-slate-400">Esta é a sequência exata que o robô seguirá quando um paciente iniciar o agendamento. As etapas condicionais aparecem em cinza quando inativas.</p>
 
-                  {editingConfig ? (
-                    <div className="space-y-3 font-sans">
+                {(() => {
+                  type Step = { icon: string; label: string; desc: string; active?: boolean; conditional?: boolean }
+                  const steps: Step[] = [
+                    { icon: '👋', label: 'Exibir menu principal', desc: 'Mensagem inicial configurada no fluxo', active: true },
+                    { icon: '🗂️', label: 'Paciente escolhe a opção', desc: 'Ex: digitar "1" para Agendar Consulta', active: true },
+                    { icon: '💼', label: 'Escolha do plano/serviço', desc: msgAskPlan.slice(0, 60) + '...', active: true },
+                    { icon: '👤', label: 'Coletar nome completo', desc: msgAskName, active: true },
+                    { icon: '📱', label: 'Confirmar número do WhatsApp', desc: msgAskPhoneConfirm.slice(0, 60) + '...', active: useWhatsappPhone, conditional: true },
+                    { icon: '☎️', label: 'Coletar telefone manualmente', desc: msgAskPhoneText, active: true, conditional: true },
+                    { icon: '🪪', label: 'Coletar CPF', desc: cpfOption === 'DONT_ASK' ? '(desativado)' : cpfOption === 'ASK_OPTIONAL' ? 'Opcional — paciente pode pular' : 'Obrigatório', active: cpfOption !== 'DONT_ASK', conditional: true },
+                    { icon: '📅', label: 'Solicitar data preferida', desc: msgAskDate, active: true },
+                    { icon: '🕐', label: 'Exibir horários disponíveis', desc: `Exibe até ${limitSlots} horários nos próximos ${searchWindowDays} dias`, active: true },
+                    { icon: '📋', label: 'Resumo dos dados', desc: msgSummary, active: true },
+                    { icon: '✅', label: 'Confirmar ou alterar', desc: `1 - ${msgOptionConfirm} / 2 - ${msgOptionChange} / 3 - ${msgOptionCancel}`, active: true },
+                    { icon: '🎉', label: 'Agendamento criado', desc: msgSuccess.slice(0, 60) + '...', active: true },
+                  ]
+                  return (
+                    <div className="relative pl-6">
+                      <div className="absolute left-2.5 top-3 bottom-3 w-0.5 bg-slate-200 rounded-full" />
+                      <div className="space-y-3">
+                        {steps.map((step, i) => (
+                          <div key={i} className={`relative flex items-start gap-3 p-3 rounded-xl border transition-all ${
+                            step.active
+                              ? 'bg-white border-slate-200 shadow-sm'
+                              : 'bg-slate-50 border-slate-100 opacity-50'
+                          }`}>
+                            <div className={`absolute -left-6 w-5 h-5 rounded-full border-2 flex items-center justify-center text-[10px] ${
+                              step.active ? 'bg-cyan-500 border-cyan-500 text-white' : 'bg-slate-200 border-slate-300 text-slate-400'
+                            }`}>
+                              {i + 1}
+                            </div>
+                            <span className="text-lg leading-none">{step.icon}</span>
+                            <div className="flex-1 min-w-0">
+                              <div className="flex items-center gap-2">
+                                <p className="text-xs font-semibold text-slate-800">{step.label}</p>
+                                {step.conditional && (
+                                  <span className={`text-[9px] px-1.5 py-0.5 rounded-full font-bold uppercase tracking-wider ${
+                                    step.active ? 'bg-cyan-50 text-cyan-600' : 'bg-slate-100 text-slate-400'
+                                  }`}>{step.active ? 'ativa' : 'inativa'}</span>
+                                )}
+                              </div>
+                              <p className="text-[10px] text-slate-400 mt-0.5 truncate">{step.desc}</p>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )
+                })()}
+              </div>
+            )}
+
+            {/* Tab 9: Simulador */}
+            {activeTab === 8 && (() => {
+              const interpolate = (tpl: string) => {
+                const d = simCollected
+                return tpl
+                  .replace(/\{nome\}/g, d.nome || '')
+                  .replace(/\{telefone\}/g, d.telefone || '')
+                  .replace(/\{cpf\}/g, d.cpf ? `***.***.${d.cpf.slice(-5, -2)}-${d.cpf.slice(-2)}` : '')
+                  .replace(/\{planoNome\}/g, d.planoNome || 'Consulta Geral')
+                  .replace(/\{medico\}/g, d.medico || 'Dr. (médico)')
+                  .replace(/\{data\}/g, d.data || '(data a definir)')
+                  .replace(/\{[^}]+\}/g, '')
+                  .replace(/\n{3,}/g, '\n\n')
+                  .trim()
+              }
+
+              const botSay = (text: string) => {
+                const id = `bot-${Date.now()}-${Math.random()}`
+                setSimMessages(prev => [...prev, { id, sender: 'bot', text }])
+              }
+
+              const userSay = (text: string) => {
+                const id = `usr-${Date.now()}-${Math.random()}`
+                setSimMessages(prev => [...prev, { id, sender: 'user', text }])
+              }
+
+              const startSim = () => {
+                setSimMessages([])
+                setSimCollected({ nome: '', telefone: '', cpf: '', planoNome: '', medico: 'Dr. Kelven Pereira', data: 'Sexta-feira, 10h' })
+                setSimInput('')
+                setSimStep('CHOOSE_PLAN')
+                setTimeout(() => botSay(interpolate(msgAskPlan.replace('{opcoes}', '1 - Consulta Geral\n2 - Retorno\n3 - Exame'))), 100)
+              }
+
+              const handleSimInput = () => {
+                const val = simInput.trim()
+                if (!val) return
+                userSay(val)
+                setSimInput('')
+
+                setTimeout(() => {
+                  if (simStep === 'CHOOSE_PLAN') {
+                    const plans: Record<string, string> = { '1': 'Consulta Geral', '2': 'Retorno', '3': 'Exame' }
+                    const chosen = plans[val] || 'Consulta Geral'
+                    setSimCollected(p => ({ ...p, planoNome: chosen }))
+                    setSimStep('ASK_NAME')
+                    botSay(msgAskName)
+
+                  } else if (simStep === 'ASK_NAME') {
+                    setSimCollected(p => ({ ...p, nome: val }))
+                    if (useWhatsappPhone && !simIsLid) {
+                      setSimStep('ASK_PHONE_CONFIRM')
+                      botSay(interpolate(msgAskPhoneConfirm))
+                    } else {
+                      setSimStep('ASK_PHONE_TEXT')
+                      botSay(msgAskPhoneText)
+                    }
+
+                  } else if (simStep === 'ASK_PHONE_CONFIRM') {
+                    if (val === '1') {
+                      setSimCollected(p => ({ ...p, telefone: '(34) 9 1234-5678' }))
+                      if (cpfOption !== 'DONT_ASK') {
+                        setSimStep('ASK_CPF')
+                        botSay(msgAskCpf)
+                      } else {
+                        setSimStep('ASK_DATE')
+                        botSay(msgAskDate)
+                      }
+                    } else {
+                      setSimStep('ASK_PHONE_TEXT')
+                      botSay(msgAskPhoneText)
+                    }
+
+                  } else if (simStep === 'ASK_PHONE_TEXT') {
+                    setSimCollected(p => ({ ...p, telefone: val }))
+                    if (cpfOption !== 'DONT_ASK') {
+                      setSimStep('ASK_CPF')
+                      botSay(msgAskCpf)
+                    } else {
+                      setSimStep('ASK_DATE')
+                      botSay(msgAskDate)
+                    }
+
+                  } else if (simStep === 'ASK_CPF') {
+                    const skip = val === '0' || val.toLowerCase() === 'pular' || val.toLowerCase() === 'ignorar'
+                    if (!skip || cpfOption !== 'ASK_OPTIONAL') {
+                      setSimCollected(p => ({ ...p, cpf: val.replace(/\D/g, '') }))
+                    }
+                    setSimStep('ASK_DATE')
+                    botSay(msgAskDate)
+
+                  } else if (simStep === 'ASK_DATE') {
+                    setSimCollected(p => ({ ...p, data: val }))
+                    setSimStep('CONFIRM')
+                    const updatedCollected: Record<string, string> = { ...simCollected, data: val }
+                    const body = msgSummaryBody
+                      .replace(/\{nome\}/g, updatedCollected.nome)
+                      .replace(/\{telefone\}/g, updatedCollected.telefone)
+                      .replace(/\{cpf\}/g, updatedCollected.cpf ? `***.***-${updatedCollected.cpf.slice(-5, -2)}-${updatedCollected.cpf.slice(-2)}` : '')
+                      .replace(/\{planoNome\}/g, updatedCollected.planoNome || 'Consulta Geral')
+                      .replace(/\{medico\}/g, updatedCollected.medico || 'Dr. (médico)')
+                      .replace(/\{data\}/g, val)
+                      .replace(/\{[^}]+\}/g, '').replace(/\n{3,}/g, '\n\n').trim()
+                    botSay(`${msgSummary}\n\n${body}\n\n${msgAskConfirm}\n\n1 - ${msgOptionConfirm}\n2 - ${msgOptionChange}\n3 - ${msgOptionCancel}`)
+
+                  } else if (simStep === 'CONFIRM') {
+                    if (val === '1') {
+                      setSimStep('DONE')
+                      botSay(interpolate(msgSuccess))
+                    } else if (val === '2') {
+                      setSimStep('ASK_DATE')
+                      botSay(msgAskDate)
+                    } else {
+                      setSimStep('CANCELLED')
+                      botSay(msgCancel)
+                    }
+                  } else {
+                    botSay('A simulação já foi concluída. Clique em "Reiniciar" para simular novamente.')
+                  }
+                }, 350)
+              }
+
+              return (
+                <div className="space-y-4">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <p className="text-xs font-bold text-slate-500 uppercase tracking-wider">Simulador de conversa</p>
+                      <p className="text-xs text-slate-400 mt-0.5">Teste o fluxo completo com as mensagens configuradas nas outras abas.</p>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <label className="flex items-center gap-1.5 text-xs text-slate-500 cursor-pointer">
+                        <input
+                          type="checkbox"
+                          checked={simIsLid}
+                          onChange={e => setSimIsLid(e.target.checked)}
+                          className="rounded text-amber-500 focus:ring-amber-400"
+                        />
+                        Simular contato LID
+                      </label>
                       <button
                         type="button"
-                        onClick={runValidation}
-                        disabled={testing}
-                        className="px-4 py-2 bg-slate-800 hover:bg-slate-900 text-white font-semibold text-xs rounded-lg flex items-center gap-1.5 transition-colors disabled:opacity-50"
+                        onClick={startSim}
+                        className="px-3 py-1.5 text-xs font-semibold bg-cyan-600 hover:bg-cyan-700 text-white rounded-lg flex items-center gap-1.5 transition-colors"
                       >
-                        {testing ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Zap className="w-3.5 h-3.5" />}
-                        Validar Configuração
+                        <span>▶</span> {simStep === 'START' ? 'Iniciar' : 'Reiniciar'}
                       </button>
+                    </div>
+                  </div>
 
-                      {testResult && (
-                        <div className={`p-3 rounded-lg border text-xs ${testResult.success ? 'bg-emerald-50 border-emerald-200 text-emerald-800' : 'bg-red-50 border-red-200 text-red-800'}`}>
-                          {testResult.message}
+                  {/* Chat Window */}
+                  <div className="bg-[#ece5dd] rounded-2xl border border-slate-200 overflow-hidden" style={{ height: '340px', display: 'flex', flexDirection: 'column' }}>
+                    <div className="bg-[#128C7E] text-white px-4 py-2.5 flex items-center gap-2 flex-shrink-0">
+                      <div className="w-8 h-8 rounded-full bg-white/20 flex items-center justify-center text-sm">🤖</div>
+                      <div>
+                        <p className="text-sm font-semibold leading-none">Clínica Bot</p>
+                        <p className="text-[10px] text-white/70">Chatbot Light</p>
+                      </div>
+                    </div>
+
+                    <div className="flex-1 overflow-y-auto p-3 space-y-2">
+                      {simMessages.length === 0 && (
+                        <div className="h-full flex items-center justify-center">
+                          <p className="text-xs text-slate-400 text-center">Clique em <strong>Iniciar</strong> para começar a simulação</p>
                         </div>
                       )}
+                      {simMessages.map(msg => (
+                        <div key={msg.id} className={`flex ${msg.sender === 'user' ? 'justify-end' : 'justify-start'}`}>
+                          <div className={`max-w-[75%] px-3 py-2 rounded-2xl text-xs whitespace-pre-wrap shadow-sm ${
+                            msg.sender === 'user'
+                              ? 'bg-[#dcf8c6] text-slate-800 rounded-br-sm'
+                              : 'bg-white text-slate-800 rounded-bl-sm'
+                          }`}>
+                            {msg.text}
+                          </div>
+                        </div>
+                      ))}
                     </div>
-                  ) : (
-                    <div className="p-3 bg-amber-50 border border-amber-200 rounded-lg text-xs text-amber-800">
-                      Salve esta configuração primeiro para poder realizar testes e validações no servidor.
+
+                    <div className="bg-[#f0f0f0] border-t border-slate-200 px-3 py-2 flex items-center gap-2 flex-shrink-0">
+                      <input
+                        type="text"
+                        value={simInput}
+                        onChange={e => setSimInput(e.target.value)}
+                        onKeyDown={e => e.key === 'Enter' && handleSimInput()}
+                        placeholder={simStep === 'START' ? 'Clique em Iniciar primeiro...' : 'Digite sua resposta...'}
+                        disabled={simStep === 'START' || simStep === 'DONE' || simStep === 'CANCELLED'}
+                        className="flex-1 bg-white border border-slate-200 rounded-full px-3 py-1.5 text-xs outline-none focus:border-cyan-400 disabled:opacity-50"
+                      />
+                      <button
+                        type="button"
+                        onClick={handleSimInput}
+                        disabled={simStep === 'START' || simStep === 'DONE' || simStep === 'CANCELLED' || !simInput.trim()}
+                        className="w-8 h-8 rounded-full bg-[#128C7E] text-white flex items-center justify-center disabled:opacity-40 hover:bg-[#0f6e62] transition-colors text-sm"
+                      >
+                        ➤
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Step indicator */}
+                  {simStep !== 'START' && (
+                    <div className="flex items-center gap-2 text-xs text-slate-400">
+                      <span className="font-mono bg-slate-100 px-2 py-0.5 rounded text-slate-600">{simStep}</span>
+                      <span>→ etapa atual do simulador</span>
                     </div>
                   )}
                 </div>
-              </div>
-            )}
+              )
+            })()}
           </div>
 
           {/* Action button */}

@@ -29,7 +29,7 @@ const generateUUID = () => {
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
-type Panel = 'relatorio' | 'fluxos' | 'mensagens' | 'templates' | 'respostas' | 'historico' | 'configuracoes'
+type Panel = 'relatorio' | 'fluxos' | 'system_actions' | 'mensagens' | 'templates' | 'respostas' | 'historico' | 'configuracoes'
 type ConfigTab = 'conexao' | 'teste' | 'telas'
 type FluxoActionType = 'SEND_MESSAGE' | 'TRANSFER_QUEUE' | 'OPEN_MENU' | 'SYSTEM_ACTION' | 'END_CHAT' | 'START_PLAN_SCHEDULING'
 
@@ -87,6 +87,9 @@ interface FluxoOption {
   queueId: string | null
   nextFlowId: string | null
   systemAction: string | null
+  systemActionKey?: string | null
+  systemActionConfigId?: string | null
+  transitionMessage?: string | null
   planSource?: string | null
   doctorSelect?: string | null
   limitSlots?: number | string | null
@@ -442,6 +445,11 @@ function FluxosPanel() {
     queryFn:  () => api.get('/chatbot-light/fluxos').then(r => r.data),
   })
 
+  const { data: actionConfigs = [] } = useQuery<SystemActionConfig[]>({
+    queryKey: ['light-system-actions-configs'],
+    queryFn: () => api.get('/chatbot-light/system-actions').then(r => r.data),
+  })
+
   const [form, setForm] = useState({
     name: '', description: '', keywords: '', welcomeMessage: '',
     maxAttempts: 3, fallbackMessage: 'Não consegui entender. Vou transferir para um atendente.',
@@ -481,6 +489,9 @@ function FluxosPanel() {
       queueId: null,
       nextFlowId: null,
       systemAction: null,
+      systemActionKey: null,
+      systemActionConfigId: null,
+      transitionMessage: null,
     }])
   }
 
@@ -516,8 +527,8 @@ function FluxosPanel() {
       if (opt.actionType === 'OPEN_MENU' && !opt.nextFlowId) {
         e.options = `Selecione o submenu da opção ${opt.number}`; break
       }
-      if (opt.actionType === 'SYSTEM_ACTION' && !opt.systemAction) {
-        e.options = `Selecione a ação do sistema da opção ${opt.number}`; break
+      if (opt.actionType === 'SYSTEM_ACTION' && (!opt.systemActionKey || !opt.systemActionConfigId)) {
+        e.options = `Selecione a ação e a configuração correspondente da opção ${opt.number}`; break
       }
     }
     setErrors(e)
@@ -778,6 +789,7 @@ function FluxosPanel() {
                           onChange={e => updateOption(opt.id, {
                             actionType: e.target.value as FluxoActionType,
                             queueId: null, nextFlowId: null, systemAction: null,
+                            systemActionKey: null, systemActionConfigId: null, transitionMessage: null,
                           })}
                           className="input-field text-sm py-1.5"
                         >
@@ -820,126 +832,55 @@ function FluxosPanel() {
                       )}
 
                       {opt.actionType === 'SYSTEM_ACTION' && (
-                        <div>
-                          <label className="label text-[11px] mb-0.5">Ação do sistema *</label>
-                          <select
-                            value={opt.systemAction ?? ''}
-                            onChange={e => updateOption(opt.id, { systemAction: e.target.value || null })}
-                            className="input-field text-sm py-1.5"
-                          >
-                            <option value="">— Selecionar ação —</option>
-                            {FLUXO_SYSTEM_ACTIONS.map(a => (
-                              <option key={a.value} value={a.value}>{a.label}</option>
-                            ))}
-                          </select>
-                        </div>
-                      )}
-
-                      {opt.actionType === 'START_PLAN_SCHEDULING' && (
                         <div className="col-span-1 md:col-span-2 bg-white border border-slate-200 rounded-xl p-4 space-y-3 mt-2 shadow-inner">
-                          <p className="text-xs font-bold text-slate-700 uppercase tracking-wide border-b pb-1.5">Configuração do Agendamento por Plano/Serviço</p>
+                          <p className="text-xs font-bold text-slate-700 uppercase tracking-wide border-b pb-1.5">Vincular Ação do Sistema</p>
                           <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                             <div>
-                              <label className="label text-[11px] mb-0.5">Fonte dos planos/serviços *</label>
+                              <label className="label text-[11px] mb-0.5">Tipo de ação *</label>
                               <select
-                                value={opt.planSource ?? 'DOCTOR_SERVICES'}
-                                onChange={e => updateOption(opt.id, { planSource: e.target.value })}
+                                value={opt.systemActionKey ?? ''}
+                                onChange={e => updateOption(opt.id, {
+                                  systemActionKey: e.target.value || null,
+                                  systemActionConfigId: null
+                                })}
                                 className="input-field text-sm py-1.5"
                               >
-                                <option value="DOCTOR_SERVICES">Serviços do Médico (AppointmentType)</option>
-                                <option value="DOCTOR_CONVENIOS">Convênios do Médico (HealthPlan)</option>
+                                <option value="">— Selecionar Ação —</option>
+                                <option value="SCHEDULE_APPOINTMENT">Agendar consulta</option>
+                                <option value="CONFIRM_APPOINTMENT" disabled>Confirmar consulta (Em breve)</option>
+                                <option value="CANCEL_APPOINTMENT" disabled>Cancelar consulta (Em breve)</option>
+                                <option value="SEND_PAYMENT_LINK" disabled>Enviar link de pagamento (Em breve)</option>
+                                <option value="SEND_EVALUATION_FORM" disabled>Enviar formulário de avaliação (Em breve)</option>
+                                <option value="UPDATE_PATIENT" disabled>Atualizar cadastro do paciente (Em breve)</option>
                               </select>
                             </div>
                             <div>
-                              <label className="label text-[11px] mb-0.5">Médico responsável *</label>
+                              <label className="label text-[11px] mb-0.5">Configuração da ação *</label>
                               <select
-                                value={opt.doctorSelect ?? 'INSTANCE_OWNER'}
-                                onChange={e => updateOption(opt.id, { doctorSelect: e.target.value })}
+                                value={opt.systemActionConfigId ?? ''}
+                                onChange={e => updateOption(opt.id, { systemActionConfigId: e.target.value || null })}
                                 className="input-field text-sm py-1.5"
+                                disabled={!opt.systemActionKey}
                               >
-                                <option value="INSTANCE_OWNER">Dono da conexão WhatsApp</option>
-                              </select>
-                            </div>
-                          </div>
-
-                          <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-                            <div>
-                              <label className="label text-[11px] mb-0.5">Horários a oferecer *</label>
-                              <input
-                                type="number"
-                                min={1} max={5}
-                                value={opt.limitSlots ?? 3}
-                                onChange={e => updateOption(opt.id, { limitSlots: parseInt(e.target.value) || 3 })}
-                                className="input-field text-sm py-1.5"
-                              />
-                            </div>
-                            <div>
-                              <label className="label text-[11px] mb-0.5">Janela de busca (dias) *</label>
-                              <select
-                                value={opt.searchWindowDays ?? 15}
-                                onChange={e => updateOption(opt.id, { searchWindowDays: parseInt(e.target.value) || 15 })}
-                                className="input-field text-sm py-1.5"
-                              >
-                                <option value="7">Próximos 7 dias</option>
-                                <option value="15">Próximos 15 dias</option>
-                                <option value="30">Próximos 30 dias</option>
-                              </select>
-                            </div>
-                            <div>
-                              <label className="label text-[11px] mb-0.5">Duração (minutos) *</label>
-                              <select
-                                value={opt.durationMinutes ?? 30}
-                                onChange={e => updateOption(opt.id, { durationMinutes: parseInt(e.target.value) || 30 })}
-                                className="input-field text-sm py-1.5"
-                              >
-                                <option value="15">15 minutos</option>
-                                <option value="30">30 minutos</option>
-                                <option value="45">45 minutos</option>
-                                <option value="60">60 minutos</option>
+                                <option value="">— Selecionar Configuração —</option>
+                                {actionConfigs
+                                  .filter(c => c.actionKey === opt.systemActionKey && c.active)
+                                  .map(c => (
+                                    <option key={c.id} value={c.id}>{c.name}</option>
+                                  ))}
                               </select>
                             </div>
                           </div>
-
-                          <div className="flex flex-wrap gap-x-5 gap-y-2 pt-2 border-t">
-                            <label className="flex items-center gap-2 text-xs font-semibold text-slate-600 cursor-pointer">
-                              <input
-                                type="checkbox"
-                                checked={opt.requireCpf === true || opt.requireCpf === 'true'}
-                                onChange={e => updateOption(opt.id, { requireCpf: e.target.checked })}
-                                className="rounded text-cyan-600 focus:ring-cyan-500"
-                              />
-                              Solicitar CPF
-                            </label>
-                            <label className="flex items-center gap-2 text-xs font-semibold text-slate-600 cursor-pointer">
-                              <input
-                                type="checkbox"
-                                checked={opt.requireConvenio === true || opt.requireConvenio === 'true'}
-                                onChange={e => updateOption(opt.id, { requireConvenio: e.target.checked })}
-                                className="rounded text-cyan-600 focus:ring-cyan-500"
-                              />
-                              Solicitar Convênio
-                            </label>
-                            <label className="flex items-center gap-2 text-xs font-semibold text-slate-600 cursor-pointer">
-                              <input
-                                type="checkbox"
-                                checked={opt.useWhatsappPhone === true || opt.useWhatsappPhone === 'true'}
-                                onChange={e => updateOption(opt.id, { useWhatsappPhone: e.target.checked })}
-                                className="rounded text-cyan-600 focus:ring-cyan-500"
-                              />
-                              Usar telefone do WhatsApp
-                            </label>
-                          </div>
-
-                          <div className="pt-2">
-                            <label className="label text-[11px] mb-0.5">Mensagem de Sucesso *</label>
+                          <div>
+                            <label className="label text-[11px] mb-0.5">Mensagem de transição (opcional)</label>
                             <textarea
-                              value={opt.successMessage ?? 'Agendamento confirmado com sucesso!\n\nConsulta: {planoNome}\nData: {data}'}
-                              onChange={e => updateOption(opt.id, { successMessage: e.target.value })}
+                              value={opt.transitionMessage ?? ''}
+                              onChange={e => updateOption(opt.id, { transitionMessage: e.target.value })}
                               rows={2}
-                              className="input-field text-sm py-1.5 resize-none font-sans"
-                              placeholder="Variáveis: {nome}, {planoNome}, {medico}, {data}"
+                              className="input-field text-sm py-1.5 resize-none"
+                              placeholder="Ex: Perfeito! Vamos iniciar seu agendamento..."
                             />
-                            <p className="text-[10px] text-slate-400">Suporta variáveis: {"{nome}"}, {"{planoNome}"}, {"{medico}"}, {"{data}"}</p>
+                            <p className="text-[10px] text-slate-400">Mensagem enviada logo antes de iniciar as perguntas da ação do sistema.</p>
                           </div>
                         </div>
                       )}
@@ -1651,7 +1592,778 @@ function HistoricoPanel() {
   )
 }
 
-// ─── Config: Conexão ─────────────────────────────────────────────────────────
+
+// ─── System Actions Panel ────────────────────────────────────────────────────
+
+interface CatalogItem {
+  key: string
+  label: string
+  implemented: boolean
+  description?: string
+}
+
+interface SystemActionConfig {
+  id: string
+  instanceId: string
+  actionKey: string
+  name: string
+  description: string | null
+  active: boolean
+  schemaVersion: number
+  config: any
+  createdAt: string
+  updatedAt: string
+}
+
+function SystemActionsPanel() {
+  const qc = useQueryClient()
+  const [modalOpen, setModalOpen] = useState(false)
+  const [selectedAction, setSelectedAction] = useState<CatalogItem | null>(null)
+  const [editingConfig, setEditingConfig] = useState<SystemActionConfig | null>(null)
+  const [activeTab, setActiveTab] = useState(0)
+
+  // Test state
+  const [testResult, setTestResult] = useState<{ success: boolean; message: string } | null>(null)
+  const [testing, setTesting] = useState(false)
+
+  // Form states for SCHEDULE_APPOINTMENT
+  const [configName, setConfigName] = useState('')
+  const [configDesc, setConfigDesc] = useState('')
+  const [configActive, setConfigActive] = useState(true)
+
+  // Config parameters
+  const [planSource, setPlanSource] = useState('DOCTOR_SERVICES')
+  const [doctorSelect, setDoctorSelect] = useState('INSTANCE_OWNER')
+  const [limitSlots, setLimitSlots] = useState(3)
+  const [searchWindowDays, setSearchWindowDays] = useState(15)
+  const [durationMinutes, setDurationMinutes] = useState(30)
+  const [requireCpf, setRequireCpf] = useState(false)
+  const [requireConvenio, setRequireConvenio] = useState(false)
+  const [useWhatsappPhone, setUseWhatsappPhone] = useState(true)
+  const [appointmentInitialStatus, setAppointmentInitialStatus] = useState('SCHEDULED')
+
+  // Config messages
+  const [msgAskPlan, setMsgAskPlan] = useState('Temos os seguintes planos/serviços disponíveis:\n\n{opcoes}\n\nQual opção você deseja? (Digite o número)')
+  const [msgAskName, setMsgAskName] = useState('Para prosseguir, qual o seu nome completo?')
+  const [msgAskPhoneConfirm, setMsgAskPhoneConfirm] = useState('Posso usar este número de WhatsApp como telefone de contato?\n\n1 - Sim\n2 - Informar outro número')
+  const [msgAskPhoneText, setMsgAskPhoneText] = useState('Por favor, informe seu telefone com DDD:')
+  const [msgAskCpf, setMsgAskCpf] = useState('Por favor, digite seu CPF (apenas números):')
+  const [msgAskDate, setMsgAskDate] = useState('Qual melhor data ou período para você?\n(Ex: amanhã, sexta-feira, próxima semana pela tarde)')
+  const [msgSuccess, setMsgSuccess] = useState('Agendamento confirmado com sucesso!\n\nConsulta: {planoNome}\nData: {data}')
+  const [msgNoSlots, setMsgNoSlots] = useState('Infelizmente não encontrei horários livres para este período. O que deseja fazer?\n\n1 - Escolher outra data\n2 - Falar com atendente')
+  const [msgSummary, setMsgSummary] = useState('Confira os dados do seu agendamento:')
+  const [msgCancel, setMsgCancel] = useState('Tudo bem, o agendamento não foi confirmado.')
+
+  // Fallbacks
+  const [maxAttempts, setMaxAttempts] = useState(3)
+  const [fallbackMessage, setFallbackMessage] = useState('Não consegui entender. Vou transferir para um atendente.')
+
+  // Queries
+  const { data: catalog = [] } = useQuery<CatalogItem[]>({
+    queryKey: ['light-system-actions-catalog'],
+    queryFn: () => api.get('/chatbot-light/system-actions/catalog').then(r => r.data),
+  })
+
+  const { data: configs = [], isLoading } = useQuery<SystemActionConfig[]>({
+    queryKey: ['light-system-actions-configs'],
+    queryFn: () => api.get('/chatbot-light/system-actions').then(r => r.data),
+  })
+
+  const saveMutation = useMutation({
+    mutationFn: (data: any) =>
+      editingConfig
+        ? api.put(`/chatbot-light/system-actions/${editingConfig.id}`, data).then(r => r.data)
+        : api.post('/chatbot-light/system-actions', data).then(r => r.data),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['light-system-actions-configs'] })
+      setModalOpen(false)
+      toast.success(editingConfig ? 'Configuração atualizada!' : 'Configuração criada com sucesso!')
+    },
+    onError: (err: any) => {
+      const msg = err?.response?.data?.message || 'Erro ao salvar configuração.'
+      toast.error(msg)
+    },
+  })
+
+  const deleteMutation = useMutation({
+    mutationFn: (id: string) => api.delete(`/chatbot-light/system-actions/${id}`),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['light-system-actions-configs'] })
+      toast.success('Configuração excluída.')
+    },
+    onError: (err: any) => {
+      const msg = err?.response?.data?.message || 'Erro ao excluir.'
+      toast.error(msg)
+    },
+  })
+
+  const toggleMutation = useMutation({
+    mutationFn: ({ id, active }: { id: string; active: boolean }) =>
+      api.patch(`/chatbot-light/system-actions/${id}/active`, { active }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['light-system-actions-configs'] }),
+    onError: () => toast.error('Erro ao alternar status'),
+  })
+
+  const openNew = (action: CatalogItem) => {
+    setSelectedAction(action)
+    setEditingConfig(null)
+    setActiveTab(0)
+    setTestResult(null)
+
+    // Reset fields to defaults
+    setConfigName(`Configuração ${action.label}`)
+    setConfigDesc('')
+    setConfigActive(true)
+    setPlanSource('DOCTOR_SERVICES')
+    setDoctorSelect('INSTANCE_OWNER')
+    setLimitSlots(3)
+    setSearchWindowDays(15)
+    setDurationMinutes(30)
+    setRequireCpf(false)
+    setRequireConvenio(false)
+    setUseWhatsappPhone(true)
+    setAppointmentInitialStatus('SCHEDULED')
+    setMsgAskPlan('Temos os seguintes planos/serviços disponíveis:\n\n{opcoes}\n\nQual opção você deseja? (Digite o número)')
+    setMsgAskName('Para prosseguir, qual o seu nome completo?')
+    setMsgAskPhoneConfirm('Posso usar este número de WhatsApp como telefone de contato?\n\n1 - Sim\n2 - Informar outro número')
+    setMsgAskPhoneText('Por favor, informe seu telefone com DDD:')
+    setMsgAskCpf('Por favor, digite seu CPF (apenas números):')
+    setMsgAskDate('Qual melhor data ou período para você?\n(Ex: amanhã, sexta-feira, próxima semana pela tarde)')
+    setMsgSuccess('Agendamento confirmado com sucesso!\n\nConsulta: {planoNome}\nData: {data}')
+    setMsgNoSlots('Infelizmente não encontrei horários livres para este período. O que deseja fazer?\n\n1 - Escolher outra data\n2 - Falar com atendente')
+    setMsgSummary('Confira os dados do seu agendamento:')
+    setMsgCancel('Tudo bem, o agendamento não foi confirmado.')
+    setMaxAttempts(3)
+    setFallbackMessage('Não consegui entender. Vou transferir para um atendente.')
+
+    setModalOpen(true)
+  }
+
+  const openEdit = (cfg: SystemActionConfig) => {
+    const action = catalog.find(a => a.key === cfg.actionKey) || { key: cfg.actionKey, label: 'Ação do Sistema', implemented: true }
+    setSelectedAction(action)
+    setEditingConfig(cfg)
+    setActiveTab(0)
+    setTestResult(null)
+
+    setConfigName(cfg.name)
+    setConfigDesc(cfg.description || '')
+    setConfigActive(cfg.active)
+
+    const c = cfg.config || {}
+    setPlanSource(c.planSource || 'DOCTOR_SERVICES')
+    setDoctorSelect(c.doctorSelect || 'INSTANCE_OWNER')
+    setLimitSlots(parseInt(c.limitSlots) || 3)
+    setSearchWindowDays(parseInt(c.searchWindowDays) || 15)
+    setDurationMinutes(parseInt(c.durationMinutes) || 30)
+    setRequireCpf(c.requireCpf === true || c.requireCpf === 'true')
+    setRequireConvenio(c.requireConvenio === true || c.requireConvenio === 'true')
+    setUseWhatsappPhone(c.useWhatsappPhone === true || c.useWhatsappPhone === 'true')
+    setAppointmentInitialStatus(c.appointmentInitialStatus || 'SCHEDULED')
+
+    const msgs = c.messages || {}
+    setMsgAskPlan(msgs.askPlan || 'Temos os seguintes planos/serviços disponíveis:\n\n{opcoes}\n\nQual opção você deseja? (Digite o número)')
+    setMsgAskName(msgs.askName || 'Para prosseguir, qual o seu nome completo?')
+    setMsgAskPhoneConfirm(msgs.askPhoneConfirm || 'Posso usar este número de WhatsApp como telefone de contato?\n\n1 - Sim\n2 - Informar outro número')
+    setMsgAskPhoneText(msgs.askPhoneText || 'Por favor, informe seu telefone com DDD:')
+    setMsgAskCpf(msgs.askCpf || 'Por favor, digite seu CPF (apenas números):')
+    setMsgAskDate(msgs.askDate || 'Qual melhor data ou período para você?\n(Ex: amanhã, sexta-feira, próxima semana pela tarde)')
+    setMsgSuccess(msgs.success || 'Agendamento confirmado com sucesso!\n\nConsulta: {planoNome}\nData: {data}')
+    setMsgNoSlots(msgs.noSlots || 'Infelizmente não encontrei horários livres para este período. O que deseja fazer?\n\n1 - Escolher outra data\n2 - Falar com atendente')
+    setMsgSummary(msgs.summary || 'Confira os dados do seu agendamento:')
+    setMsgCancel(msgs.cancel || 'Tudo bem, o agendamento não foi confirmado.')
+
+    const fback = c.fallback || {}
+    setMaxAttempts(parseInt(fback.maxAttempts) || 3)
+    setFallbackMessage(fback.fallbackMessage || 'Não consegui entender. Vou transferir para um atendente.')
+
+    setModalOpen(true)
+  }
+
+  const handleSave = () => {
+    if (!configName.trim()) {
+      toast.error('Nome da configuração é obrigatório.')
+      return
+    }
+
+    const payload = {
+      actionKey: selectedAction?.key,
+      name: configName,
+      description: configDesc,
+      active: configActive,
+      config: {
+        planSource,
+        doctorSelect,
+        limitSlots,
+        searchWindowDays,
+        durationMinutes,
+        requireCpf,
+        requireConvenio,
+        useWhatsappPhone,
+        appointmentInitialStatus,
+        messages: {
+          askPlan: msgAskPlan,
+          askName: msgAskName,
+          askPhoneConfirm: msgAskPhoneConfirm,
+          askPhoneText: msgAskPhoneText,
+          askCpf: msgAskCpf,
+          askDate: msgAskDate,
+          success: msgSuccess,
+          noSlots: msgNoSlots,
+          summary: msgSummary,
+          cancel: msgCancel
+        },
+        fallback: {
+          maxAttempts,
+          fallbackMessage
+        }
+      }
+    }
+
+    saveMutation.mutate(payload)
+  }
+
+  const runValidation = async () => {
+    if (!editingConfig) return
+    setTesting(true)
+    setTestResult(null)
+    try {
+      const res = await api.post(`/chatbot-light/system-actions/${editingConfig.id}/test`).then(r => r.data)
+      setTestResult({ success: true, message: res.message || 'Configuração validada e pronta para produção!' })
+    } catch (err: any) {
+      const msg = err?.response?.data?.message || 'Falha ao validar configuração no servidor.'
+      setTestResult({ success: false, message: msg })
+    } finally {
+      setTesting(false)
+    }
+  }
+
+  const tabs = [
+    { label: '1. Geral' },
+    { label: '2. Paciente' },
+    { label: '3. Serviços' },
+    { label: '4. Agenda' },
+    { label: '5. Captura' },
+    { label: '6. Confirmação' },
+    { label: '7. Fallbacks' },
+    { label: '8. Validar' }
+  ]
+
+  return (
+    <div className="p-6 space-y-6">
+      <div>
+        <h2 className="text-xl font-bold text-slate-900 font-sans">Ações do Sistema</h2>
+        <p className="text-sm text-slate-500 mt-0.5">Configure ações complexas que o robô pode realizar automaticamente no sistema</p>
+      </div>
+
+      {/* Catalog Grid */}
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+        {catalog.map(action => {
+          const isImplemented = action.implemented
+          const actionConfigs = configs.filter(c => c.actionKey === action.key)
+
+          return (
+            <div key={action.key} className={`bg-white rounded-2xl border p-5 shadow-sm flex flex-col justify-between transition-all duration-200 ${isImplemented ? 'border-slate-200 hover:border-cyan-300' : 'border-slate-100 opacity-60'}`}>
+              <div>
+                <div className="flex items-center justify-between mb-3">
+                  <span className={`text-[10px] uppercase font-bold tracking-wider px-2 py-0.5 rounded-full ${isImplemented ? 'bg-cyan-50 text-cyan-700 border border-cyan-200' : 'bg-slate-100 text-slate-400'}`}>
+                    {isImplemented ? 'Disponível' : 'Em breve'}
+                  </span>
+                  {isImplemented && (
+                    <span className="text-xs text-slate-400 font-medium">
+                      {actionConfigs.length} config{actionConfigs.length !== 1 ? 's' : ''}
+                    </span>
+                  )}
+                </div>
+                <h3 className="font-bold text-slate-900 text-base mb-1 font-sans">{action.label}</h3>
+                <p className="text-xs text-slate-500 line-clamp-2 mb-4">{action.description || 'Executa operações automáticas no banco de dados da clínica.'}</p>
+              </div>
+
+              <div className="pt-2 border-t border-slate-100 mt-auto flex items-center justify-between">
+                {isImplemented ? (
+                  <button
+                    onClick={() => openNew(action)}
+                    className="text-xs font-semibold text-cyan-600 hover:text-cyan-700 flex items-center gap-1"
+                  >
+                    <Plus className="w-3.5 h-3.5" /> Configurar Ação
+                  </button>
+                ) : (
+                  <span className="text-xs text-slate-400 italic font-medium">Indisponível</span>
+                )}
+              </div>
+            </div>
+          )
+        })}
+      </div>
+
+      {/* Configured Actions List */}
+      <div className="space-y-4">
+        <div className="border-b border-slate-200 pb-2">
+          <h3 className="font-bold text-slate-800 text-sm font-sans">Configurações Ativas</h3>
+        </div>
+
+        {isLoading ? (
+          <div className="flex justify-center py-6"><Loader2 className="w-5 h-5 animate-spin text-cyan-500" /></div>
+        ) : configs.length === 0 ? (
+          <div className="bg-slate-50 rounded-2xl border border-dashed border-slate-300 py-10 text-center text-sm text-slate-400">
+            Nenhuma configuração de ação criada. Crie uma nova configuração acima para vincular aos seus menus de fluxo.
+          </div>
+        ) : (
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            {configs.map(cfg => (
+              <div key={cfg.id} className="bg-white rounded-2xl border border-slate-200 p-4 shadow-sm flex flex-col justify-between">
+                <div className="flex items-start justify-between gap-3 mb-2">
+                  <div>
+                    <h4 className="font-semibold text-slate-900 text-sm font-sans">{cfg.name}</h4>
+                    <p className="text-xs text-slate-400 font-mono mt-0.5">{cfg.actionKey === 'SCHEDULE_APPOINTMENT' ? 'Agendar consulta' : cfg.actionKey}</p>
+                    {cfg.description && <p className="text-xs text-slate-500 mt-1.5">{cfg.description}</p>}
+                  </div>
+                  <Toggle
+                    enabled={cfg.active}
+                    onToggle={() => toggleMutation.mutate({ id: cfg.id, active: !cfg.active })}
+                    disabled={toggleMutation.isPending}
+                  />
+                </div>
+
+                <div className="flex items-center justify-between pt-3 border-t border-slate-100 mt-3">
+                  <span className="text-[10px] text-slate-400">
+                    Criado em {format(new Date(cfg.createdAt), "dd/MM/yy HH:mm", { locale: ptBR })}
+                  </span>
+                  <div className="flex items-center gap-1.5">
+                    <button
+                      onClick={() => openEdit(cfg)}
+                      className="p-1.5 rounded-lg text-slate-400 hover:text-blue-600 hover:bg-blue-50 transition-colors"
+                      title="Editar"
+                    >
+                      <Pencil className="w-3.5 h-3.5" />
+                    </button>
+                    <button
+                      onClick={() => {
+                        if (confirm('Deseja excluir esta configuração? Esta ação não pode ser desfeita.')) {
+                          deleteMutation.mutate(cfg.id)
+                        }
+                      }}
+                      className="p-1.5 rounded-lg text-slate-400 hover:text-red-600 hover:bg-red-50 transition-colors"
+                      title="Excluir"
+                    >
+                      <Trash2 className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+
+      {/* Editor Modal */}
+      <Modal
+        isOpen={modalOpen}
+        onClose={() => setModalOpen(false)}
+        title={editingConfig ? `Editar Configuração: ${editingConfig.name}` : `Nova Configuração: ${selectedAction?.label}`}
+        size="lg"
+      >
+        <div className="flex flex-col h-[70vh]">
+          {/* Tab buttons */}
+          <div className="flex overflow-x-auto border-b border-slate-200 pb-2 mb-4 gap-1 scrollbar-none flex-shrink-0">
+            {tabs.map((tab, idx) => (
+              <button
+                key={idx}
+                type="button"
+                onClick={() => {
+                  setActiveTab(idx)
+                  setTestResult(null)
+                }}
+                className={`px-3 py-1.5 text-xs font-semibold rounded-lg whitespace-nowrap transition-colors ${activeTab === idx ? 'bg-cyan-600 text-white shadow-sm' : 'bg-slate-50 text-slate-500 hover:bg-slate-100'}`}
+              >
+                {tab.label}
+              </button>
+            ))}
+          </div>
+
+          {/* Form scrollable viewport */}
+          <div className="flex-grow overflow-y-auto pr-1 space-y-4 text-slate-700 pb-4">
+            {/* Tab 1: Geral */}
+            {activeTab === 0 && (
+              <div className="space-y-4">
+                <div>
+                  <label className="label">Nome da configuração *</label>
+                  <input
+                    value={configName}
+                    onChange={e => setConfigName(e.target.value)}
+                    className="input-field"
+                    placeholder="Ex: Agendamento Nutrição"
+                  />
+                  <p className="text-[10px] text-slate-400 mt-1">Identificação interna para você vincular nos menus de fluxo.</p>
+                </div>
+                <div>
+                  <label className="label">Descrição (opcional)</label>
+                  <textarea
+                    value={configDesc}
+                    onChange={e => setConfigDesc(e.target.value)}
+                    className="input-field resize-none"
+                    rows={3}
+                    placeholder="Ex: Utilizado para o fluxo de novos pacientes de nutrição"
+                  />
+                </div>
+                <div className="flex items-center gap-3">
+                  <label className="label mb-0">Configuração Ativa</label>
+                  <Toggle enabled={configActive} onToggle={() => setConfigActive(!configActive)} />
+                </div>
+              </div>
+            )}
+
+            {/* Tab 2: Paciente */}
+            {activeTab === 1 && (
+              <div className="space-y-4 bg-slate-50 p-4 rounded-xl border border-slate-200">
+                <p className="text-xs font-bold text-slate-600 uppercase tracking-wider mb-2">Dados do Paciente</p>
+                
+                <div className="space-y-3">
+                  <label className="flex items-start gap-3 cursor-pointer p-2 rounded-lg hover:bg-white transition-colors">
+                    <input
+                      type="checkbox"
+                      checked={requireCpf}
+                      onChange={e => setRequireCpf(e.target.checked)}
+                      className="rounded text-cyan-600 focus:ring-cyan-500 mt-1"
+                    />
+                    <div>
+                      <p className="text-sm font-semibold text-slate-800">Solicitar CPF</p>
+                      <p className="text-xs text-slate-400">O robô perguntará o CPF do paciente para vincular ou criar o cadastro.</p>
+                    </div>
+                  </label>
+
+                  <label className="flex items-start gap-3 cursor-pointer p-2 rounded-lg hover:bg-white transition-colors">
+                    <input
+                      type="checkbox"
+                      checked={requireConvenio}
+                      onChange={e => setRequireConvenio(e.target.checked)}
+                      className="rounded text-cyan-600 focus:ring-cyan-500 mt-1"
+                    />
+                    <div>
+                      <p className="text-sm font-semibold text-slate-800">Solicitar Convênio</p>
+                      <p className="text-xs text-slate-400">O robô listará os convênios do médico para o paciente escolher.</p>
+                    </div>
+                  </label>
+
+                  <label className="flex items-start gap-3 cursor-pointer p-2 rounded-lg hover:bg-white transition-colors">
+                    <input
+                      type="checkbox"
+                      checked={useWhatsappPhone}
+                      onChange={e => setUseWhatsappPhone(e.target.checked)}
+                      className="rounded text-cyan-600 focus:ring-cyan-500 mt-1"
+                    />
+                    <div>
+                      <p className="text-sm font-semibold text-slate-800">Usar telefone do WhatsApp</p>
+                      <p className="text-xs text-slate-400">Se ativo, usará o próprio número do WhatsApp do paciente. Caso inativo ou negado pelo paciente, solicitará outro número de contato.</p>
+                    </div>
+                  </label>
+                </div>
+              </div>
+            )}
+
+            {/* Tab 3: Serviço/Plano */}
+            {activeTab === 2 && (
+              <div className="space-y-4">
+                <div>
+                  <label className="label">Fonte dos planos/serviços *</label>
+                  <select
+                    value={planSource}
+                    onChange={e => setPlanSource(e.target.value)}
+                    className="input-field"
+                  >
+                    <option value="DOCTOR_SERVICES">Serviços/Procedimentos cadastrados (AppointmentType)</option>
+                    <option value="DOCTOR_CONVENIOS">Convênios do médico (HealthPlan)</option>
+                  </select>
+                  <p className="text-[10px] text-slate-400 mt-1">
+                    Indica o que será oferecido para o paciente escolher como a especialidade/tipo de atendimento.
+                  </p>
+                </div>
+              </div>
+            )}
+
+            {/* Tab 4: Agenda */}
+            {activeTab === 3 && (
+              <div className="space-y-4">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div>
+                    <label className="label">Médico Responsável *</label>
+                    <select
+                      value={doctorSelect}
+                      onChange={e => setDoctorSelect(e.target.value)}
+                      className="input-field text-sm"
+                    >
+                      <option value="INSTANCE_OWNER">Dono da conexão WhatsApp</option>
+                    </select>
+                  </div>
+
+                  <div>
+                    <label className="label">Status Inicial da Consulta *</label>
+                    <select
+                      value={appointmentInitialStatus}
+                      onChange={e => setAppointmentInitialStatus(e.target.value)}
+                      className="input-field text-sm"
+                    >
+                      <option value="SCHEDULED">Confirmado / Agendado</option>
+                      <option value="PENDING">Pendente de Confirmação</option>
+                    </select>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                  <div>
+                    <label className="label">Número de horários a oferecer *</label>
+                    <input
+                      type="number"
+                      min={1} max={5}
+                      value={limitSlots}
+                      onChange={e => setLimitSlots(parseInt(e.target.value) || 3)}
+                      className="input-field text-sm"
+                    />
+                    <p className="text-[10px] text-slate-400 mt-0.5">Slots mais próximos sugeridos.</p>
+                  </div>
+
+                  <div>
+                    <label className="label">Janela de busca (dias) *</label>
+                    <select
+                      value={searchWindowDays}
+                      onChange={e => setSearchWindowDays(parseInt(e.target.value) || 15)}
+                      className="input-field text-sm"
+                    >
+                      <option value="7">Próximos 7 dias</option>
+                      <option value="15">Próximos 15 dias</option>
+                      <option value="30">Próximos 30 dias</option>
+                    </select>
+                  </div>
+
+                  <div>
+                    <label className="label">Duração padrão da consulta *</label>
+                    <select
+                      value={durationMinutes}
+                      onChange={e => setDurationMinutes(parseInt(e.target.value) || 30)}
+                      className="input-field text-sm"
+                    >
+                      <option value="15">15 minutos</option>
+                      <option value="30">30 minutos</option>
+                      <option value="45">45 minutos</option>
+                      <option value="60">60 minutos</option>
+                    </select>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* Tab 5: Captura */}
+            {activeTab === 4 && (
+              <div className="space-y-4">
+                <p className="text-xs font-bold text-slate-500 uppercase tracking-wider">Perguntas enviadas pelo robô para coletar dados</p>
+
+                <div className="space-y-3">
+                  <div>
+                    <label className="label text-[11px]">Pergunta: Escolha do plano/serviço</label>
+                    <textarea
+                      value={msgAskPlan}
+                      onChange={e => setMsgAskPlan(e.target.value)}
+                      rows={2}
+                      className="input-field text-xs font-mono"
+                    />
+                    <p className="text-[9px] text-slate-400 font-sans mt-0.5">Use {"{opcoes}"} onde a lista numerada de planos/serviços deve ser injetada.</p>
+                  </div>
+
+                  <div>
+                    <label className="label text-[11px]">Pergunta: Solicitar nome completo</label>
+                    <textarea
+                      value={msgAskName}
+                      onChange={e => setMsgAskName(e.target.value)}
+                      rows={2}
+                      className="input-field text-xs font-mono"
+                    />
+                  </div>
+
+                  {useWhatsappPhone && (
+                    <div>
+                      <label className="label text-[11px]">Pergunta: Confirmar número do WhatsApp</label>
+                      <textarea
+                        value={msgAskPhoneConfirm}
+                        onChange={e => setMsgAskPhoneConfirm(e.target.value)}
+                        rows={2}
+                        className="input-field text-xs font-mono"
+                      />
+                    </div>
+                  )}
+
+                  <div>
+                    <label className="label text-[11px]">Pergunta: Solicitar telefone manualmente</label>
+                    <textarea
+                      value={msgAskPhoneText}
+                      onChange={e => setMsgAskPhoneText(e.target.value)}
+                      rows={2}
+                      className="input-field text-xs font-mono"
+                    />
+                  </div>
+
+                  {requireCpf && (
+                    <div>
+                      <label className="label text-[11px]">Pergunta: Solicitar CPF</label>
+                      <textarea
+                        value={msgAskCpf}
+                        onChange={e => setMsgAskCpf(e.target.value)}
+                        rows={2}
+                        className="input-field text-xs font-mono"
+                      />
+                    </div>
+                  )}
+
+                  <div>
+                    <label className="label text-[11px]">Pergunta: Solicitar data preferida</label>
+                    <textarea
+                      value={msgAskDate}
+                      onChange={e => setMsgAskDate(e.target.value)}
+                      rows={2}
+                      className="input-field text-xs font-mono"
+                    />
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* Tab 6: Confirmação */}
+            {activeTab === 5 && (
+              <div className="space-y-4">
+                <p className="text-xs font-bold text-slate-500 uppercase tracking-wider">Mensagens de finalização e confirmação do agendamento</p>
+
+                <div className="space-y-3">
+                  <div>
+                    <label className="label text-[11px]">Mensagem: Resumo dos dados</label>
+                    <textarea
+                      value={msgSummary}
+                      onChange={e => setMsgSummary(e.target.value)}
+                      rows={2}
+                      className="input-field text-xs font-mono"
+                    />
+                    <p className="text-[9px] text-slate-400 font-sans mt-0.5">Cabeçalho enviado antes dos dados coletados.</p>
+                  </div>
+
+                  <div>
+                    <label className="label text-[11px]">Mensagem: Agendamento Confirmado com Sucesso</label>
+                    <textarea
+                      value={msgSuccess}
+                      onChange={e => setMsgSuccess(e.target.value)}
+                      rows={3}
+                      className="input-field text-xs font-mono"
+                    />
+                    <p className="text-[9px] text-slate-400 font-sans mt-0.5 font-semibold">Variáveis: {"{nome}"}, {"{planoNome}"}, {"{medico}"}, {"{data}"}</p>
+                  </div>
+
+                  <div>
+                    <label className="label text-[11px]">Mensagem: Agendamento Cancelado</label>
+                    <textarea
+                      value={msgCancel}
+                      onChange={e => setMsgCancel(e.target.value)}
+                      rows={2}
+                      className="input-field text-xs font-mono"
+                    />
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* Tab 7: Fallbacks */}
+            {activeTab === 6 && (
+              <div className="space-y-4">
+                <p className="text-xs font-bold text-slate-500 uppercase tracking-wider">Tratamento de indisponibilidade e respostas incorretas</p>
+
+                <div className="space-y-3">
+                  <div>
+                    <label className="label text-[11px]">Mensagem: Nenhum horário disponível</label>
+                    <textarea
+                      value={msgNoSlots}
+                      onChange={e => setMsgNoSlots(e.target.value)}
+                      rows={3}
+                      className="input-field text-xs font-mono"
+                    />
+                    <p className="text-[9px] text-slate-400 font-sans mt-0.5">Enviado quando a agenda está cheia no período.</p>
+                  </div>
+
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div>
+                      <label className="label text-[11px]">Limite de tentativas inválidas</label>
+                      <input
+                        type="number"
+                        min={1} max={10}
+                        value={maxAttempts}
+                        onChange={e => setMaxAttempts(parseInt(e.target.value) || 3)}
+                        className="input-field text-sm"
+                      />
+                    </div>
+                    <div>
+                      <label className="label text-[11px]">Mensagem de erro de digitação persistente</label>
+                      <textarea
+                        value={fallbackMessage}
+                        onChange={e => setFallbackMessage(e.target.value)}
+                        rows={2}
+                        className="input-field text-xs font-sans"
+                      />
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* Tab 8: Validar */}
+            {activeTab === 7 && (
+              <div className="space-y-4">
+                <div className="bg-slate-50 p-4 rounded-xl border border-slate-200">
+                  <h4 className="font-semibold text-slate-800 text-sm mb-1.5 font-sans">Validar no Servidor</h4>
+                  <p className="text-xs text-slate-500 mb-4">
+                    Isso testará a configuração criada em relação ao seu perfil do sistema (regras de salas, médicos e serviços cadastrados) para confirmar que nada quebrará o bot em produção.
+                  </p>
+
+                  {editingConfig ? (
+                    <div className="space-y-3 font-sans">
+                      <button
+                        type="button"
+                        onClick={runValidation}
+                        disabled={testing}
+                        className="px-4 py-2 bg-slate-800 hover:bg-slate-900 text-white font-semibold text-xs rounded-lg flex items-center gap-1.5 transition-colors disabled:opacity-50"
+                      >
+                        {testing ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Zap className="w-3.5 h-3.5" />}
+                        Validar Configuração
+                      </button>
+
+                      {testResult && (
+                        <div className={`p-3 rounded-lg border text-xs ${testResult.success ? 'bg-emerald-50 border-emerald-200 text-emerald-800' : 'bg-red-50 border-red-200 text-red-800'}`}>
+                          {testResult.message}
+                        </div>
+                      )}
+                    </div>
+                  ) : (
+                    <div className="p-3 bg-amber-50 border border-amber-200 rounded-lg text-xs text-amber-800">
+                      Salve esta configuração primeiro para poder realizar testes e validações no servidor.
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
+          </div>
+
+          {/* Action button */}
+          <div className="border-t border-slate-200 pt-4 mt-auto flex items-center justify-end flex-shrink-0">
+            <button
+              type="button"
+              onClick={handleSave}
+              disabled={saveMutation.isPending}
+              className="btn-primary"
+            >
+              {saveMutation.isPending ? 'Salvando...' : editingConfig ? 'Salvar Configuração' : 'Criar Configuração'}
+            </button>
+          </div>
+        </div>
+      </Modal>
+    </div>
+  )
+}
+
+
 
 function ConexaoTab() {
   const qc = useQueryClient()
@@ -2107,13 +2819,14 @@ export default function ChatbotLight() {
   const [configTab, setConfigTab] = useState<ConfigTab>('conexao')
 
   const navItems: { panel: Panel; label: string; icon: React.ElementType }[] = [
-    { panel: 'relatorio',     label: 'Relatório',           icon: BarChart3 },
-    { panel: 'fluxos',        label: 'Fluxos',              icon: GitBranch },
-    { panel: 'mensagens',     label: 'Mensagens Automáticas', icon: MessageSquare },
-    { panel: 'templates',     label: 'Templates',           icon: FileText },
-    { panel: 'respostas',     label: 'Respostas Rápidas',   icon: Reply },
-    { panel: 'historico',     label: 'Histórico',           icon: History },
-    { panel: 'configuracoes', label: 'Configurações',        icon: Settings },
+    { panel: 'relatorio',      label: 'Relatório',           icon: BarChart3 },
+    { panel: 'fluxos',         label: 'Fluxos',              icon: GitBranch },
+    { panel: 'system_actions', label: 'Ações do Sistema',    icon: Zap },
+    { panel: 'mensagens',      label: 'Mensagens Automáticas', icon: MessageSquare },
+    { panel: 'templates',      label: 'Templates',           icon: FileText },
+    { panel: 'respostas',      label: 'Respostas Rápidas',   icon: Reply },
+    { panel: 'historico',      label: 'Histórico',           icon: History },
+    { panel: 'configuracoes',  label: 'Configurações',        icon: Settings },
   ]
 
   const goTo = (p: Panel) => {
@@ -2180,13 +2893,14 @@ export default function ChatbotLight() {
 
       {/* ── Main content ── */}
       <main className="flex-1 overflow-y-auto bg-slate-50">
-        {panel === 'relatorio'     && <RelatorioPanel onGoTo={goTo} />}
-        {panel === 'fluxos'        && <FluxosPanel />}
-        {panel === 'mensagens'     && <MensagensPanel />}
-        {panel === 'templates'     && <TemplatesPanel />}
-        {panel === 'respostas'     && <RespostasPanel />}
-        {panel === 'historico'     && <HistoricoPanel />}
-        {panel === 'configuracoes' && <ConfigPanel configTab={configTab} setConfigTab={setConfigTab} />}
+        {panel === 'relatorio'      && <RelatorioPanel onGoTo={goTo} />}
+        {panel === 'fluxos'         && <FluxosPanel />}
+        {panel === 'system_actions' && <SystemActionsPanel />}
+        {panel === 'mensagens'      && <MensagensPanel />}
+        {panel === 'templates'      && <TemplatesPanel />}
+        {panel === 'respostas'      && <RespostasPanel />}
+        {panel === 'historico'      && <HistoricoPanel />}
+        {panel === 'configuracoes'  && <ConfigPanel configTab={configTab} setConfigTab={setConfigTab} />}
       </main>
     </div>
   )

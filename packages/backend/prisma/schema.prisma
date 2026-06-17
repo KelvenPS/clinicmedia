@@ -805,22 +805,64 @@ model LightFlowSession {
   instanceId      String
   conversationId  String?
   contactPhone    String
-  flowId          String
+  flowId          String?
+  actionConfigId  String?
   currentStepKey  String
-  status          String    @default("ACTIVE") // ACTIVE, COMPLETED, CANCELLED, FAILED, EXPIRED
+  status          String    @default("ACTIVE") // ACTIVE, COMPLETED, CANCELLED, FAILED, EXPIRED, TRANSFER
+  source          String?   @default("WHATSAPP_CHATBOT_LIGHT")
   collectedData   Json?     // Nome, Telefone, CPF, convenioId, serviceId, dataEscolhida, appointmentId
   dynamicOptions  Json?     // Mapeamento dinâmico (ex: {"1": "service_id_X", "2": "slot_id_Y"})
   invalidAttempts Int       @default(0)
+  lastMessageId   String?
   lastMessageAt   DateTime?
   expiresAt       DateTime?
+  completedAt     DateTime?
+  failedReason    String?
   createdAt       DateTime  @default(now())
   updatedAt       DateTime  @updatedAt
 
   @@index([instanceId, contactPhone, status])
-  @@index([instanceId])
-  @@index([contactPhone])
-  @@index([flowId])
+  @@index([actionConfigId])
   @@index([expiresAt])
   @@map("TBLLIGHTFLOWSESSION")
 }
+
+model LightSystemActionConfig {
+  id            String   @id @default(uuid())
+  instanceId    String
+  actionKey     String   // Ex: SCHEDULE_APPOINTMENT
+  name          String
+  description   String?
+  active        Boolean  @default(true)
+  schemaVersion Int      @default(1)
+  config        Json
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@index([instanceId])
+  @@index([actionKey])
+  @@map("TBLLIGHTSYSTEMACTIONCONFIG")
+}
+
+model LightSystemActionLog {
+  id             String   @id @default(uuid())
+  instanceId     String
+  actionConfigId String?
+  actionKey      String
+  conversationId String?
+  contactPhone   String?
+  sessionId      String?
+  status         String   // Ex: STARTED, INPUT_COLLECTED, COMPLETED, FAILED
+  stepKey        String?
+  message        String?  @db.Text
+  metadata       Json?
+  createdAt     DateTime @default(now())
+
+  @@index([instanceId])
+  @@index([actionConfigId])
+  @@index([sessionId])
+  @@index([createdAt])
+  @@map("TBLLIGHTSYSTEMACTIONLOG")
+}
+
 

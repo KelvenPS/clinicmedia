@@ -274,8 +274,9 @@ export async function createAppointmentFromChatbot(params: {
   startAt: string
   endAt: string
   source: string
+  initialStatus?: string
 }) {
-  const { doctorId, patientName, patientPhone, patientCpf, patientConvenioId, serviceId, startAt, endAt, source } = params
+  const { doctorId, patientName, patientPhone, patientCpf, patientConvenioId, serviceId, startAt, endAt, source, initialStatus } = params
 
   const cleanPhone = patientPhone.replace(/\D/g, '')
   const duration = Math.round((new Date(endAt).getTime() - new Date(startAt).getTime()) / 60000)
@@ -378,6 +379,9 @@ export async function createAppointmentFromChatbot(params: {
       where: { id: serviceId }
     })
 
+    let resolvedStatus: any = 'SCHEDULED'
+    if (initialStatus === 'CONFIRMED') resolvedStatus = 'CONFIRMED'
+
     const appointment = await tx.appointment.create({
       data: {
         patientId: patient.id,
@@ -386,7 +390,7 @@ export async function createAppointmentFromChatbot(params: {
         title: `${patientName} - ${service?.name || 'Consulta'} (WhatsApp)`,
         date: new Date(startAt),
         duration,
-        status: 'SCHEDULED',
+        status: resolvedStatus,
         type: service?.name || 'Consulta',
         value: service?.baseValue || null,
         notes: `Criado via Chatbot Light (${source}).`
@@ -402,19 +406,31 @@ export async function createAppointmentFromChatbot(params: {
 }
 
 // ─── 10. Audit Logging ────────────────────────────────────────────────────────
-async function auditLog(doctorId: string, phone: string, event: string, detail: string) {
-  console.log(`[AUDIT] [${event}] Dr:${doctorId} Phone:${phone} - ${detail}`)
-  await prisma.lightMessageLog.create({
+async function auditLogAction(params: {
+  instanceId: string
+  actionConfigId: string
+  actionKey: string
+  contactPhone: string
+  sessionId: string
+  status: string
+  stepKey: string
+  message: string
+  metadata?: any
+}) {
+  console.log(`[ACTION LOG] [${params.status}] ${params.message}`)
+  await prisma.lightSystemActionLog.create({
     data: {
-      doctorId,
-      phone: phone.replace(/\D/g, ''),
-      content: `[LOG:${event}] ${detail}`,
-      module: 'light_flow',
-      triggerEvent: event,
-      status: 'SENT',
-      sentAt: new Date()
+      instanceId: params.instanceId,
+      actionConfigId: params.actionConfigId,
+      actionKey: params.actionKey,
+      contactPhone: params.contactPhone,
+      sessionId: params.sessionId,
+      status: params.status,
+      stepKey: params.stepKey,
+      message: params.message,
+      metadata: params.metadata || {}
     }
-  }).catch(err => console.error('[auditLog failed]', err))
+  }).catch(err => console.error('[auditLogAction failed]', err))
 }
 
 // ─── Step State Machine Engine ────────────────────────────────────────────────
@@ -424,41 +440,52 @@ export async function processGuidedStep(
   incomingText: string
 ): Promise<void> {
   const contactPhone = session.contactPhone
-  const flowId = session.flowId
+  const actionConfigId = session.actionConfigId
   
-  // Load flow options metadata to fetch configurations
-  const fluxo = await prisma.lightFluxo.findUnique({
-    where: { id: flowId }
-  })
-  
-  if (!fluxo) {
+  if (!actionConfigId) {
     await prisma.lightFlowSession.update({
       where: { id: session.id },
-      data: { status: 'FAILED' }
+      data: { status: 'FAILED', failedReason: 'Nenhuma configuração vinculada.' }
     })
     return
   }
 
-  let flowOptions: any[] = []
-  try {
-    flowOptions = typeof fluxo.options === 'string' ? JSON.parse(fluxo.options) : (fluxo.options as any[])
-  } catch {
-    flowOptions = []
+  // Load config rules from LightSystemActionConfig
+  const actionConfig = await prisma.lightSystemActionConfig.findUnique({
+    where: { id: actionConfigId }
+  })
+  
+  if (!actionConfig || !actionConfig.active) {
+    await prisma.lightFlowSession.update({
+      where: { id: session.id },
+      data: { status: 'FAILED', failedReason: 'Configuração inativa ou não encontrada.' }
+    })
+    return
   }
 
-  // Find option configured for START_PLAN_SCHEDULING
-  const schedOpt = flowOptions.find(o => o.actionType === 'START_PLAN_SCHEDULING')
+  const cfg = (typeof actionConfig.config === 'string' ? JSON.parse(actionConfig.config) : actionConfig.config) as any
   
-  // Default values if configuration object is missing
-  const planSource = schedOpt?.planSource || 'DOCTOR_SERVICES'
-  const doctorSelect = schedOpt?.doctorSelect || 'INSTANCE_OWNER'
-  const limitSlots = parseInt(schedOpt?.limitSlots) || 3
-  const searchWindowDays = parseInt(schedOpt?.searchWindowDays) || 15
-  const durationMinutes = parseInt(schedOpt?.durationMinutes) || 30
-  const requireCpf = schedOpt?.requireCpf === 'true' || schedOpt?.requireCpf === true
-  const requireConvenio = schedOpt?.requireConvenio === 'true' || schedOpt?.requireConvenio === true
-  const useWhatsappPhone = schedOpt?.useWhatsappPhone === 'true' || schedOpt?.useWhatsappPhone === true
-  const customSuccessMessage = schedOpt?.successMessage || 'Agendamento confirmado com sucesso!'
+  // Resolve config variables with safe fallbacks
+  const planSource = cfg.planSource || 'DOCTOR_SERVICES'
+  const limitSlots = parseInt(cfg.limitSlots) || 3
+  const searchWindowDays = parseInt(cfg.searchWindowDays) || 15
+  const durationMinutes = parseInt(cfg.durationMinutes) || 30
+  const requireCpf = cfg.requireCpf === true || cfg.requireCpf === 'true'
+  const requireConvenio = cfg.requireConvenio === true || cfg.requireConvenio === 'true'
+  const useWhatsappPhone = cfg.useWhatsappPhone === true || cfg.useWhatsappPhone === 'true'
+  const appointmentInitialStatus = cfg.appointmentInitialStatus || 'SCHEDULED'
+
+  // Messages configuration
+  const messages = cfg.messages || {}
+  const askNameMsg = messages.askName || 'Para prosseguir, qual o seu nome completo?'
+  const askPhoneConfirmMsg = messages.askPhoneConfirm || 'Posso usar este número de WhatsApp como telefone de contato?\n\n1 - Sim\n2 - Informar outro número'
+  const askPhoneTextMsg = messages.askPhoneText || 'Por favor, informe seu telefone com DDD:'
+  const askCpfMsg = messages.askCpf || 'Por favor, digite seu CPF (apenas números):'
+  const askDateMsg = messages.askDate || 'Qual melhor data ou período para você?\n(Ex: amanhã, sexta-feira, próxima semana pela tarde)'
+  const successMsgTemplate = messages.success || 'Agendamento confirmado com sucesso!\n\nConsulta: {planoNome}\nData: {data}'
+  const noSlotsMsg = messages.noSlots || 'Infelizmente não encontrei horários livres para este período. O que deseja fazer?\n\n1 - Escolher outra data\n2 - Falar com atendente'
+  const summaryMsg = messages.summary || 'Confira os dados do seu agendamento:'
+  const cancelMsg = messages.cancel || 'Tudo bem, o agendamento não foi confirmado.'
 
   const collected = session.collectedData ? (typeof session.collectedData === 'string' ? JSON.parse(session.collectedData) : session.collectedData) as any : {}
   const dynamicMap = session.dynamicOptions ? (typeof session.dynamicOptions === 'string' ? JSON.parse(session.dynamicOptions) : session.dynamicOptions) as any : {}
@@ -474,18 +501,27 @@ export async function processGuidedStep(
     await sendStepMessage(msg)
     await prisma.lightFlowSession.update({
       where: { id: session.id },
-      data: { status: 'FAILED' }
+      data: { status: 'FAILED', failedReason: msg }
     })
-    await auditLog(doctorId, contactPhone, 'light_flow.session.failed', `Falhou no passo: ${step}`)
+    await auditLogAction({
+      instanceId: instance.id,
+      actionConfigId,
+      actionKey: actionConfig.actionKey,
+      contactPhone,
+      sessionId: session.id,
+      status: 'FAILED',
+      stepKey: step,
+      message: `Sessão falhou no passo: ${step}`
+    })
   }
 
-  // 1. Process choice input based on current step
+  // Step 1: PLAN CHOOSING
   if (step === 'CHOOSE_PLAN') {
     const selectedId = dynamicMap[incomingText]
     if (!selectedId) {
       const attempts = session.invalidAttempts + 1
-      if (attempts >= fluxo.maxAttempts) {
-        return failSession(fluxo.fallbackMessage)
+      if (attempts >= 3) {
+        return failSession('Limite de tentativas inválidas excedido. Agendamento encerrado.')
       }
       await prisma.lightFlowSession.update({
         where: { id: session.id },
@@ -495,9 +531,7 @@ export async function processGuidedStep(
       return
     }
 
-    // Save choice
     collected.serviceId = selectedId
-    // Save plan name
     if (planSource === 'DOCTOR_CONVENIOS') {
       const plan = await prisma.healthPlan.findUnique({ where: { id: selectedId } })
       collected.planoNome = plan?.name || 'Convênio'
@@ -506,9 +540,17 @@ export async function processGuidedStep(
       collected.planoNome = service?.name || 'Serviço'
     }
 
-    await auditLog(doctorId, contactPhone, 'light_flow.plan.selected', `Selecionado plano: ${collected.planoNome}`)
+    await auditLogAction({
+      instanceId: instance.id,
+      actionConfigId,
+      actionKey: actionConfig.actionKey,
+      contactPhone,
+      sessionId: session.id,
+      status: 'INPUT_COLLECTED',
+      stepKey: step,
+      message: `Plano selecionado: ${collected.planoNome}`
+    })
 
-    // Transition to next step: Name
     step = 'ASK_NAME'
     await prisma.lightFlowSession.update({
       where: { id: session.id },
@@ -519,17 +561,27 @@ export async function processGuidedStep(
         invalidAttempts: 0
       }
     })
-    await sendStepMessage('Ótima escolha! Para prosseguir, qual o seu nome completo?')
+    await sendStepMessage(askNameMsg)
     return
   }
 
+  // Step 2: NAME COLLECTION
   if (step === 'ASK_NAME') {
     if (incomingText.length < 3) {
       await sendStepMessage('Por favor, informe seu nome completo para registro.')
       return
     }
     collected.nome = incomingText
-    await auditLog(doctorId, contactPhone, 'light_flow.input.collected', `Nome coletado: ${collected.nome}`)
+    await auditLogAction({
+      instanceId: instance.id,
+      actionConfigId,
+      actionKey: actionConfig.actionKey,
+      contactPhone,
+      sessionId: session.id,
+      status: 'INPUT_COLLECTED',
+      stepKey: step,
+      message: `Nome coletado: ${collected.nome}`
+    })
 
     if (useWhatsappPhone) {
       step = 'ASK_PHONE_CONFIRM'
@@ -543,7 +595,7 @@ export async function processGuidedStep(
           invalidAttempts: 0
         }
       })
-      await sendStepMessage(`Posso utilizar o número do seu WhatsApp atual (${contactPhone}) para contato?\n\n1 - Sim, usar este número\n2 - Não, informar outro número`)
+      await sendStepMessage(askPhoneConfirmMsg)
       return
     } else {
       step = 'ASK_PHONE_TEXT'
@@ -556,25 +608,34 @@ export async function processGuidedStep(
           invalidAttempts: 0
         }
       })
-      await sendStepMessage('Qual o melhor telefone para contato? (Digite com DDD)')
+      await sendStepMessage(askPhoneTextMsg)
       return
     }
   }
 
+  // Step 3: WHATSAPP PHONE CONFIRMATION
   if (step === 'ASK_PHONE_CONFIRM') {
     const choice = dynamicMap[incomingText]
     if (choice === 'CONFIRM_YES') {
       collected.telefone = contactPhone
-      await auditLog(doctorId, contactPhone, 'light_flow.input.collected', `Telefone WhatsApp confirmado: ${collected.telefone}`)
+      await auditLogAction({
+        instanceId: instance.id,
+        actionConfigId,
+        actionKey: actionConfig.actionKey,
+        contactPhone,
+        sessionId: session.id,
+        status: 'INPUT_COLLECTED',
+        stepKey: step,
+        message: `Telefone confirmado: ${collected.telefone}`
+      })
       
-      // Check next steps
       if (requireCpf) {
         step = 'ASK_CPF'
         await prisma.lightFlowSession.update({
           where: { id: session.id },
           data: { currentStepKey: step, collectedData: collected, dynamicOptions: {} }
         })
-        await sendStepMessage('Por favor, digite seu CPF (apenas números):')
+        await sendStepMessage(askCpfMsg)
       } else if (requireConvenio) {
         step = 'ASK_CONVENIO'
         const convenios = await prisma.healthPlan.findMany({ where: { doctorId, active: true } })
@@ -589,15 +650,15 @@ export async function processGuidedStep(
             where: { id: session.id },
             data: { currentStepKey: step, collectedData: collected, dynamicOptions: mapOpts }
           })
-          await sendStepMessage(`Qual o seu convênio/plano de saúde?\n\n${menuStr}\n\nSe for particular, digite 0.`)
+          const askConvMsg = messages.askConvenio || 'Qual o seu convênio/plano de saúde?'
+          await sendStepMessage(`${askConvMsg}\n\n${menuStr}\n\nSe for particular, digite 0.`)
         } else {
-          // Skip convenio
           step = 'ASK_DATE'
           await prisma.lightFlowSession.update({
             where: { id: session.id },
             data: { currentStepKey: step, collectedData: collected }
           })
-          await sendStepMessage('Qual o melhor dia ou período para o seu agendamento?\n(Ex: amanhã, sexta-feira, próxima semana pela tarde)')
+          await sendStepMessage(askDateMsg)
         }
       } else {
         step = 'ASK_DATE'
@@ -605,7 +666,7 @@ export async function processGuidedStep(
           where: { id: session.id },
           data: { currentStepKey: step, collectedData: collected }
         })
-        await sendStepMessage('Qual o melhor dia ou período para o seu agendamento?\n(Ex: amanhã, sexta-feira, próxima semana pela tarde)')
+        await sendStepMessage(askDateMsg)
       }
       return;
     } else if (choice === 'CONFIRM_NO') {
@@ -614,7 +675,7 @@ export async function processGuidedStep(
         where: { id: session.id },
         data: { currentStepKey: step, dynamicOptions: {} }
       })
-      await sendStepMessage('Por favor, digite o telefone de contato com DDD:')
+      await sendStepMessage(askPhoneTextMsg)
       return
     } else {
       await sendStepMessage('Escolha inválida. Digite 1 ou 2.')
@@ -622,6 +683,7 @@ export async function processGuidedStep(
     }
   }
 
+  // Step 4: TELEFONE TEXT COLLECTION
   if (step === 'ASK_PHONE_TEXT') {
     const cleaned = incomingText.replace(/\D/g, '')
     if (cleaned.length < 10) {
@@ -629,7 +691,16 @@ export async function processGuidedStep(
       return
     }
     collected.telefone = cleaned
-    await auditLog(doctorId, contactPhone, 'light_flow.input.collected', `Telefone informado: ${collected.telefone}`)
+    await auditLogAction({
+      instanceId: instance.id,
+      actionConfigId,
+      actionKey: actionConfig.actionKey,
+      contactPhone,
+      sessionId: session.id,
+      status: 'INPUT_COLLECTED',
+      stepKey: step,
+      message: `Telefone informado: ${collected.telefone}`
+    })
 
     if (requireCpf) {
       step = 'ASK_CPF'
@@ -637,7 +708,7 @@ export async function processGuidedStep(
         where: { id: session.id },
         data: { currentStepKey: step, collectedData: collected }
       })
-      await sendStepMessage('Por favor, digite seu CPF (apenas números):')
+      await sendStepMessage(askCpfMsg)
     } else if (requireConvenio) {
       step = 'ASK_CONVENIO'
       const convenios = await prisma.healthPlan.findMany({ where: { doctorId, active: true } })
@@ -652,14 +723,15 @@ export async function processGuidedStep(
           where: { id: session.id },
           data: { currentStepKey: step, collectedData: collected, dynamicOptions: mapOpts }
         })
-        await sendStepMessage(`Qual o seu convênio/plano de saúde?\n\n${menuStr}\n\nSe for particular, digite 0.`)
+        const askConvMsg = messages.askConvenio || 'Qual o seu convênio/plano de saúde?'
+        await sendStepMessage(`${askConvMsg}\n\n${menuStr}\n\nSe for particular, digite 0.`)
       } else {
         step = 'ASK_DATE'
         await prisma.lightFlowSession.update({
           where: { id: session.id },
           data: { currentStepKey: step, collectedData: collected }
         })
-        await sendStepMessage('Qual o melhor dia ou período para o seu agendamento?\n(Ex: amanhã, sexta-feira, próxima semana pela tarde)')
+        await sendStepMessage(askDateMsg)
       }
     } else {
       step = 'ASK_DATE'
@@ -667,11 +739,12 @@ export async function processGuidedStep(
         where: { id: session.id },
         data: { currentStepKey: step, collectedData: collected }
       })
-      await sendStepMessage('Qual o melhor dia ou período para o seu agendamento?\n(Ex: amanhã, sexta-feira, próxima semana pela tarde)')
+      await sendStepMessage(askDateMsg)
     }
     return
   }
 
+  // Step 5: CPF COLLECTION
   if (step === 'ASK_CPF') {
     const cleanedCpf = incomingText.replace(/\D/g, '')
     if (cleanedCpf.length !== 11) {
@@ -679,7 +752,16 @@ export async function processGuidedStep(
       return
     }
     collected.cpf = cleanedCpf
-    await auditLog(doctorId, contactPhone, 'light_flow.input.collected', `CPF coletado`)
+    await auditLogAction({
+      instanceId: instance.id,
+      actionConfigId,
+      actionKey: actionConfig.actionKey,
+      contactPhone,
+      sessionId: session.id,
+      status: 'INPUT_COLLECTED',
+      stepKey: step,
+      message: `CPF coletado`
+    })
 
     if (requireConvenio) {
       step = 'ASK_CONVENIO'
@@ -695,14 +777,15 @@ export async function processGuidedStep(
           where: { id: session.id },
           data: { currentStepKey: step, collectedData: collected, dynamicOptions: mapOpts }
         })
-        await sendStepMessage(`Qual o seu convênio/plano de saúde?\n\n${menuStr}\n\nSe for particular, digite 0.`)
+        const askConvMsg = messages.askConvenio || 'Qual o seu convênio/plano de saúde?'
+        await sendStepMessage(`${askConvMsg}\n\n${menuStr}\n\nSe for particular, digite 0.`)
       } else {
         step = 'ASK_DATE'
         await prisma.lightFlowSession.update({
           where: { id: session.id },
           data: { currentStepKey: step, collectedData: collected }
         })
-        await sendStepMessage('Qual o melhor dia ou período para o seu agendamento?\n(Ex: amanhã, sexta-feira, próxima semana pela tarde)')
+        await sendStepMessage(askDateMsg)
       }
     } else {
       step = 'ASK_DATE'
@@ -710,11 +793,12 @@ export async function processGuidedStep(
         where: { id: session.id },
         data: { currentStepKey: step, collectedData: collected }
       })
-      await sendStepMessage('Qual o melhor dia ou período para o seu agendamento?\n(Ex: amanhã, sexta-feira, próxima semana pela tarde)')
+      await sendStepMessage(askDateMsg)
     }
     return
   }
 
+  // Step 6: CONVENIO COLLECTION
   if (step === 'ASK_CONVENIO') {
     if (incomingText === '0') {
       collected.convenioId = null
@@ -730,22 +814,40 @@ export async function processGuidedStep(
       collected.convenioNome = plan?.name || 'Convênio'
     }
 
-    await auditLog(doctorId, contactPhone, 'light_flow.input.collected', `Convênio: ${collected.convenioNome}`)
+    await auditLogAction({
+      instanceId: instance.id,
+      actionConfigId,
+      actionKey: actionConfig.actionKey,
+      contactPhone,
+      sessionId: session.id,
+      status: 'INPUT_COLLECTED',
+      stepKey: step,
+      message: `Convênio selecionado: ${collected.convenioNome}`
+    })
     
     step = 'ASK_DATE'
     await prisma.lightFlowSession.update({
       where: { id: session.id },
       data: { currentStepKey: step, collectedData: collected, dynamicOptions: {} }
     })
-    await sendStepMessage('Qual o melhor dia ou período para o seu agendamento?\n(Ex: amanhã, sexta-feira, próxima semana pela tarde)')
+    await sendStepMessage(askDateMsg)
     return
   }
 
+  // Step 7: PREFERRED DATE
   if (step === 'ASK_DATE') {
     collected.dataPreferida = incomingText
-    await auditLog(doctorId, contactPhone, 'light_flow.input.collected', `Filtro de data: ${collected.dataPreferida}`)
+    await auditLogAction({
+      instanceId: instance.id,
+      actionConfigId,
+      actionKey: actionConfig.actionKey,
+      contactPhone,
+      sessionId: session.id,
+      status: 'INPUT_COLLECTED',
+      stepKey: step,
+      message: `Período solicitado: ${collected.dataPreferida}`
+    })
 
-    // Query real calendar
     const slots = await findAvailableSlots({
       doctorId,
       preferredDateText: incomingText,
@@ -761,11 +863,10 @@ export async function processGuidedStep(
         where: { id: session.id },
         data: { currentStepKey: step, collectedData: collected, dynamicOptions: newMap }
       })
-      await sendStepMessage('Infelizmente não encontrei horários livres para este período. O que deseja fazer?\n\n1 - Escolher outra data\n2 - Falar com atendente')
+      await sendStepMessage(noSlotsMsg)
       return
     }
 
-    // Save slots in dynamic options map
     const mapOpts: Record<string, any> = {}
     const menuStr = slots.map((s, i) => {
       const idx = String(i + 1)
@@ -773,7 +874,16 @@ export async function processGuidedStep(
       return `${idx} - ${formatSlotDateTime(s.startAt)}`
     }).join('\n')
 
-    await auditLog(doctorId, contactPhone, 'light_flow.slots.found', `Slots encontrados: ${slots.length}`)
+    await auditLogAction({
+      instanceId: instance.id,
+      actionConfigId,
+      actionKey: actionConfig.actionKey,
+      contactPhone,
+      sessionId: session.id,
+      status: 'SLOTS_FOUND',
+      stepKey: step,
+      message: `Encontrados ${slots.length} slots`
+    })
 
     step = 'CHOOSE_SLOT'
     await prisma.lightFlowSession.update({
@@ -781,10 +891,12 @@ export async function processGuidedStep(
       data: { currentStepKey: step, collectedData: collected, dynamicOptions: mapOpts }
     })
 
-    await sendStepMessage(`Encontrei estes horários disponíveis:\n\n${menuStr}\n\nPor favor, digite o número da opção que você prefere.`)
+    const slotsFoundHeader = messages.slotsFound || 'Encontrei estes horários disponíveis:'
+    await sendStepMessage(`${slotsFoundHeader}\n\n${menuStr}\n\nPor favor, escolha a opção desejada.`)
     return
   }
 
+  // Step 7.1: EMPTY DATE OPTION
   if (step === 'ASK_DATE_EMPTY') {
     const choice = dynamicMap[incomingText]
     if (choice === 'REASK_DATE') {
@@ -793,7 +905,7 @@ export async function processGuidedStep(
         where: { id: session.id },
         data: { currentStepKey: step, dynamicOptions: {} }
       })
-      await sendStepMessage('Por favor, informe uma outra data ou período desejado:')
+      await sendStepMessage(askDateMsg)
       return
     } else if (choice === 'TRANSFER_HUMAN') {
       await sendStepMessage('Certo. Vou transferir sua conversa para um de nossos atendentes. Por favor, aguarde.')
@@ -801,7 +913,16 @@ export async function processGuidedStep(
         where: { id: session.id },
         data: { status: 'TRANSFER' }
       })
-      await auditLog(doctorId, contactPhone, 'light_flow.session.transfered', 'Transferido para atendimento humano')
+      await auditLogAction({
+        instanceId: instance.id,
+        actionConfigId,
+        actionKey: actionConfig.actionKey,
+        contactPhone,
+        sessionId: session.id,
+        status: 'TRANSFER',
+        stepKey: step,
+        message: 'Paciente transferido para humano'
+      })
       return
     } else {
       await sendStepMessage('Escolha inválida. Digite 1 ou 2.')
@@ -809,6 +930,7 @@ export async function processGuidedStep(
     }
   }
 
+  // Step 8: SLOT CHOICE
   if (step === 'CHOOSE_SLOT') {
     const chosenSlot = dynamicMap[incomingText]
     if (!chosenSlot) {
@@ -819,7 +941,16 @@ export async function processGuidedStep(
     collected.horarioEscolhido = chosenSlot.startAt
     collected.horarioFimEscolhido = chosenSlot.endAt
     
-    await auditLog(doctorId, contactPhone, 'light_flow.slot.selected', `Horário selecionado: ${chosenSlot.startAt}`)
+    await auditLogAction({
+      instanceId: instance.id,
+      actionConfigId,
+      actionKey: actionConfig.actionKey,
+      contactPhone,
+      sessionId: session.id,
+      status: 'SLOT_SELECTED',
+      stepKey: step,
+      message: `Slot escolhido: ${chosenSlot.startAt}`
+    })
 
     step = 'CONFIRMATION'
     const newMap = { "1": "CONFIRM_APPOINTMENT", "2": "CHANGE_SLOT", "3": "CANCEL_SESSION" }
@@ -841,24 +972,24 @@ export async function processGuidedStep(
     const dataFormatted = formatSlotDateTime(chosenSlot.startAt)
 
     await sendStepMessage(
-      `Confira os dados do seu agendamento:\n\n` +
+      `${summaryMsg}\n\n` +
       `👤 Nome: ${collected.nome}\n` +
       `📞 Telefone: ${collected.telefone}\n` +
       `💼 Plano/Serviço: ${collected.planoNome}\n` +
-      `🩺 Profissional: ${doctor?.name || 'Médico'}\n` +
+      `🩺 Médico: ${doctor?.name || 'Médico'}\n` +
       `📅 Data/Horário: ${dataFormatted}\n\n` +
-      `1 - Confirmar agendamento\n` +
+      `1 - Sim, confirmar agendamento\n` +
       `2 - Escolher outro horário\n` +
       `3 - Cancelar`
     )
     return
   }
 
+  // Step 9: CONFIRMATION STAGE
   if (step === 'CONFIRMATION') {
     const choice = dynamicMap[incomingText]
     if (choice === 'CONFIRM_APPOINTMENT') {
       try {
-        // Double check status is still active to prevent duplicate booking
         const freshSession = await prisma.lightFlowSession.findUnique({
           where: { id: session.id }
         })
@@ -875,7 +1006,8 @@ export async function processGuidedStep(
           serviceId: collected.serviceId,
           startAt: collected.horarioEscolhido,
           endAt: collected.horarioFimEscolhido,
-          source: 'WHATSAPP_CHATBOT_LIGHT'
+          source: 'WHATSAPP_CHATBOT_LIGHT',
+          initialStatus: appointmentInitialStatus
         })
 
         collected.appointmentId = appt.id
@@ -884,14 +1016,24 @@ export async function processGuidedStep(
           where: { id: session.id },
           data: {
             status: 'COMPLETED',
-            collectedData: collected
+            collectedData: collected,
+            completedAt: new Date()
           }
         })
 
-        await auditLog(doctorId, contactPhone, 'light_flow.appointment.created', `Agendamento criado ID: ${appt.id}`)
+        await auditLogAction({
+          instanceId: instance.id,
+          actionConfigId,
+          actionKey: actionConfig.actionKey,
+          contactPhone,
+          sessionId: session.id,
+          status: 'COMPLETED',
+          stepKey: step,
+          message: `Agendamento criado com sucesso ID: ${appt.id}`
+        })
 
         const dateFormatted = formatSlotDateTime(collected.horarioEscolhido)
-        const successMsg = customSuccessMessage
+        const successMsg = successMsgTemplate
           .replace('{nome}', collected.nome)
           .replace('{planoNome}', collected.planoNome)
           .replace('{medico}', appt.doctor?.name || 'Médico')
@@ -909,7 +1051,7 @@ export async function processGuidedStep(
           await sendStepMessage('Esse horário acabou de ser ocupado. Por favor, escolha uma outra data ou período:')
           return
         }
-        console.error('[GuidedFlow Confirmation Error]', err)
+        console.error('[GuidedFlow Config-Driven Confirmation Error]', err)
         return failSession('Desculpe, ocorreu um erro ao registrar seu agendamento no sistema. Por favor, tente novamente mais tarde.')
       }
     } else if (choice === 'CHANGE_SLOT') {
@@ -918,18 +1060,27 @@ export async function processGuidedStep(
         where: { id: session.id },
         data: { currentStepKey: step, dynamicOptions: {} }
       })
-      await sendStepMessage('Por favor, informe a nova data ou período desejado:')
+      await sendStepMessage(askDateMsg)
       return
     } else if (choice === 'CANCEL_SESSION') {
       await prisma.lightFlowSession.update({
         where: { id: session.id },
         data: { status: 'CANCELLED' }
       })
-      await sendStepMessage('Agendamento cancelado com sucesso. Qualquer dúvida, estou à disposição!')
-      await auditLog(doctorId, contactPhone, 'light_flow.session.cancelled', 'Sessão cancelada pelo usuário')
+      await sendStepMessage(cancelMsg)
+      await auditLogAction({
+        instanceId: instance.id,
+        actionConfigId,
+        actionKey: actionConfig.actionKey,
+        contactPhone,
+        sessionId: session.id,
+        status: 'CANCELLED',
+        stepKey: step,
+        message: 'Sessão cancelada pelo usuário'
+      })
       return
     } else {
-      await sendStepMessage('Escolha inválida. Digite 1, 2 ou 3.')
+      await sendStepMessage('Para confirmar o agendamento, responda:\n\n1 - Sim, confirmar\n2 - Escolher outro horário\n3 - Cancelar')
       return
     }
   }

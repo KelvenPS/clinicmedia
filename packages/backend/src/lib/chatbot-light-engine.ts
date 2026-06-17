@@ -227,6 +227,107 @@ export async function handleIncomingLightMessage(instanceId: string, msg: any): 
         // Retorna para o menu
         lightFlowStateCache.set(stateKey, { activeFlowId: fluxo.id, attempts: 0 })
         await sendLightMessage(instance, contactPhone, response || fluxo.welcomeMessage, 'fluxo', fluxo.name)
+      } else if (actionType === 'SYSTEM_ACTION') {
+        const actionKey = matchedOption.systemActionKey
+        const configId = matchedOption.systemActionConfigId
+        const transMsg = matchedOption.transitionMessage || response
+
+        if (!configId) {
+          await sendLightMessage(instance, contactPhone, 'Desculpe, esta ação do sistema não está configurada corretamente.', 'fluxo')
+          lightFlowStateCache.del(stateKey)
+          return
+        }
+
+        if (actionKey === 'SCHEDULE_APPOINTMENT') {
+          if (transMsg) {
+            await sendLightMessage(instance, contactPhone, transMsg, 'fluxo', fluxo.name)
+          }
+          lightFlowStateCache.del(stateKey)
+
+          // Cancel previous active sessions for this contact
+          await prisma.lightFlowSession.updateMany({
+            where: { instanceId, contactPhone, status: 'ACTIVE' },
+            data: { status: 'CANCELLED' }
+          })
+
+          // Create new guided session
+          const session = await prisma.lightFlowSession.create({
+            data: {
+              instanceId,
+              contactPhone,
+              flowId: fluxo.id,
+              actionConfigId: configId,
+              currentStepKey: 'CHOOSE_PLAN',
+              status: 'ACTIVE',
+              expiresAt: new Date(Date.now() + 30 * 60 * 1000),
+              collectedData: {},
+              dynamicOptions: {}
+            }
+          })
+
+          // Load configuration to resolve plans/services and message templates
+          const actionConfig = await prisma.lightSystemActionConfig.findUnique({
+            where: { id: configId }
+          })
+
+          if (!actionConfig || !actionConfig.active) {
+            await sendLightMessage(instance, contactPhone, 'Desculpe, esta ação de agendamento está inativa no momento.', 'fluxo')
+            await prisma.lightFlowSession.update({ where: { id: session.id }, data: { status: 'FAILED', failedReason: 'Configuração inativa ou não encontrada.' } })
+            return
+          }
+
+          const cfg = (typeof actionConfig.config === 'string' ? JSON.parse(actionConfig.config) : actionConfig.config) as any
+          const planSource = cfg.planSource || 'DOCTOR_SERVICES'
+          let menuStr = ''
+          const dynamicMap: Record<string, string> = {}
+
+          if (planSource === 'DOCTOR_CONVENIOS') {
+            const convenios = await prisma.healthPlan.findMany({
+              where: { doctorId: instance.doctorId, active: true }
+            })
+            if (convenios.length === 0) {
+              await sendLightMessage(instance, contactPhone, 'Desculpe, não há convênios cadastrados para agendamento no momento.', 'fluxo')
+              await prisma.lightFlowSession.update({ where: { id: session.id }, data: { status: 'FAILED' } })
+              return
+            }
+            menuStr = convenios.map((c, i) => {
+              const idx = String(i + 1)
+              dynamicMap[idx] = c.id
+              return `${idx} - ${c.name}`
+            }).join('\n')
+          } else {
+            // Default: DOCTOR_SERVICES / AppointmentType
+            const services = await prisma.appointmentType.findMany({
+              where: { doctorId: instance.doctorId, active: true }
+            })
+            if (services.length === 0) {
+              await sendLightMessage(instance, contactPhone, 'Desculpe, não há serviços/procedimentos cadastrados para agendamento no momento.', 'fluxo')
+              await prisma.lightFlowSession.update({ where: { id: session.id }, data: { status: 'FAILED' } })
+              return
+            }
+            menuStr = services.map((s, i) => {
+              const idx = String(i + 1)
+              dynamicMap[idx] = s.id
+              const price = s.baseValue ? ` (R$ ${s.baseValue.toFixed(2)})` : ''
+              return `${idx} - ${s.name}${price}`
+            }).join('\n')
+          }
+
+          // Update session options
+          await prisma.lightFlowSession.update({
+            where: { id: session.id },
+            data: { dynamicOptions: dynamicMap }
+          })
+
+          const messages = cfg.messages || {}
+          const askPlanMsg = messages.askPlan || 'Temos os seguintes planos/serviços disponíveis:\n\n{opcoes}\n\nQual opção você deseja? (Digite o número)'
+          const interpolatedPlanMsg = askPlanMsg.replace('{opcoes}', menuStr)
+
+          await sendLightMessage(instance, contactPhone, interpolatedPlanMsg, 'fluxo')
+        } else {
+          await sendLightMessage(instance, contactPhone, 'Desculpe, esta ação ainda não está implementada no sistema.', 'fluxo')
+          lightFlowStateCache.del(stateKey)
+        }
       } else if (actionType === 'START_PLAN_SCHEDULING') {
         if (response) {
           await sendLightMessage(instance, contactPhone, response, 'fluxo', fluxo.name)

@@ -323,6 +323,9 @@ const fluxoSchema = z.object({
     queueId:      z.string().nullable().optional(),
     nextFlowId:   z.string().nullable().optional(),
     systemAction: z.string().nullable().optional(),
+    systemActionKey: z.string().nullable().optional(),
+    systemActionConfigId: z.string().nullable().optional(),
+    transitionMessage: z.string().nullable().optional(),
     planSource:   z.string().nullable().optional(),
     doctorSelect: z.string().nullable().optional(),
     limitSlots:   z.any().optional(),
@@ -517,6 +520,228 @@ router.put('/settings', async (req: AuthRequest, res) => {
     res.status(500).json({ message: 'Erro interno do servidor' })
   }
 })
+
+// ─── System Action Configurations ─────────────────────────────────────────────
+
+const SYSTEM_ACTION_CATALOG = [
+  {
+    key: 'SCHEDULE_APPOINTMENT',
+    label: 'Agendar consulta',
+    implemented: true,
+    description: 'Coleta dados do paciente, consulta agenda real e cria o agendamento.',
+  },
+  { key: 'CONFIRM_APPOINTMENT', label: 'Confirmar consulta', implemented: false },
+  { key: 'CANCEL_APPOINTMENT', label: 'Cancelar consulta', implemented: false },
+  { key: 'SEND_PAYMENT_LINK', label: 'Enviar link de pagamento', implemented: false },
+  { key: 'SEND_EVALUATION_FORM', label: 'Enviar formulário de avaliação', implemented: false },
+  { key: 'UPDATE_PATIENT', label: 'Atualizar cadastro do paciente', implemented: false },
+]
+
+router.get('/system-actions/catalog', async (req: AuthRequest, res) => {
+  res.json(SYSTEM_ACTION_CATALOG)
+})
+
+router.get('/system-actions', async (req: AuthRequest, res) => {
+  try {
+    const instance = await prisma.whatsAppInstance.findUnique({
+      where: {
+        doctorId_type: {
+          doctorId: req.user!.userId,
+          type: 'CHATBOT_LIGHT',
+        },
+      },
+    })
+    if (!instance) {
+      res.json([])
+      return
+    }
+    const configs = await prisma.lightSystemActionConfig.findMany({
+      where: { instanceId: instance.id },
+      orderBy: { createdAt: 'desc' },
+    })
+    res.json(configs)
+  } catch {
+    res.status(500).json({ message: 'Erro interno do servidor' })
+  }
+})
+
+router.post('/system-actions', async (req: AuthRequest, res) => {
+  try {
+    const instance = await prisma.whatsAppInstance.findUnique({
+      where: {
+        doctorId_type: {
+          doctorId: req.user!.userId,
+          type: 'CHATBOT_LIGHT',
+        },
+      },
+    })
+    if (!instance) {
+      res.status(400).json({ message: 'WhatsApp não configurado' })
+      return
+    }
+
+    const schema = z.object({
+      actionKey: z.string().min(1),
+      name: z.string().min(2, 'Nome obrigatório'),
+      description: z.string().optional().nullable(),
+      config: z.any(),
+    })
+    const data = schema.parse(req.body)
+
+    if (data.actionKey === 'SCHEDULE_APPOINTMENT') {
+      const cfg = data.config
+      if (!cfg || !cfg.planSource || !cfg.doctorSelect || !cfg.limitSlots || !cfg.searchWindowDays || !cfg.durationMinutes) {
+        res.status(400).json({ message: 'Configurações de agendamento incompletas' })
+        return
+      }
+    }
+
+    const config = await prisma.lightSystemActionConfig.create({
+      data: {
+        instanceId: instance.id,
+        actionKey: data.actionKey,
+        name: data.name,
+        description: data.description,
+        config: data.config,
+      },
+    })
+    res.status(201).json(config)
+  } catch (error) {
+    if (error instanceof z.ZodError) {
+      res.status(400).json({ message: 'Dados inválidos', errors: error.errors })
+      return
+    }
+    res.status(500).json({ message: 'Erro interno do servidor' })
+  }
+})
+
+router.put('/system-actions/:id', async (req: AuthRequest, res) => {
+  try {
+    const { id } = req.params
+    const schema = z.object({
+      name: z.string().min(2, 'Nome obrigatório'),
+      description: z.string().optional().nullable(),
+      config: z.any(),
+    })
+    const data = schema.parse(req.body)
+
+    const updated = await prisma.lightSystemActionConfig.update({
+      where: { id },
+      data: {
+        name: data.name,
+        description: data.description,
+        config: data.config,
+      },
+    })
+    res.json(updated)
+  } catch (error) {
+    if (error instanceof z.ZodError) {
+      res.status(400).json({ message: 'Dados inválidos', errors: error.errors })
+      return
+    }
+    res.status(500).json({ message: 'Erro interno do servidor' })
+  }
+})
+
+router.patch('/system-actions/:id/active', async (req: AuthRequest, res) => {
+  try {
+    const { id } = req.params
+    const schema = z.object({ active: z.boolean() })
+    const { active } = schema.parse(req.body)
+
+    const updated = await prisma.lightSystemActionConfig.update({
+      where: { id },
+      data: { active },
+    })
+    res.json(updated)
+  } catch (error) {
+    if (error instanceof z.ZodError) {
+      res.status(400).json({ message: 'Dados inválidos', errors: error.errors })
+      return
+    }
+    res.status(500).json({ message: 'Erro interno do servidor' })
+  }
+})
+
+router.delete('/system-actions/:id', async (req: AuthRequest, res) => {
+  try {
+    const { id } = req.params
+    const doctorId = req.user!.userId
+
+    // Exclusão segura: verificar se a config está vinculada a algum fluxo ativo
+    const fluxos = await prisma.lightFluxo.findMany({
+      where: { doctorId },
+    })
+
+    const isInUse = fluxos.some(f => {
+      let opts: any[] = []
+      try {
+        opts = typeof f.options === 'string' ? JSON.parse(f.options) : (f.options as any[])
+      } catch {
+        opts = []
+      }
+      return opts.some(o => o.actionType === 'SYSTEM_ACTION' && o.systemActionConfigId === id)
+    })
+
+    if (isInUse) {
+      res.status(400).json({ message: 'Esta configuração está sendo usada em um de seus fluxos e não pode ser excluída.' })
+      return
+    }
+
+    await prisma.lightSystemActionConfig.delete({
+      where: { id },
+    })
+    res.json({ message: 'Configuração excluída com sucesso.' })
+  } catch {
+    res.status(500).json({ message: 'Erro interno do servidor' })
+  }
+})
+
+router.post('/system-actions/:id/test', async (req: AuthRequest, res) => {
+  try {
+    const { id } = req.params
+    const config = await prisma.lightSystemActionConfig.findUnique({
+      where: { id },
+    })
+    if (!config) {
+      res.status(404).json({ message: 'Configuração não encontrada' })
+      return
+    }
+
+    // Validações básicas de consistência para "Agendar Consulta"
+    const activeRooms = await prisma.room.count({
+      where: { doctorId: req.user!.userId, active: true },
+    })
+    if (activeRooms === 0) {
+      res.status(400).json({ message: 'O médico não possui salas de atendimento ativas.' })
+      return
+    }
+
+    const cfg = config.config as any
+    if (cfg?.planSource === 'DOCTOR_SERVICES') {
+      const activeServices = await prisma.appointmentType.count({
+        where: { doctorId: req.user!.userId, active: true },
+      })
+      if (activeServices === 0) {
+        res.status(400).json({ message: 'O médico não possui serviços cadastrados.' })
+        return
+      }
+    } else if (cfg?.planSource === 'DOCTOR_CONVENIOS') {
+      const activeConvenios = await prisma.healthPlan.count({
+        where: { doctorId: req.user!.userId, active: true },
+      })
+      if (activeConvenios === 0) {
+        res.status(400).json({ message: 'O médico não possui convênios cadastrados.' })
+        return
+      }
+    }
+
+    res.json({ success: true, message: 'Configuração validada com sucesso e pronta para uso.' })
+  } catch {
+    res.status(500).json({ message: 'Erro interno do servidor' })
+  }
+})
+
 
 // ─── WhatsApp Instance Management (Chatbot Light) ──────────────────────────
 

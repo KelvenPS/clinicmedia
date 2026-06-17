@@ -560,6 +560,22 @@ model WhatsAppInstance {
   @@map("TBLWHATSAPPINSTANCIA")
 }
 
+model WhatsAppMessageRetry {
+  id          String   @id @default(uuid())
+  instanceId  String
+  remoteJid   String
+  messageId   String
+  fromMe      Boolean  @default(true)
+  participant String?
+  messageB64  String   @db.Text
+  createdAt   DateTime @default(now())
+
+  @@unique([instanceId, remoteJid, messageId, fromMe])
+  @@index([instanceId])
+  @@index([createdAt])
+  @@map("TBLWHATSAPPMESSAGERETRY")
+}
+
 model Conversation {
   id            String               @id @default(uuid())
   instanceId    String

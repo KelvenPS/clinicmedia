@@ -958,12 +958,26 @@ router.post('/conversations/:id/messages', async (req: AuthRequest, res: Respons
     // Enviar via WhatsApp (apenas para mensagens de texto por enquanto)
     let waMessageId: string | null = null
     if (data.type === 'TEXT') {
-      const waResult = await sendWhatsAppMessage(instance.instanceKey, jid, data.content)
-      if (!waResult) {
-        res.status(503).json({ message: 'Não foi possível enviar a mensagem. Verifique a conexão WhatsApp.' })
+      try {
+        const waResult = await sendWhatsAppMessage(instance.instanceKey, jid, data.content)
+        if (!waResult) {
+          res.status(503).json({ message: 'Não foi possível enviar a mensagem. Verifique a conexão WhatsApp.' })
+          return
+        }
+        waMessageId = waResult.waMessageId
+      } catch (sendErr: any) {
+        if (sendErr?.code === 'WA_RECENTLY_CONNECTED') {
+          res.status(429).json({
+            success: false,
+            code: 'WA_RECENTLY_CONNECTED',
+            message: sendErr.message
+          })
+          return
+        }
+        console.error('[sendWhatsAppMessage error]', sendErr)
+        res.status(503).json({ message: 'Não foi possível enviar a mensagem: ' + (sendErr?.message || String(sendErr)) })
         return
       }
-      waMessageId = waResult.waMessageId
     }
 
     const now = new Date()

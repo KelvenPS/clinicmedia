@@ -6,13 +6,15 @@ import {
   type WAMessage,
   type Chat,
   type Contact,
-  type proto,
+  proto,
 } from '@whiskeysockets/baileys'
 import { Boom } from '@hapi/boom'
 import QRCode from 'qrcode'
 import fs from 'node:fs'
 import path from 'node:path'
 import { prisma } from './prisma'
+import NodeCache from 'node-cache'
+import pino from 'pino'
 
 // ── Feature Toggles (desabilitar temporariamente para diagnóstico) ────────
 const ENABLE_HISTORY_SYNC = process.env.WA_ENABLE_HISTORY_SYNC !== 'false'
@@ -22,8 +24,10 @@ const ENABLE_READ_RECEIPTS = process.env.WA_ENABLE_READ_RECEIPTS !== 'false'
 
 const SESSIONS_DIR = path.resolve(process.env.SESSIONS_DIR ?? path.join(process.cwd(), 'sessions'))
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-const logger = { level: 'silent', trace: ()=>{}, debug: ()=>{}, info: ()=>{}, warn: ()=>{}, error: ()=>{}, fatal: ()=>{}, child: function(){ return this } } as any
+// Logger real do pino para o Baileys para podermos configurar o nível de log via env vars
+const logger = pino({
+  level: process.env.WA_LOG_LEVEL || 'warn',
+})
 
 // ─── Estado em memória ────────────────────────────────────────────────────────
 
@@ -35,21 +39,36 @@ const reconnectAttempts = new Map<string, number>()
 const sessionErrorStreak = new Map<string, number>()
 const MAX_SESSION_ERROR_STREAK = 8
 
-// IDs de mensagens WA já processados (evita duplicata mesmo após restart graças ao DB)
+// IDs de mensagens WA já processados
 const processedMsgs = new Map<string, Set<string>>()
 
-// Geração da sessão — incrementa a cada startSession para cancelar syncAvatars
+// Geração da sessão
 const sessionGeneration = new Map<string, number>()
 
-// Locks de instância baseados em Promise para serializar start/stop
+// Locks de instância
 const instanceLocks = new Map<string, Promise<void>>()
 
-// Timers de reconexão ativos para cancelamento
+// Timers de reconexão
 const reconnectTimers = new Map<string, NodeJS.Timeout>()
 
-// Rastreio de desconexão para padrão 515 -> 500
+// Rastreio de desconexão
 const lastDisconnectTimestamp = new Map<string, number>()
 const lastDisconnectReasonCode = new Map<string, number>()
+
+// Trava pós-conexão
+const connectedAtMap = new Map<string, number>()
+const WA_SEND_GRACE_PERIOD_MS = Number(process.env.WA_SEND_GRACE_PERIOD_MS ?? 15000)
+
+// Caches de Retry e Dispositivos estáveis dentro do processo
+const msgRetryCounterCache = new NodeCache({
+  stdTTL: 60 * 60,
+  checkperiod: 300,
+})
+
+const userDevicesCache = new NodeCache({
+  stdTTL: 60 * 60,
+  checkperiod: 300,
+})
 
 // Estado de sincronização
 interface SyncState { syncing: boolean; total: number; syncedAt: Date | null }
@@ -86,6 +105,144 @@ async function withInstanceLock<T>(instanceKey: string, fn: () => Promise<T>): P
   return nextLock
 }
 
+// ─── Retry de Criptografia: Persistência no Banco de Dados ────────────────────
+
+async function saveMessageForRetry(
+  instanceId: string,
+  key: proto.IMessageKey,
+  message: proto.IMessage,
+): Promise<void> {
+  const remoteJid = key.remoteJid
+  const messageId = key.id
+  const fromMe = key.fromMe ?? true
+
+  if (!remoteJid || !messageId) {
+    logWA('warn', 'global', 'whatsapp.message_retry.validation_failed', { remoteJid, messageId })
+    return
+  }
+
+  // Salva apenas mensagens enviadas por nós
+  if (!fromMe) {
+    return
+  }
+
+  try {
+    const messageB64 = Buffer.from(proto.Message.encode(message).finish()).toString('base64')
+
+    await prisma.whatsAppMessageRetry.upsert({
+      where: {
+        instanceId_remoteJid_messageId_fromMe: {
+          instanceId,
+          remoteJid,
+          messageId,
+          fromMe
+        }
+      },
+      update: {
+        messageB64,
+        participant: key.participant ?? null,
+      },
+      create: {
+        instanceId,
+        remoteJid,
+        messageId,
+        fromMe,
+        participant: key.participant ?? null,
+        messageB64,
+      }
+    })
+
+    const maskedJid = remoteJid.split('@')[0].slice(0, 5) + '***'
+    logWA('info', instanceId, 'whatsapp.message_retry.saved', {
+      remoteJid: maskedJid,
+      messageId,
+      fromMe
+    })
+  } catch (err) {
+    logWA('error', instanceId, 'whatsapp.message_retry.save_failed', {
+      messageId,
+      error: String(err)
+    })
+  }
+}
+
+async function getStoredMessageForRetry(
+  instanceId: string,
+  key: proto.IMessageKey,
+): Promise<proto.IMessage | undefined> {
+  const remoteJid = key.remoteJid
+  const messageId = key.id
+  const fromMe = key.fromMe ?? true
+
+  if (!remoteJid || !messageId) {
+    logWA('warn', instanceId, 'whatsapp.get_message.validation_failed', { remoteJid, messageId })
+    return undefined
+  }
+
+  try {
+    const row = await prisma.whatsAppMessageRetry.findFirst({
+      where: {
+        instanceId,
+        remoteJid,
+        messageId,
+        fromMe
+      }
+    })
+
+    const maskedJid = remoteJid.split('@')[0].slice(0, 5) + '***'
+
+    if (!row?.messageB64) {
+      logWA('warn', instanceId, 'whatsapp.get_message.miss', {
+        remoteJid: maskedJid,
+        messageId,
+        fromMe
+      })
+      return undefined
+    }
+
+    const decoded = proto.Message.decode(Buffer.from(row.messageB64, 'base64'))
+    logWA('info', instanceId, 'whatsapp.get_message.hit', {
+      remoteJid: maskedJid,
+      messageId,
+      fromMe
+    })
+    return decoded
+  } catch (err) {
+    logWA('error', instanceId, 'whatsapp.get_message.decode_failed', {
+      messageId,
+      error: String(err)
+    })
+    return undefined
+  }
+}
+
+// ─── Rotina de Limpeza de Retries Antigos ─────────────────────────────────────
+
+async function startRetryCleanupTask(): Promise<void> {
+  const WA_RETRY_MESSAGE_TTL_DAYS = Number(process.env.WA_RETRY_MESSAGE_TTL_DAYS ?? 7)
+  const CLEANUP_INTERVAL_MS = 12 * 60 * 60 * 1000 // 12 horas
+
+  const runCleanup = async () => {
+    try {
+      const expirationDate = new Date(Date.now() - WA_RETRY_MESSAGE_TTL_DAYS * 24 * 60 * 60 * 1000)
+      const result = await prisma.whatsAppMessageRetry.deleteMany({
+        where: {
+          createdAt: { lt: expirationDate }
+        }
+      })
+      logWA('info', 'global', 'whatsapp.retry_cleanup.finished', { deletedCount: result.count })
+    } catch (err) {
+      logWA('error', 'global', 'whatsapp.retry_cleanup.failed', { error: String(err) })
+    }
+  }
+
+  // Executa no startup
+  runCleanup()
+
+  // Configura o intervalo de 12 horas
+  setInterval(runCleanup, CLEANUP_INTERVAL_MS)
+}
+
 // ─── Handler de mensagens registrado pelo chatbot route ───────────────────────
 
 type MessageFn = (instanceId: string, msg: WAMessage) => Promise<void>
@@ -109,12 +266,36 @@ export async function sendWhatsAppMessage(
   const sock = sockets.get(instanceKey)
   if (!sock) return null
 
+  // Validação da trava grace period pós-conexão
+  const connectedAt = connectedAtMap.get(instanceKey)
+  if (connectedAt) {
+    const elapsed = Date.now() - connectedAt
+    if (elapsed < WA_SEND_GRACE_PERIOD_MS) {
+      throw {
+        code: 'WA_RECENTLY_CONNECTED',
+        message: 'WhatsApp conectado recentemente. Aguarde alguns segundos para o alinhamento das chaves criptográficas.'
+      }
+    }
+  }
+
   const result = await sock.sendMessage(jid, { text: content })
   if (!result?.key.id) return null
 
   const set = processedMsgs.get(instanceKey)
   if (set) set.add(result.key.id)
 
+  // Salvar mensagem original para retry
+  if (result.key && result.message) {
+    const instance = await prisma.whatsAppInstance.findUnique({
+      where: { instanceKey },
+      select: { id: true }
+    })
+    if (instance) {
+      await saveMessageForRetry(instance.id, result.key, result.message)
+    }
+  }
+
+  logWA('info', instanceKey, 'whatsapp.message.sent', { messageId: result.key.id })
   return { waMessageId: result.key.id }
 }
 
@@ -318,17 +499,15 @@ export async function startSession(instanceKey: string, instanceId: string): Pro
       logWA('info', instanceKey, 'reconnect.cancelled_existing')
     }
 
-    // Se já existe um socket ativo em memória, ignora a inicialização concorrente
+    // Se já existe um socket ativo em memória, ignora
     if (sockets.has(instanceKey)) {
       logWA('info', instanceKey, 'session.start_ignored_active_socket_exists')
       return
     }
 
-    // Fecha socket antigo por segurança (caso exista algum zumbi)
     closeSocket(instanceKey)
     await new Promise(resolve => setTimeout(resolve, 100))
 
-    // Incrementa a geração para cancelar syncAvatars pendentes
     const gen = (sessionGeneration.get(instanceKey) ?? 0) + 1
     sessionGeneration.set(instanceKey, gen)
 
@@ -347,7 +526,11 @@ export async function startSession(instanceKey: string, instanceId: string): Pro
       logger,
       printQRInTerminal: false,
       browser: ['ClinicMedia', 'Safari', '1.0'],
-      getMessage: async () => undefined,
+      getMessage: async (key) => {
+        return await getStoredMessageForRetry(instanceId, key)
+      },
+      msgRetryCounterCache,
+      userDevicesCache,
       syncFullHistory: false,
       defaultQueryTimeoutMs: 60_000,
       connectTimeoutMs: 60_000,
@@ -395,6 +578,7 @@ export async function startSession(instanceKey: string, instanceId: string): Pro
             },
           })
 
+          connectedAtMap.set(instanceKey, Date.now())
           logWA('info', instanceKey, 'session.connected', { phone, displayName: sock.user?.name })
 
           const currentGen = sessionGeneration.get(instanceKey) ?? gen
@@ -414,6 +598,7 @@ export async function startSession(instanceKey: string, instanceId: string): Pro
 
       if (connection === 'close') {
         if (stableTimer) { clearTimeout(stableTimer); stableTimer = null }
+        connectedAtMap.delete(instanceKey)
 
         const code = (lastDisconnect?.error as Boom)?.output?.statusCode
         const loggedOut = code === DisconnectReason.loggedOut
@@ -471,7 +656,6 @@ export async function startSession(instanceKey: string, instanceId: string): Pro
         const attempts = (reconnectAttempts.get(instanceKey) ?? 0) + 1
         reconnectAttempts.set(instanceKey, attempts)
 
-        // Atualiza tentativas no banco de dados
         await prisma.whatsAppInstance.update({
           where: { instanceKey },
           data: { reconnectAttempts: attempts },
@@ -661,6 +845,7 @@ export async function stopSession(instanceKey: string): Promise<void> {
     syncState.delete(instanceKey)
     reconnectAttempts.delete(instanceKey)
     sessionErrorStreak.delete(instanceKey)
+    connectedAtMap.delete(instanceKey)
 
     if (sock) {
       try {
@@ -732,6 +917,11 @@ export function startHealthWatchdog(): void {
   if (watchdogInterval) return
 
   const WATCHDOG_INTERVAL_MS = 60_000
+
+  // Inicia a limpeza de retry
+  startRetryCleanupTask().catch(err => {
+    logWA('error', 'global', 'whatsapp.retry_cleanup.startup_error', { error: String(err) })
+  })
 
   watchdogInterval = setInterval(async () => {
     try {

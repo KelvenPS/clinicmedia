@@ -268,12 +268,27 @@ router.post('/test', async (req: AuthRequest, res) => {
         data: { status: 'SENT', sentAt: new Date() },
       })
       res.json({ success: true, log: updated })
-    } catch (sendErr) {
+    } catch (sendErr: any) {
+      const isRecentlyConnected = sendErr?.code === 'WA_RECENTLY_CONNECTED'
+      const isNotConnected = sendErr?.message?.includes('indisponível') || sendErr?.message?.includes('not connected')
+      
+      const errorCode = isRecentlyConnected 
+        ? 'WA_RECENTLY_CONNECTED' 
+        : (isNotConnected ? 'WA_NOT_CONNECTED' : 'WA_SEND_FAILED')
+        
+      const errorMessage = sendErr?.message || String(sendErr)
+
       const updated = await prisma.lightMessageLog.update({
         where: { id: log.id },
-        data: { status: 'FAILED', errorMessage: String(sendErr) },
+        data: { status: 'FAILED', errorMessage },
       })
-      res.status(502).json({ message: 'Falha ao enviar a mensagem pelo WhatsApp', log: updated })
+      
+      res.status(isRecentlyConnected ? 429 : 502).json({
+        success: false,
+        code: errorCode,
+        message: errorMessage,
+        log: updated
+      })
     }
   } catch (error) {
     if (error instanceof z.ZodError) {

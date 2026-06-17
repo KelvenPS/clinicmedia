@@ -1690,8 +1690,20 @@ function TesteTab() {
     .replace(/\{valor\}/g, simVars.valor)
     .replace(/\{link\}/g, simVars.link)
 
+  // Encontra variáveis não preenchidas ou não suportadas
+  const emptyVars = Array.from(baseContent.matchAll(/\{(\w+)\}/g))
+    .map(m => m[1])
+    .filter(v => {
+      if (['nome', 'data', 'hora', 'medico', 'valor', 'link'].includes(v)) {
+        return !simVars[v as keyof typeof simVars]?.trim()
+      }
+      return true
+    })
+
+  const hasEmptyVars = emptyVars.length > 0
+
   const testMutation = useMutation({
-    mutationFn: () => api.post('/chatbot-light/test', { phone, content: baseContent }).then(r => r.data),
+    mutationFn: () => api.post('/chatbot-light/test', { phone, content: previewContent }).then(r => r.data),
     onSuccess: () => setLastResult({ success: true, msg: 'Mensagem enviada com sucesso!' }),
     onError: (err: unknown) => {
       const msg = (err as { response?: { data?: { message?: string } } })?.response?.data?.message ?? 'Falha no envio'
@@ -1766,9 +1778,16 @@ function TesteTab() {
           </div>
         )}
 
+        {hasEmptyVars && (
+          <div className="bg-amber-50 border border-amber-200 text-amber-800 rounded-xl p-3 text-xs flex items-center gap-2">
+            <AlertCircle className="w-4 h-4 text-amber-500 flex-shrink-0" />
+            <span>Existem variáveis sem preenchimento: {emptyVars.map(v => `{${v}}`).join(', ')}</span>
+          </div>
+        )}
+
         <button
           onClick={() => { setLastResult(null); testMutation.mutate() }}
-          disabled={!phone || !baseContent || testMutation.isPending}
+          disabled={!phone || !baseContent || testMutation.isPending || hasEmptyVars}
           className="btn-primary w-full"
         >
           {testMutation.isPending

@@ -14,6 +14,8 @@ import {
   markMessagesReadWA,
   sendTypingPresence,
   isSessionActive,
+  resolveWhatsAppContactIdentity,
+  resolveDeliveryJid,
 } from '../lib/whatsapp'
 
 import { handleIncomingLightMessage } from '../lib/chatbot-light-engine'
@@ -279,7 +281,8 @@ async function handleIncomingMessage(instanceId: string, msg: WAMessage): Promis
     return // tipo desconhecido, ignora
   }
 
-  const contactPhone = remoteJid.replace('@s.whatsapp.net', '').replace('@g.us', '')
+  const identity = await resolveWhatsAppContactIdentity(instanceId, remoteJid, msg)
+  const contactPhone = identity.normalizedPhone || identity.lidJid || remoteJid
   const isGroup = remoteJid.endsWith('@g.us')
 
   // Para msgs de grupo: quem enviou (msg.pushName = nome, msg.key.participant = JID do membro)
@@ -311,8 +314,8 @@ async function handleIncomingMessage(instanceId: string, msg: WAMessage): Promis
         instanceId,
         contactPhone,
         // Para grupos: contactName = null aqui (será preenchido durante sync de histórico)
-        // Para privado: contactName = nome do contato (pushName)
-        contactName: isGroup ? null : (senderName || null),
+        // Para privado: contactName = nome do contato (pushName) ou padrão
+        contactName: isGroup ? null : (senderName || (identity.lidJid ? 'Contato WhatsApp' : null)),
         isGroup,
         lastMessage: content,
         lastMessageSender,
@@ -320,6 +323,11 @@ async function handleIncomingMessage(instanceId: string, msg: WAMessage): Promis
         unreadCount: fromMe ? 0 : 1,
         status: convStatus,
         category: convCategory,
+        remoteJid: identity.remoteJid,
+        deliveryJid: identity.deliveryJid,
+        lidJid: identity.lidJid || null,
+        phoneJid: identity.phoneJid || null,
+        normalizedPhone: identity.normalizedPhone || null
       },
     })
   } else {
@@ -332,6 +340,11 @@ async function handleIncomingMessage(instanceId: string, msg: WAMessage): Promis
         // Para privados: atualiza nome com pushName. Para grupos: não sobrescreve nome do grupo
         ...(!isGroup && senderName && { contactName: senderName }),
         unreadCount: fromMe ? conversation.unreadCount : { increment: 1 },
+        remoteJid: identity.remoteJid,
+        deliveryJid: identity.deliveryJid,
+        lidJid: identity.lidJid || null,
+        phoneJid: identity.phoneJid || null,
+        normalizedPhone: identity.normalizedPhone || null
       },
     })
   }
@@ -404,8 +417,11 @@ async function handleIncomingMessage(instanceId: string, msg: WAMessage): Promis
       socketInstanceKey: instance.instanceKey,
       whatsappInstanceId: instance.id,
       conversationId: conversation.id,
-      contactPhone,
       remoteJid,
+      deliveryJid: identity.deliveryJid,
+      lidJid: identity.lidJid,
+      phoneJid: identity.phoneJid,
+      normalizedPhone: identity.normalizedPhone,
       messageId: msg.key.id!,
       messageText: content,
       msgRaw: msg
@@ -757,10 +773,15 @@ router.get('/conversations', async (req: AuthRequest, res: Response) => {
     const users = await prisma.user.findMany({ select: { id: true, name: true } })
     const userMap = new Map(users.map(u => [u.id, u.name]))
 
-    const result = conversations.map(c => ({
-      ...c,
-      assignedName: c.assignedTo ? userMap.get(c.assignedTo) || null : null,
-    }))
+    const result = conversations.map(c => {
+      const isLid = c.contactPhone.endsWith('@lid') || c.contactPhone.includes('lid')
+      return {
+        ...c,
+        contactPhone: isLid ? (c.normalizedPhone || '') : c.contactPhone,
+        contactName: c.contactName || (isLid ? 'Contato WhatsApp' : 'Contato não identificado'),
+        assignedName: c.assignedTo ? userMap.get(c.assignedTo) || null : null,
+      }
+    })
 
     res.json(result)
   } catch {
@@ -789,6 +810,13 @@ router.get('/conversations/:id', async (req: AuthRequest, res: Response) => {
       return
     }
 
+    const isLid = conversation.contactPhone.endsWith('@lid') || conversation.contactPhone.includes('lid')
+    const formattedConv = {
+      ...conversation,
+      contactPhone: isLid ? (conversation.normalizedPhone || '') : conversation.contactPhone,
+      contactName: conversation.contactName || (isLid ? 'Contato WhatsApp' : 'Contato não identificado'),
+    }
+
     let assignedName: string | null = null
     if (conversation.assignedTo) {
       const u = await prisma.user.findUnique({
@@ -799,7 +827,7 @@ router.get('/conversations/:id', async (req: AuthRequest, res: Response) => {
     }
 
     res.json({
-      ...conversation,
+      ...formattedConv,
       assignedName,
     })
   } catch {
@@ -1010,9 +1038,7 @@ router.post('/conversations/:id/messages', async (req: AuthRequest, res: Respons
     }
 
     // Montar JID do destinatário
-    const jid = conversation.isGroup
-      ? `${conversation.contactPhone}@g.us`
-      : `${conversation.contactPhone}@s.whatsapp.net`
+    const jid = resolveDeliveryJid(conversation.contactPhone)
 
     // Enviar via WhatsApp (apenas para mensagens de texto por enquanto)
     let waMessageId: string | null = null

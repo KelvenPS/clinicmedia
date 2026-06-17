@@ -433,6 +433,38 @@ async function auditLogAction(params: {
   }).catch(err => console.error('[auditLogAction failed]', err))
 }
 
+async function updateConversationPhoneMapping(
+  conversationId: string | null,
+  instanceId: string,
+  contactPhone: string,
+  realPhone: string
+) {
+  const cleanPhone = realPhone.replace(/\D/g, '')
+  const phoneJid = `${cleanPhone}@s.whatsapp.net`
+
+  try {
+    if (conversationId) {
+      await prisma.conversation.update({
+        where: { id: conversationId },
+        data: {
+          normalizedPhone: cleanPhone,
+          phoneJid
+        }
+      })
+    } else {
+      await prisma.conversation.updateMany({
+        where: { instanceId, contactPhone },
+        data: {
+          normalizedPhone: cleanPhone,
+          phoneJid
+        }
+      })
+    }
+  } catch (err) {
+    console.error('[updateConversationPhoneMapping] Error:', err)
+  }
+}
+
 // ─── Step State Machine Engine ────────────────────────────────────────────────
 export async function processGuidedStep(
   instance: any,
@@ -472,7 +504,6 @@ export async function processGuidedStep(
   const durationMinutes = parseInt(cfg.durationMinutes) || 30
   const requireCpf = cfg.requireCpf === true || cfg.requireCpf === 'true'
   const requireConvenio = cfg.requireConvenio === true || cfg.requireConvenio === 'true'
-  const useWhatsappPhone = cfg.useWhatsappPhone === true || cfg.useWhatsappPhone === 'true'
   const appointmentInitialStatus = cfg.appointmentInitialStatus || 'SCHEDULED'
 
   // Messages configuration
@@ -489,6 +520,10 @@ export async function processGuidedStep(
 
   const collected = session.collectedData ? (typeof session.collectedData === 'string' ? JSON.parse(session.collectedData) : session.collectedData) as any : {}
   const dynamicMap = session.dynamicOptions ? (typeof session.dynamicOptions === 'string' ? JSON.parse(session.dynamicOptions) : session.dynamicOptions) as any : {}
+
+  const contactIdentity = collected._contactIdentity || {}
+  const canUseWhatsappAsPhone = !!contactIdentity.normalizedPhone
+  const useWhatsappPhone = (cfg.useWhatsappPhone === true || cfg.useWhatsappPhone === 'true') && canUseWhatsappAsPhone
 
   const doctorId = instance.doctorId
   let step = session.currentStepKey
@@ -618,6 +653,7 @@ export async function processGuidedStep(
     const choice = dynamicMap[incomingText]
     if (choice === 'CONFIRM_YES') {
       collected.telefone = contactPhone
+      await updateConversationPhoneMapping(session.conversationId, instance.id, contactPhone, contactPhone)
       await auditLogAction({
         instanceId: instance.id,
         actionConfigId,
@@ -691,6 +727,7 @@ export async function processGuidedStep(
       return
     }
     collected.telefone = cleaned
+    await updateConversationPhoneMapping(session.conversationId, instance.id, contactPhone, cleaned)
     await auditLogAction({
       instanceId: instance.id,
       actionConfigId,

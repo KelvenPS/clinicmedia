@@ -605,6 +605,13 @@ model Conversation {
   createdAt     DateTime             @default(now())
   updatedAt     DateTime             @updatedAt
 
+  // WhatsApp Identity fields
+  remoteJid       String?
+  deliveryJid     String?
+  lidJid          String?
+  phoneJid        String?
+  normalizedPhone String?
+
   instance WhatsAppInstance @relation(fields: [instanceId], references: [id], onDelete: Cascade)
   messages Message[]
 

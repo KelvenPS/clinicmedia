@@ -2,7 +2,7 @@ import { Router, Response } from 'express'
 import { z } from 'zod'
 import { prisma } from '../lib/prisma'
 import { authenticate, requireFeature, AuthRequest } from '../middleware/auth'
-import { sendWhatsAppMessage, isSessionActive, startSession, stopSession } from '../lib/whatsapp'
+import { sendWhatsAppMessage, isSessionActive, startSession, stopSession, resolveDeliveryJid } from '../lib/whatsapp'
 import { requireSecretaryPermission } from '../lib/secretaryAccess'
 
 const router = Router()
@@ -266,7 +266,7 @@ router.post('/test', async (req: AuthRequest, res) => {
     })
 
     try {
-      const jid = `${phone.replace(/\D/g, '')}@s.whatsapp.net`
+      const jid = resolveDeliveryJid(phone)
       const result = await sendWhatsAppMessage(instance.instanceKey, jid, content)
       if (!result) throw new Error('Não foi possível enviar: sessão indisponível ou número inválido')
 

@@ -21,7 +21,7 @@ import subscriptionRoutes from './routes/subscriptions'
 import integrationRoutes from './routes/integrations'
 import chatbotRoutes from './routes/chatbot'
 import chatbotLightRoutes from './routes/chatbot-light'
-import { restoreSessions, startHealthWatchdog } from './lib/whatsapp'
+import { restoreSessions, startHealthWatchdog, runStartupDatabaseCleanup } from './lib/whatsapp'
 import { startLightScheduler } from './lib/chatbot-light-engine'
 import adminRoutes from './routes/admin'
 import adminSqlRoutes from './routes/admin-sql'
@@ -99,8 +99,13 @@ app.listen(PORT, () => {
   console.log(`  📡  Ambiente: ${process.env.NODE_ENV || 'development'}`)
   console.log('')
 
-  // Restaura sessões WhatsApp ativas após restart do servidor
-  restoreSessions().catch(err => console.error('[WA] Erro ao restaurar sessões:', err))
+  // Limpeza de dados de inicialização e correção de LIDs antigos de teste
+  runStartupDatabaseCleanup()
+    .then(() => {
+      // Restaura sessões WhatsApp ativas após restart do servidor
+      restoreSessions().catch(err => console.error('[WA] Erro ao restaurar sessões:', err))
+    })
+    .catch(err => console.error('[WA] Erro na limpeza inicial:', err))
 
   // Inicia watchdog que monitora e restaura sessões WhatsApp que morrem silenciosamente
   startHealthWatchdog()

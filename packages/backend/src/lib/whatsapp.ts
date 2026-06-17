@@ -280,7 +280,13 @@ export async function sendWhatsAppMessage(
     }
   }
 
-  const result = await sock.sendMessage(jid, { text: content })
+  const resolvedJid = resolveDeliveryJid(jid)
+  logWA('info', instanceKey, 'whatsapp.message.send_target', {
+    deliveryJid: resolvedJid,
+    jidType: resolvedJid.endsWith('@lid') ? 'lid' : (resolvedJid.endsWith('@g.us') ? 'group' : 'phone'),
+    source: 'CHATBOT_LIGHT'
+  })
+  const result = await sock.sendMessage(resolvedJid, { text: content })
   if (!result?.key.id) return null
 
   const set = processedMsgs.get(instanceKey)
@@ -384,6 +390,155 @@ function toLong(v: unknown): number {
 
 // ─── Processamento de mensagem individual ─────────────────────────────────────
 
+export function resolveDeliveryJid(input: string): string {
+  if (input.endsWith('@s.whatsapp.net')) return input
+  if (input.endsWith('@lid')) return input
+  if (input.endsWith('@g.us')) throw new Error('Não enviar chatbot para grupos')
+  if (input === 'status@broadcast' || input.endsWith('@broadcast')) throw new Error('Não enviar para status')
+
+  const digits = input.replace(/\D/g, '')
+  return `${digits}@s.whatsapp.net`
+}
+
+export interface WhatsAppContactIdentity {
+  remoteJid: string;
+  deliveryJid: string;
+  lidJid?: string;
+  phoneJid?: string;
+  normalizedPhone?: string;
+  displayName?: string;
+}
+
+export async function resolveWhatsAppContactIdentity(
+  whatsappInstanceId: string,
+  remoteJid: string,
+  msgRaw?: any
+): Promise<WhatsAppContactIdentity> {
+  const displayName = msgRaw?.pushName || null
+  const deliveryJid = remoteJid
+  let lidJid: string | undefined
+  let phoneJid: string | undefined
+  let normalizedPhone: string | undefined
+
+  if (remoteJid.endsWith('@lid')) {
+    lidJid = remoteJid
+    logWA('info', 'global', 'whatsapp.contact_identity.lid_detected', { remoteJid })
+
+    // Tenta buscar se já existe mapeamento no banco (por exemplo, na tabela Conversation ou LightFlowSession)
+    try {
+      const existingConv = await prisma.conversation.findFirst({
+        where: {
+          instanceId: whatsappInstanceId,
+          lidJid: remoteJid,
+          normalizedPhone: { not: null }
+        },
+        select: {
+          normalizedPhone: true,
+          phoneJid: true
+        }
+      })
+      if (existingConv && existingConv.normalizedPhone) {
+        normalizedPhone = existingConv.normalizedPhone
+        phoneJid = existingConv.phoneJid || `${normalizedPhone}@s.whatsapp.net`
+      } else {
+        const lastSession = await prisma.lightFlowSession.findFirst({
+          where: {
+            instanceId: whatsappInstanceId,
+            contactPhone: remoteJid,
+          },
+          orderBy: { createdAt: 'desc' }
+        })
+        if (lastSession) {
+          const collected = lastSession.collectedData ? (typeof lastSession.collectedData === 'string' ? JSON.parse(lastSession.collectedData) : lastSession.collectedData) as any : {}
+          if (collected && collected.telefone) {
+            normalizedPhone = collected.telefone.replace(/\D/g, '')
+            phoneJid = `${normalizedPhone}@s.whatsapp.net`
+          }
+        }
+      }
+    } catch (err) {
+      // ignore
+    }
+  } else if (remoteJid.endsWith('@s.whatsapp.net')) {
+    phoneJid = remoteJid
+    normalizedPhone = remoteJid.replace('@s.whatsapp.net', '').replace(/\D/g, '')
+  }
+
+  // Se veio participantPn da mensagem raw
+  let phoneFromPn = msgRaw?.key?.participantPn || msgRaw?.participantPn
+  if (phoneFromPn && typeof phoneFromPn === 'string') {
+    phoneFromPn = phoneFromPn.replace('@s.whatsapp.net', '').replace(/\D/g, '')
+    if (phoneFromPn.length >= 10) {
+      normalizedPhone = phoneFromPn
+      phoneJid = `${phoneFromPn}@s.whatsapp.net`
+    }
+  }
+
+  logWA('info', 'global', 'whatsapp.contact_identity.resolved', {
+    remoteJid,
+    deliveryJid,
+    lidJid,
+    phoneJid,
+    normalizedPhone
+  })
+
+  return {
+    remoteJid,
+    deliveryJid,
+    lidJid,
+    phoneJid,
+    normalizedPhone,
+    displayName
+  }
+}
+
+export async function runStartupDatabaseCleanup() {
+  try {
+    console.log('[StartupCleanup] Iniciando limpeza de dados antigos de teste...')
+
+    // 1. Expirar sessões ativas antigas
+    const expiredSessions = await prisma.lightFlowSession.updateMany({
+      where: { status: 'ACTIVE' },
+      data: { status: 'EXPIRED' }
+    })
+    console.log(`[StartupCleanup] Expiradas ${expiredSessions.count} sessões ativas antigas.`)
+
+    // 2. Corrigir conversas antigas com o LID sem sufixo
+    const oldLids = ['73444192432134']
+    for (const oldLid of oldLids) {
+      const lidWithSuffix = `${oldLid}@lid`
+      
+      const conversations = await prisma.conversation.findMany({
+        where: { contactPhone: oldLid }
+      })
+
+      for (const conv of conversations) {
+        const existingCorrect = await prisma.conversation.findFirst({
+          where: { instanceId: conv.instanceId, contactPhone: lidWithSuffix }
+        })
+
+        if (existingCorrect) {
+          await prisma.message.deleteMany({ where: { conversationId: conv.id } })
+          await prisma.conversation.delete({ where: { id: conv.id } })
+        } else {
+          await prisma.conversation.update({
+            where: { id: conv.id },
+            data: {
+              contactPhone: lidWithSuffix,
+              remoteJid: lidWithSuffix,
+              lidJid: lidWithSuffix,
+              deliveryJid: lidWithSuffix
+            }
+          })
+        }
+      }
+    }
+    console.log('[StartupCleanup] Limpeza de dados de teste concluída com sucesso.')
+  } catch (err) {
+    console.error('[StartupCleanup] Erro durante a limpeza de inicialização:', err)
+  }
+}
+
 export function extractMessageText(message: proto.IMessage | null | undefined): string | null {
   if (!message) return null
   return (
@@ -401,15 +556,31 @@ async function processMessage(instanceId: string, msg: WAMessage, instanceKey: s
   const waMessageId = msg.key.id
   if (!waMessageId) return
 
-  if (msg.key.remoteJid === 'status@broadcast') return
+  const remoteJid = msg.key.remoteJid ?? ''
+  if (!remoteJid) return
 
-  if (msg.key.fromMe) {
-    logWA('info', instanceKey, 'whatsapp.message.ignored_from_me', { messageId: waMessageId })
+  if (remoteJid === 'status@broadcast') {
+    logWA('info', instanceKey, 'whatsapp.message.ignored_status', { messageId: waMessageId })
     return
   }
 
-  if (msg.key.remoteJid?.endsWith('@g.us')) {
-    logWA('info', instanceKey, 'whatsapp.message.ignored_group', { messageId: waMessageId, remoteJid: msg.key.remoteJid })
+  if (remoteJid.includes('@broadcast')) {
+    logWA('info', instanceKey, 'whatsapp.message.ignored_broadcast', { messageId: waMessageId })
+    return
+  }
+
+  if (remoteJid.endsWith('@g.us')) {
+    logWA('info', instanceKey, 'whatsapp.message.ignored_group', { messageId: waMessageId, remoteJid })
+    return
+  }
+
+  if (remoteJid.endsWith('@newsletter')) {
+    logWA('info', instanceKey, 'whatsapp.message.ignored_newsletter', { messageId: waMessageId, remoteJid })
+    return
+  }
+
+  if (msg.key.fromMe) {
+    logWA('info', instanceKey, 'whatsapp.message.ignored_from_me', { messageId: waMessageId })
     return
   }
 
@@ -477,7 +648,8 @@ async function syncHistory(
     const jid = chat.id ?? ''
     if (!jid || jid === 'status@broadcast' || jid.endsWith('@broadcast')) continue
 
-    const contactPhone = jid.replace('@s.whatsapp.net', '').replace('@g.us', '')
+    const identity = await resolveWhatsAppContactIdentity(instanceId, jid)
+    const contactPhone = identity.normalizedPhone || identity.lidJid || jid
     const isGroup = jid.endsWith('@g.us')
     const contactName = chat.name || nameMap.get(jid) || null
     const unread = Math.max(0, chat.unreadCount ?? 0)
@@ -492,7 +664,22 @@ async function syncHistory(
 
       if (!existing) {
         await prisma.conversation.create({
-          data: { instanceId, contactPhone, contactName, isGroup, lastMessage: null, lastMessageAt: lastMsgAt, unreadCount: unread, status, category },
+          data: {
+            instanceId,
+            contactPhone,
+            contactName,
+            isGroup,
+            lastMessage: null,
+            lastMessageAt: lastMsgAt,
+            unreadCount: unread,
+            status,
+            category,
+            remoteJid: identity.remoteJid,
+            deliveryJid: identity.deliveryJid,
+            lidJid: identity.lidJid || null,
+            phoneJid: identity.phoneJid || null,
+            normalizedPhone: identity.normalizedPhone || null
+          },
         })
         synced++
       } else {
@@ -507,6 +694,11 @@ async function syncHistory(
               contactName: contactName || existing.contactName,
               lastMessageAt: lastMsgAt || existing.lastMessageAt,
               unreadCount: Math.max(existing.unreadCount, unread),
+              remoteJid: identity.remoteJid,
+              deliveryJid: identity.deliveryJid,
+              lidJid: identity.lidJid || null,
+              phoneJid: identity.phoneJid || null,
+              normalizedPhone: identity.normalizedPhone || null
             },
           })
         }
@@ -783,7 +975,9 @@ export async function startSession(instanceKey: string, instanceId: string): Pro
       for (const chat of chats) {
         const jid = chat.id ?? ''
         if (!jid || jid === 'status@broadcast') continue
-        const contactPhone = jid.replace('@s.whatsapp.net', '').replace('@g.us', '')
+        
+        const identity = await resolveWhatsAppContactIdentity(instanceId, jid)
+        const contactPhone = identity.normalizedPhone || identity.lidJid || jid
         const isGroup = jid.endsWith('@g.us')
         const unread = Math.max(0, chat.unreadCount ?? 0)
         const ts = toLong(chat.conversationTimestamp)
@@ -796,7 +990,22 @@ export async function startSession(instanceKey: string, instanceId: string): Pro
           const existing = await prisma.conversation.findFirst({ where: { instanceId, contactPhone } })
           if (!existing) {
             await prisma.conversation.create({
-              data: { instanceId, contactPhone, contactName: chat.name || null, isGroup, lastMessage: null, lastMessageAt: lastMsgAt, unreadCount: unread, status: chatStatus, category: chatCategory },
+              data: {
+                instanceId,
+                contactPhone,
+                contactName: chat.name || null,
+                isGroup,
+                lastMessage: null,
+                lastMessageAt: lastMsgAt,
+                unreadCount: unread,
+                status: chatStatus,
+                category: chatCategory,
+                remoteJid: identity.remoteJid,
+                deliveryJid: identity.deliveryJid,
+                lidJid: identity.lidJid || null,
+                phoneJid: identity.phoneJid || null,
+                normalizedPhone: identity.normalizedPhone || null
+              },
             })
           }
         } catch { /* ignorado */ }

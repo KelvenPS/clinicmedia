@@ -50,77 +50,208 @@ export async function sendLightMessage(
   }
 }
 
-// Handler de mensagens recebidas específicas para a conexão do Chatbot Light
-export async function handleIncomingLightMessage(instanceId: string, msg: any): Promise<void> {
-  const remoteJid = msg.key.remoteJid ?? ''
-  const fromMe = msg.key.fromMe ?? false
-  const pushName = msg.pushName ?? ''
-  const mc = msg.message ?? {}
+export function normalizeText(value: string | null | undefined): string {
+  if (!value) return ''
+  return value
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .trim()
+}
 
-  // Evita loops com mensagens enviadas por nós mesmos
-  if (fromMe) return
+function chatbotLightLog(
+  level: 'info' | 'warn' | 'error',
+  socketInstanceKey: string,
+  event: string,
+  meta?: Record<string, any>
+) {
+  const ts = new Date().toISOString()
+  console.log(JSON.stringify({
+    ts,
+    level,
+    module: 'CHATBOT_LIGHT',
+    instanceKey: socketInstanceKey,
+    event,
+    ...meta
+  }))
+}
 
-  let content = ''
-  if (mc.conversation) {
-    content = mc.conversation
-  } else if (mc.extendedTextMessage?.text) {
-    content = mc.extendedTextMessage.text
-  } else {
-    return // O chatbot light ignora mídias por enquanto
+async function resolveContactIdentity(
+  whatsappInstanceId: string,
+  remoteJid: string,
+  msgRaw?: any
+): Promise<{
+  remoteJid: string
+  contactPhone: string
+  normalizedPhone: string
+  lidJid?: string
+}> {
+  let contactPhone = remoteJid.replace('@s.whatsapp.net', '').replace('@g.us', '').replace('@lid', '')
+  let lidJid: string | undefined
+
+  if (remoteJid.endsWith('@lid')) {
+    lidJid = remoteJid
   }
 
-  const incomingText = content.trim().toLowerCase()
-  const contactPhone = remoteJid.replace('@s.whatsapp.net', '').replace('@g.us', '')
-  const isGroup = remoteJid.endsWith('@g.us')
+  // 1. Try to extract from participantPn in msgRaw
+  let phoneFromPn = msgRaw?.key?.participantPn || msgRaw?.participantPn || msgRaw?.key?.participant?.split(':')[0].split('@')[0]
+  if (phoneFromPn && typeof phoneFromPn === 'string' && !phoneFromPn.endsWith('@g.us') && !phoneFromPn.endsWith('@lid')) {
+    phoneFromPn = phoneFromPn.replace(/\D/g, '')
+    if (phoneFromPn.length >= 10) {
+      contactPhone = phoneFromPn
+    }
+  }
 
-  // Chatbot light não atua em grupos
-  if (isGroup) return
+  // 2. If LID/non-numeric, lookup database
+  if (remoteJid.endsWith('@lid') || contactPhone.includes('lid') || !/^\d+$/.test(contactPhone)) {
+    const existingConv = await prisma.conversation.findFirst({
+      where: {
+        instanceId: whatsappInstanceId,
+        OR: [
+          { contactPhone: contactPhone },
+          { contactPhone: remoteJid }
+        ]
+      },
+      select: { contactPhone: true }
+    })
+    if (existingConv && existingConv.contactPhone && /^\d+$/.test(existingConv.contactPhone)) {
+      contactPhone = existingConv.contactPhone
+    }
+  }
 
-  const instance = await prisma.whatsAppInstance.findUnique({ where: { id: instanceId } })
-  if (!instance || instance.type !== 'CHATBOT_LIGHT') return
+  const normalizedPhone = contactPhone.replace(/\D/g, '')
 
-  // ─── 1. Check if there is an active guided session ──────────────────────────
+  return {
+    remoteJid,
+    contactPhone,
+    normalizedPhone,
+    lidJid
+  }
+}
+
+// Handler de mensagens recebidas específicas para a conexão do Chatbot Light
+export async function handleIncomingLightMessage(params: {
+  socketInstanceKey: string;
+  whatsappInstanceId: string;
+  conversationId: string;
+  contactPhone?: string;
+  normalizedPhone?: string;
+  remoteJid: string;
+  messageId: string;
+  messageText: string;
+  msgRaw?: any;
+}): Promise<void> {
+  const { socketInstanceKey, whatsappInstanceId, conversationId, messageId, messageText, msgRaw } = params
+
+  // 1. Verificar CHATBOT_LIGHT_ENABLED
+  const lightEnabled = process.env.CHATBOT_LIGHT_ENABLED !== 'false'
+  if (!lightEnabled) {
+    chatbotLightLog('info', socketInstanceKey, 'chatbot_light.disabled', { messageId })
+    return
+  }
+
+  // 2. Normalizar texto recebido
+  const incomingText = normalizeText(messageText)
+
+  // 3. Resolver identidade do contato
+  const { remoteJid, contactPhone, normalizedPhone, lidJid } = await resolveContactIdentity(
+    whatsappInstanceId,
+    params.remoteJid,
+    msgRaw
+  )
+
+  chatbotLightLog('info', socketInstanceKey, 'chatbot_light.incoming_received', {
+    contactPhone,
+    normalizedPhone,
+    remoteJidType: remoteJid.endsWith('@lid') ? 'lid' : 'phone',
+    messageId,
+    messageText,
+  })
+
+  // 4. Filtro CHATBOT_LIGHT_TEST_NUMBERS
+  const testNumbers = process.env.CHATBOT_LIGHT_TEST_NUMBERS
+    ?.split(',')
+    .map((n) => n.trim())
+    .filter(Boolean)
+
+  if (testNumbers && testNumbers.length > 0 && !testNumbers.includes(normalizedPhone) && !testNumbers.includes(contactPhone)) {
+    chatbotLightLog('info', socketInstanceKey, 'chatbot_light.test_number_blocked', {
+      contactPhone,
+      normalizedPhone,
+      messageId
+    })
+    return
+  }
+
+  // 5. Carregar Instância e validar
+  const instance = await prisma.whatsAppInstance.findUnique({ where: { id: whatsappInstanceId } })
+  if (!instance || instance.type !== 'CHATBOT_LIGHT') {
+    chatbotLightLog('error', socketInstanceKey, 'chatbot_light.error', {
+      message: 'Instance not found or not CHATBOT_LIGHT',
+      whatsappInstanceId
+    })
+    return
+  }
+
+  // 6. Buscar sessão ACTIVE
   const activeSession = await prisma.lightFlowSession.findFirst({
     where: {
-      instanceId,
+      instanceId: whatsappInstanceId,
       contactPhone,
       status: 'ACTIVE'
     }
   })
 
   if (activeSession) {
+    // Idempotência
+    if (activeSession.lastMessageId === messageId) {
+      chatbotLightLog('info', socketInstanceKey, 'chatbot_light.duplicate_message_ignored', {
+        messageId,
+        sessionId: activeSession.id
+      })
+      return
+    }
+
     const now = new Date()
     if (activeSession.expiresAt && activeSession.expiresAt < now) {
       await prisma.lightFlowSession.update({
         where: { id: activeSession.id },
         data: { status: 'EXPIRED' }
       })
+      chatbotLightLog('info', socketInstanceKey, 'chatbot_light.session_expired', { sessionId: activeSession.id })
       await sendLightMessage(instance, contactPhone, 'Este atendimento expirou por inatividade. Vamos iniciar novamente.', 'fluxo_guiado')
-      // Fall through to try triggering standard keywords as a new interaction
+      // Tentar rodar como nova mensagem
     } else {
-      // Refresh expiration
-      await prisma.lightFlowSession.update({
+      // Atualizar lastMessageId e expiração
+      const updatedSession = await prisma.lightFlowSession.update({
         where: { id: activeSession.id },
         data: {
+          lastMessageId: messageId,
           lastMessageAt: now,
           expiresAt: new Date(now.getTime() + 30 * 60 * 1000)
         }
       })
 
-      // Global Commands Interceptor
+      chatbotLightLog('info', socketInstanceKey, 'chatbot_light.session_step_processing', {
+        sessionId: activeSession.id,
+        currentStepKey: activeSession.currentStepKey,
+        incomingText
+      })
+
+      // Interceptador de comandos globais
       if (incomingText === 'menu') {
         await prisma.lightFlowSession.update({
           where: { id: activeSession.id },
           data: { status: 'CANCELLED' }
         })
-        const stateKey = `${instanceId}:${contactPhone}`
-        lightFlowStateCache.del(stateKey)
-        // Fall through to try standard keyword flows
+        chatbotLightLog('info', socketInstanceKey, 'chatbot_light.global_command', { command: 'menu', sessionId: activeSession.id })
+        // Tentar rodar como nova mensagem
       } else if (incomingText === 'cancelar') {
         await prisma.lightFlowSession.update({
           where: { id: activeSession.id },
           data: { status: 'CANCELLED' }
         })
+        chatbotLightLog('info', socketInstanceKey, 'chatbot_light.global_command', { command: 'cancelar', sessionId: activeSession.id })
         await sendLightMessage(instance, contactPhone, 'Agendamento cancelado com sucesso. Qualquer dúvida, estou à disposição!', 'fluxo_guiado')
         return
       } else if (incomingText === 'atendente' || incomingText === 'humano') {
@@ -128,6 +259,7 @@ export async function handleIncomingLightMessage(instanceId: string, msg: any): 
           where: { id: activeSession.id },
           data: { status: 'TRANSFER' }
         })
+        chatbotLightLog('info', socketInstanceKey, 'chatbot_light.global_command', { command: 'atendente', sessionId: activeSession.id })
         await sendLightMessage(instance, contactPhone, 'Certo. Vou transferir sua conversa para um de nossos atendentes. Por favor, aguarde.', 'fluxo_guiado')
         return
       } else if (incomingText === 'voltar') {
@@ -150,294 +282,281 @@ export async function handleIncomingLightMessage(instanceId: string, msg: any): 
           data: { currentStepKey: prevStep }
         })
         
+        chatbotLightLog('info', socketInstanceKey, 'chatbot_light.global_command', { command: 'voltar', sessionId: activeSession.id, prevStep })
         await sendLightMessage(instance, contactPhone, 'Voltando ao passo anterior...', 'fluxo_guiado')
         await processGuidedStep(instance, updated, '')
         return
       } else {
+        // Se a sessão está aguardando a opção de menu
+        if (activeSession.currentStepKey === 'WAITING_MENU_OPTION') {
+          if (!activeSession.flowId) {
+            chatbotLightLog('error', socketInstanceKey, 'chatbot_light.error', {
+              message: 'Session flowId is missing',
+              sessionId: activeSession.id
+            })
+            return
+          }
+
+          const fluxo = await prisma.lightFluxo.findUnique({ where: { id: activeSession.flowId } })
+          if (!fluxo || !fluxo.active) {
+            chatbotLightLog('error', socketInstanceKey, 'chatbot_light.error', {
+              message: 'Session flow not found or inactive',
+              flowId: activeSession.flowId
+            })
+            await prisma.lightFlowSession.update({
+              where: { id: activeSession.id },
+              data: { status: 'FAILED', failedReason: 'Fluxo inativo ou não encontrado.' }
+            })
+            return
+          }
+
+          let options: any[] = []
+          try {
+            options = typeof fluxo.options === 'string' ? JSON.parse(fluxo.options) : (fluxo.options as any[])
+          } catch {
+            options = []
+          }
+
+          // Procurar por triggers da opção correspondente
+          const matchedOption = options.find(o =>
+            o.triggers.split(',').map((t: string) => normalizeText(t)).includes(incomingText)
+          )
+
+          if (matchedOption) {
+            chatbotLightLog('info', socketInstanceKey, 'chatbot_light.option_selected', {
+              flowId: fluxo.id,
+              option: matchedOption.input,
+              actionType: matchedOption.actionType
+            })
+
+            const actionType = matchedOption.actionType
+            const response = matchedOption.response ?? ''
+
+            if (actionType === 'OPEN_MENU') {
+              await sendLightMessage(instance, contactPhone, response || fluxo.welcomeMessage, 'fluxo', fluxo.name)
+              // Mantém WAITING_MENU_OPTION
+            } else if (actionType === 'SYSTEM_ACTION') {
+              const actionKey = matchedOption.systemActionKey
+              const configId = matchedOption.systemActionConfigId
+              const transMsg = matchedOption.transitionMessage || response
+
+              // Validar a systemActionConfig
+              const actionConfig = configId ? await prisma.lightSystemActionConfig.findUnique({ where: { id: configId } }) : null
+
+              if (!actionConfig || !actionConfig.active || actionConfig.instanceId !== whatsappInstanceId || actionConfig.actionKey !== actionKey) {
+                chatbotLightLog('warn', socketInstanceKey, 'chatbot_light.system_action_config_invalid', {
+                  configId,
+                  actionKey,
+                  instanceId: whatsappInstanceId
+                })
+                await sendLightMessage(instance, contactPhone, 'Não consegui iniciar essa ação agora. Vou transferir você para um atendente.', 'fluxo')
+                await prisma.lightFlowSession.update({
+                  where: { id: activeSession.id },
+                  data: { status: 'FAILED', failedReason: 'Ação do sistema inválida ou inativa.' }
+                })
+                return
+              }
+
+              chatbotLightLog('info', socketInstanceKey, 'chatbot_light.system_action_started', {
+                actionKey,
+                configId,
+                sessionId: activeSession.id
+              })
+
+              if (actionKey === 'SCHEDULE_APPOINTMENT') {
+                if (transMsg) {
+                  await sendLightMessage(instance, contactPhone, transMsg, 'fluxo', fluxo.name)
+                }
+
+                // Transicionar sessão para os passos guiados
+                const updatedSessionForAction = await prisma.lightFlowSession.update({
+                  where: { id: activeSession.id },
+                  data: {
+                    actionConfigId: configId,
+                    currentStepKey: 'CHOOSE_PLAN',
+                    collectedData: {},
+                    dynamicOptions: {}
+                  }
+                })
+
+                // Carregar opções de planos/serviços
+                const cfg = (typeof actionConfig.config === 'string' ? JSON.parse(actionConfig.config) : actionConfig.config) as any
+                const planSource = cfg.planSource || 'DOCTOR_SERVICES'
+                let menuStr = ''
+                const dynamicMap: Record<string, string> = {}
+
+                if (planSource === 'DOCTOR_CONVENIOS') {
+                  const convenios = await prisma.healthPlan.findMany({
+                    where: { doctorId: instance.doctorId, active: true }
+                  })
+                  if (convenios.length === 0) {
+                    await sendLightMessage(instance, contactPhone, 'Desculpe, não há convênios cadastrados para agendamento no momento.', 'fluxo')
+                    await prisma.lightFlowSession.update({ where: { id: activeSession.id }, data: { status: 'FAILED' } })
+                    return
+                  }
+                  menuStr = convenios.map((c, i) => {
+                    const idx = String(i + 1)
+                    dynamicMap[idx] = c.id
+                    return `${idx} - ${c.name}`
+                  }).join('\n')
+                } else {
+                  const services = await prisma.appointmentType.findMany({
+                    where: { doctorId: instance.doctorId, active: true }
+                  })
+                  if (services.length === 0) {
+                    await sendLightMessage(instance, contactPhone, 'Desculpe, não há serviços/procedimentos cadastrados para agendamento no momento.', 'fluxo')
+                    await prisma.lightFlowSession.update({ where: { id: activeSession.id }, data: { status: 'FAILED' } })
+                    return
+                  }
+                  menuStr = services.map((s, i) => {
+                    const idx = String(i + 1)
+                    dynamicMap[idx] = s.id
+                    const price = s.baseValue ? ` (R$ ${s.baseValue.toFixed(2)})` : ''
+                    return `${idx} - ${s.name}${price}`
+                  }).join('\n')
+                }
+
+                await prisma.lightFlowSession.update({
+                  where: { id: activeSession.id },
+                  data: { dynamicOptions: dynamicMap }
+                })
+
+                const messagesCfg = cfg.messages || {}
+                const askPlanMsg = messagesCfg.askPlan || 'Temos os seguintes planos/serviços disponíveis:\n\n{opcoes}\n\nQual opção você deseja? (Digite o número)'
+                const interpolatedPlanMsg = askPlanMsg.replace('{opcoes}', menuStr)
+
+                await sendLightMessage(instance, contactPhone, interpolatedPlanMsg, 'fluxo')
+              } else {
+                await sendLightMessage(instance, contactPhone, 'Desculpe, esta ação ainda não está implementada no sistema.', 'fluxo')
+                await prisma.lightFlowSession.update({ where: { id: activeSession.id }, data: { status: 'COMPLETED' } })
+              }
+            } else if (matchedOption.nextFlowId) {
+              const nextFlow = await prisma.lightFluxo.findUnique({ where: { id: matchedOption.nextFlowId } })
+              if (nextFlow && nextFlow.active) {
+                if (response) {
+                  await sendLightMessage(instance, contactPhone, response, 'fluxo', fluxo.name)
+                }
+                await prisma.lightFlowSession.update({
+                  where: { id: activeSession.id },
+                  data: { flowId: nextFlow.id }
+                })
+                await sendLightMessage(instance, contactPhone, nextFlow.welcomeMessage, 'fluxo', nextFlow.name)
+              } else {
+                if (response) {
+                  await sendLightMessage(instance, contactPhone, response, 'fluxo', fluxo.name)
+                }
+                await prisma.lightFlowSession.update({
+                  where: { id: activeSession.id },
+                  data: { status: 'COMPLETED' }
+                })
+              }
+            } else {
+              if (response) {
+                await sendLightMessage(instance, contactPhone, response, 'fluxo', fluxo.name)
+              }
+              await prisma.lightFlowSession.update({
+                where: { id: activeSession.id },
+                data: { status: 'COMPLETED' }
+              })
+            }
+          } else {
+            // Opção inválida
+            const newAttempts = activeSession.invalidAttempts + 1
+            if (newAttempts >= fluxo.maxAttempts) {
+              await sendLightMessage(instance, contactPhone, fluxo.fallbackMessage, 'fluxo', fluxo.name)
+              await prisma.lightFlowSession.update({
+                where: { id: activeSession.id },
+                data: { status: 'FAILED', failedReason: 'Excedeu número máximo de tentativas.' }
+              })
+            } else {
+              await prisma.lightFlowSession.update({
+                where: { id: activeSession.id },
+                data: { invalidAttempts: newAttempts }
+              })
+              await sendLightMessage(
+                instance,
+                contactPhone,
+                `Opção inválida. Selecione uma opção válida do menu:\n\n${fluxo.welcomeMessage}`,
+                'fluxo',
+                fluxo.name
+              )
+            }
+          }
+          return
+        }
+
+        // Caso a sessão esteja em outro passo guiado
         await processGuidedStep(instance, activeSession, incomingText)
         return
       }
     }
   }
 
-  const stateKey = `${instanceId}:${contactPhone}`
-  const state = lightFlowStateCache.get<{ activeFlowId: string; attempts: number }>(stateKey)
+  // 7. Se sessão não existe, tentar bater com gatilhos
+  chatbotLightLog('info', socketInstanceKey, 'chatbot_light.flow_search_started', { incomingText })
 
-  if (!state) {
-    // 1. Tentar encontrar se a mensagem bate com palavra-chave de fluxo ativo
-    const fluxos = await prisma.lightFluxo.findMany({
-      where: { doctorId: instance.doctorId, active: true },
+  const fluxos = await prisma.lightFluxo.findMany({
+    where: { doctorId: instance.doctorId, active: true },
+  })
+
+  const matchedFlow = fluxos.find(f =>
+    f.keywords.split(',').map(k => normalizeText(k)).includes(incomingText)
+  )
+
+  if (matchedFlow) {
+    chatbotLightLog('info', socketInstanceKey, 'chatbot_light.flow_matched', { flowId: matchedFlow.id, flowName: matchedFlow.name })
+
+    // Cancelar sessões anteriores ativas
+    await prisma.lightFlowSession.updateMany({
+      where: { instanceId: whatsappInstanceId, contactPhone, status: 'ACTIVE' },
+      data: { status: 'CANCELLED' }
     })
 
-    const matchedFlow = fluxos.find(f =>
-      f.keywords.split(',').map(k => k.trim().toLowerCase()).includes(incomingText)
-    )
-
-    if (matchedFlow) {
-      // Inicia estado do fluxo
-      lightFlowStateCache.set(stateKey, { activeFlowId: matchedFlow.id, attempts: 0 })
-      await sendLightMessage(instance, contactPhone, matchedFlow.welcomeMessage, 'fluxo', matchedFlow.name)
-
-      // Incrementa execuções
-      await prisma.lightFluxo.update({
-        where: { id: matchedFlow.id },
-        data: { executions: { increment: 1 } },
-      }).catch(() => {})
-      return
-    }
-
-    // 2. Tentar encontrar se bate com palavra-chave de respostas rápidas
-    const quickReply = await prisma.lightQuickReply.findFirst({
-      where: {
-        doctorId: instance.doctorId,
-        keyword: { equals: incomingText, mode: 'insensitive' },
-        active: true,
-      },
+    // Criar nova sessão
+    const newSession = await prisma.lightFlowSession.create({
+      data: {
+        instanceId: whatsappInstanceId,
+        conversationId,
+        contactPhone,
+        flowId: matchedFlow.id,
+        currentStepKey: 'WAITING_MENU_OPTION',
+        status: 'ACTIVE',
+        lastMessageId: messageId,
+        expiresAt: new Date(Date.now() + 30 * 60 * 1000),
+        collectedData: {},
+        dynamicOptions: {}
+      }
     })
 
-    if (quickReply) {
-      await sendLightMessage(instance, contactPhone, quickReply.response, 'resposta_rapida')
-      return
-    }
-  } else {
-    // Carregar fluxo ativo
-    const fluxo = await prisma.lightFluxo.findUnique({ where: { id: state.activeFlowId } })
-    if (!fluxo || !fluxo.active) {
-      lightFlowStateCache.del(stateKey)
-      return
-    }
+    chatbotLightLog('info', socketInstanceKey, 'chatbot_light.session_created', { sessionId: newSession.id })
 
-    let options: any[] = []
-    try {
-      options = typeof fluxo.options === 'string' ? JSON.parse(fluxo.options) : (fluxo.options as any[])
-    } catch {
-      options = []
-    }
+    // Enviar mensagem de abertura
+    await sendLightMessage(instance, contactPhone, matchedFlow.welcomeMessage, 'fluxo', matchedFlow.name)
+    chatbotLightLog('info', socketInstanceKey, 'chatbot_light.opening_sent', { flowId: matchedFlow.id })
 
-    // Procura por triggers/números da opção correspondente
-    const matchedOption = options.find(o =>
-      o.triggers.split(',').map((t: string) => t.trim().toLowerCase()).includes(incomingText)
-    )
-
-    if (matchedOption) {
-      const actionType = matchedOption.actionType
-      const response = matchedOption.response ?? ''
-
-      if (actionType === 'OPEN_MENU') {
-        // Retorna para o menu
-        lightFlowStateCache.set(stateKey, { activeFlowId: fluxo.id, attempts: 0 })
-        await sendLightMessage(instance, contactPhone, response || fluxo.welcomeMessage, 'fluxo', fluxo.name)
-      } else if (actionType === 'SYSTEM_ACTION') {
-        const actionKey = matchedOption.systemActionKey
-        const configId = matchedOption.systemActionConfigId
-        const transMsg = matchedOption.transitionMessage || response
-
-        if (!configId) {
-          await sendLightMessage(instance, contactPhone, 'Desculpe, esta ação do sistema não está configurada corretamente.', 'fluxo')
-          lightFlowStateCache.del(stateKey)
-          return
-        }
-
-        if (actionKey === 'SCHEDULE_APPOINTMENT') {
-          if (transMsg) {
-            await sendLightMessage(instance, contactPhone, transMsg, 'fluxo', fluxo.name)
-          }
-          lightFlowStateCache.del(stateKey)
-
-          // Cancel previous active sessions for this contact
-          await prisma.lightFlowSession.updateMany({
-            where: { instanceId, contactPhone, status: 'ACTIVE' },
-            data: { status: 'CANCELLED' }
-          })
-
-          // Create new guided session
-          const session = await prisma.lightFlowSession.create({
-            data: {
-              instanceId,
-              contactPhone,
-              flowId: fluxo.id,
-              actionConfigId: configId,
-              currentStepKey: 'CHOOSE_PLAN',
-              status: 'ACTIVE',
-              expiresAt: new Date(Date.now() + 30 * 60 * 1000),
-              collectedData: {},
-              dynamicOptions: {}
-            }
-          })
-
-          // Load configuration to resolve plans/services and message templates
-          const actionConfig = await prisma.lightSystemActionConfig.findUnique({
-            where: { id: configId }
-          })
-
-          if (!actionConfig || !actionConfig.active) {
-            await sendLightMessage(instance, contactPhone, 'Desculpe, esta ação de agendamento está inativa no momento.', 'fluxo')
-            await prisma.lightFlowSession.update({ where: { id: session.id }, data: { status: 'FAILED', failedReason: 'Configuração inativa ou não encontrada.' } })
-            return
-          }
-
-          const cfg = (typeof actionConfig.config === 'string' ? JSON.parse(actionConfig.config) : actionConfig.config) as any
-          const planSource = cfg.planSource || 'DOCTOR_SERVICES'
-          let menuStr = ''
-          const dynamicMap: Record<string, string> = {}
-
-          if (planSource === 'DOCTOR_CONVENIOS') {
-            const convenios = await prisma.healthPlan.findMany({
-              where: { doctorId: instance.doctorId, active: true }
-            })
-            if (convenios.length === 0) {
-              await sendLightMessage(instance, contactPhone, 'Desculpe, não há convênios cadastrados para agendamento no momento.', 'fluxo')
-              await prisma.lightFlowSession.update({ where: { id: session.id }, data: { status: 'FAILED' } })
-              return
-            }
-            menuStr = convenios.map((c, i) => {
-              const idx = String(i + 1)
-              dynamicMap[idx] = c.id
-              return `${idx} - ${c.name}`
-            }).join('\n')
-          } else {
-            // Default: DOCTOR_SERVICES / AppointmentType
-            const services = await prisma.appointmentType.findMany({
-              where: { doctorId: instance.doctorId, active: true }
-            })
-            if (services.length === 0) {
-              await sendLightMessage(instance, contactPhone, 'Desculpe, não há serviços/procedimentos cadastrados para agendamento no momento.', 'fluxo')
-              await prisma.lightFlowSession.update({ where: { id: session.id }, data: { status: 'FAILED' } })
-              return
-            }
-            menuStr = services.map((s, i) => {
-              const idx = String(i + 1)
-              dynamicMap[idx] = s.id
-              const price = s.baseValue ? ` (R$ ${s.baseValue.toFixed(2)})` : ''
-              return `${idx} - ${s.name}${price}`
-            }).join('\n')
-          }
-
-          // Update session options
-          await prisma.lightFlowSession.update({
-            where: { id: session.id },
-            data: { dynamicOptions: dynamicMap }
-          })
-
-          const messages = cfg.messages || {}
-          const askPlanMsg = messages.askPlan || 'Temos os seguintes planos/serviços disponíveis:\n\n{opcoes}\n\nQual opção você deseja? (Digite o número)'
-          const interpolatedPlanMsg = askPlanMsg.replace('{opcoes}', menuStr)
-
-          await sendLightMessage(instance, contactPhone, interpolatedPlanMsg, 'fluxo')
-        } else {
-          await sendLightMessage(instance, contactPhone, 'Desculpe, esta ação ainda não está implementada no sistema.', 'fluxo')
-          lightFlowStateCache.del(stateKey)
-        }
-      } else if (actionType === 'START_PLAN_SCHEDULING') {
-        if (response) {
-          await sendLightMessage(instance, contactPhone, response, 'fluxo', fluxo.name)
-        }
-        lightFlowStateCache.del(stateKey)
-
-        // Cancel previous active sessions for this contact
-        await prisma.lightFlowSession.updateMany({
-          where: { instanceId, contactPhone, status: 'ACTIVE' },
-          data: { status: 'CANCELLED' }
-        })
-
-        // Create new guided session
-        const session = await prisma.lightFlowSession.create({
-          data: {
-            instanceId,
-            contactPhone,
-            flowId: fluxo.id,
-            currentStepKey: 'CHOOSE_PLAN',
-            status: 'ACTIVE',
-            expiresAt: new Date(Date.now() + 30 * 60 * 1000),
-            collectedData: {},
-            dynamicOptions: {}
-          }
-        })
-
-        // Load plans / services based on configuration
-        const planSource = matchedOption.planSource || 'DOCTOR_SERVICES'
-        let menuStr = ''
-        const dynamicMap: Record<string, string> = {}
-
-        if (planSource === 'DOCTOR_CONVENIOS') {
-          const convenios = await prisma.healthPlan.findMany({
-            where: { doctorId: instance.doctorId, active: true }
-          })
-          if (convenios.length === 0) {
-            await sendLightMessage(instance, contactPhone, 'Desculpe, não há convênios cadastrados para agendamento no momento.', 'fluxo')
-            await prisma.lightFlowSession.update({ where: { id: session.id }, data: { status: 'FAILED' } })
-            return
-          }
-          menuStr = convenios.map((c, i) => {
-            const idx = String(i + 1)
-            dynamicMap[idx] = c.id
-            return `${idx} - ${c.name}`
-          }).join('\n')
-        } else {
-          // Default: DOCTOR_SERVICES / AppointmentType
-          const services = await prisma.appointmentType.findMany({
-            where: { doctorId: instance.doctorId, active: true }
-          })
-          if (services.length === 0) {
-            await sendLightMessage(instance, contactPhone, 'Desculpe, não há serviços/procedimentos cadastrados para agendamento no momento.', 'fluxo')
-            await prisma.lightFlowSession.update({ where: { id: session.id }, data: { status: 'FAILED' } })
-            return
-          }
-          menuStr = services.map((s, i) => {
-            const idx = String(i + 1)
-            dynamicMap[idx] = s.id
-            const price = s.baseValue ? ` (R$ ${s.baseValue.toFixed(2)})` : ''
-            return `${idx} - ${s.name}${price}`
-          }).join('\n')
-        }
-
-        // Update session options
-        await prisma.lightFlowSession.update({
-          where: { id: session.id },
-          data: { dynamicOptions: dynamicMap }
-        })
-
-        await sendLightMessage(instance, contactPhone, `Temos os seguintes planos/serviços disponíveis:\n\n${menuStr}\n\nQual opção você deseja? (Digite o número)`, 'fluxo')
-      } else if (matchedOption.nextFlowId) {
-        // Próximo fluxo encadeado
-        const nextFlow = await prisma.lightFluxo.findUnique({ where: { id: matchedOption.nextFlowId } })
-        if (nextFlow && nextFlow.active) {
-          if (response) {
-            await sendLightMessage(instance, contactPhone, response, 'fluxo', fluxo.name)
-          }
-          lightFlowStateCache.set(stateKey, { activeFlowId: nextFlow.id, attempts: 0 })
-          await sendLightMessage(instance, contactPhone, nextFlow.welcomeMessage, 'fluxo', nextFlow.name)
-        } else {
-          if (response) {
-            await sendLightMessage(instance, contactPhone, response, 'fluxo', fluxo.name)
-          }
-          lightFlowStateCache.del(stateKey)
-        }
-      } else {
-        // Envia resposta e encerra
-        if (response) {
-          await sendLightMessage(instance, contactPhone, response, 'fluxo', fluxo.name)
-        }
-        lightFlowStateCache.del(stateKey)
-      }
-    } else {
-      // Opção inválida
-      const newAttempts = state.attempts + 1
-      if (newAttempts >= fluxo.maxAttempts) {
-        await sendLightMessage(instance, contactPhone, fluxo.fallbackMessage, 'fluxo', fluxo.name)
-        lightFlowStateCache.del(stateKey)
-      } else {
-        lightFlowStateCache.set(stateKey, { activeFlowId: fluxo.id, attempts: newAttempts })
-        await sendLightMessage(
-          instance,
-          contactPhone,
-          `Opção inválida. Selecione uma opção válida do menu:\n\n${fluxo.welcomeMessage}`,
-          'fluxo',
-          fluxo.name
-        )
-      }
-    }
+    // Incrementar execuções
+    await prisma.lightFluxo.update({
+      where: { id: matchedFlow.id },
+      data: { executions: { increment: 1 } },
+    }).catch(() => {})
+    return
   }
+
+  // 8. Tentar bater com respostas rápidas
+  const quickReply = await prisma.lightQuickReply.findFirst({
+    where: {
+      doctorId: instance.doctorId,
+      keyword: { equals: incomingText, mode: 'insensitive' },
+      active: true,
+    },
+  })
+
+  if (quickReply) {
+    await sendLightMessage(instance, contactPhone, quickReply.response, 'resposta_rapida')
+    return
+  }
+
+  chatbotLightLog('info', socketInstanceKey, 'chatbot_light.flow_not_matched', { incomingText })
 }
 
 // Disparador de mensagens automáticas com interpolação de variáveis

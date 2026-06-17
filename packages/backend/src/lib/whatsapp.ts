@@ -109,6 +109,7 @@ async function withInstanceLock<T>(instanceKey: string, fn: () => Promise<T>): P
 
 async function saveMessageForRetry(
   instanceId: string,
+  instanceKey: string,
   key: proto.IMessageKey,
   message: proto.IMessage,
 ): Promise<void> {
@@ -117,7 +118,7 @@ async function saveMessageForRetry(
   const fromMe = key.fromMe ?? true
 
   if (!remoteJid || !messageId) {
-    logWA('warn', 'global', 'whatsapp.message_retry.validation_failed', { remoteJid, messageId })
+    logWA('warn', instanceKey, 'whatsapp.message_retry.validation_failed', { remoteJid, messageId })
     return
   }
 
@@ -153,13 +154,13 @@ async function saveMessageForRetry(
     })
 
     const maskedJid = remoteJid.split('@')[0].slice(0, 5) + '***'
-    logWA('info', instanceId, 'whatsapp.message_retry.saved', {
+    logWA('info', instanceKey, 'whatsapp.message_retry.saved', {
       remoteJid: maskedJid,
       messageId,
       fromMe
     })
   } catch (err) {
-    logWA('error', instanceId, 'whatsapp.message_retry.save_failed', {
+    logWA('error', instanceKey, 'whatsapp.message_retry.save_failed', {
       messageId,
       error: String(err)
     })
@@ -168,6 +169,7 @@ async function saveMessageForRetry(
 
 async function getStoredMessageForRetry(
   instanceId: string,
+  instanceKey: string,
   key: proto.IMessageKey,
 ): Promise<proto.IMessage | undefined> {
   const remoteJid = key.remoteJid
@@ -175,7 +177,7 @@ async function getStoredMessageForRetry(
   const fromMe = key.fromMe ?? true
 
   if (!remoteJid || !messageId) {
-    logWA('warn', instanceId, 'whatsapp.get_message.validation_failed', { remoteJid, messageId })
+    logWA('warn', instanceKey, 'whatsapp.get_message.validation_failed', { remoteJid, messageId })
     return undefined
   }
 
@@ -192,7 +194,7 @@ async function getStoredMessageForRetry(
     const maskedJid = remoteJid.split('@')[0].slice(0, 5) + '***'
 
     if (!row?.messageB64) {
-      logWA('warn', instanceId, 'whatsapp.get_message.miss', {
+      logWA('warn', instanceKey, 'whatsapp.get_message.miss', {
         remoteJid: maskedJid,
         messageId,
         fromMe
@@ -201,14 +203,14 @@ async function getStoredMessageForRetry(
     }
 
     const decoded = proto.Message.decode(Buffer.from(row.messageB64, 'base64'))
-    logWA('info', instanceId, 'whatsapp.get_message.hit', {
+    logWA('info', instanceKey, 'whatsapp.get_message.hit', {
       remoteJid: maskedJid,
       messageId,
       fromMe
     })
     return decoded
   } catch (err) {
-    logWA('error', instanceId, 'whatsapp.get_message.decode_failed', {
+    logWA('error', instanceKey, 'whatsapp.get_message.decode_failed', {
       messageId,
       error: String(err)
     })
@@ -291,7 +293,7 @@ export async function sendWhatsAppMessage(
       select: { id: true }
     })
     if (instance) {
-      await saveMessageForRetry(instance.id, result.key, result.message)
+      await saveMessageForRetry(instance.id, instanceKey, result.key, result.message)
     }
   }
 
@@ -382,14 +384,49 @@ function toLong(v: unknown): number {
 
 // ─── Processamento de mensagem individual ─────────────────────────────────────
 
-async function processMessage(instanceId: string, msg: WAMessage, instanceKey: string) {
-  if (!msg.message || !msg.key.remoteJid) return
+export function extractMessageText(message: proto.IMessage | null | undefined): string | null {
+  if (!message) return null
+  return (
+    message.conversation ||
+    message.extendedTextMessage?.text ||
+    message.imageMessage?.caption ||
+    message.videoMessage?.caption ||
+    message.buttonsResponseMessage?.selectedButtonId ||
+    message.listResponseMessage?.singleSelectReply?.selectedRowId ||
+    null
+  )
+}
 
+async function processMessage(instanceId: string, msg: WAMessage, instanceKey: string) {
   const waMessageId = msg.key.id
   if (!waMessageId) return
 
+  if (msg.key.remoteJid === 'status@broadcast') return
+
+  if (msg.key.fromMe) {
+    logWA('info', instanceKey, 'whatsapp.message.ignored_from_me', { messageId: waMessageId })
+    return
+  }
+
+  if (msg.key.remoteJid?.endsWith('@g.us')) {
+    logWA('info', instanceKey, 'whatsapp.message.ignored_group', { messageId: waMessageId, remoteJid: msg.key.remoteJid })
+    return
+  }
+
+  if (!msg.message) return
+
+  const text = extractMessageText(msg.message)
+  if (!text) {
+    return
+  }
+
+  logWA('info', instanceKey, 'whatsapp.message.text_extracted', { messageId: waMessageId, text })
+
   const set = processedMsgs.get(instanceKey)
-  if (set?.has(waMessageId)) return
+  if (set?.has(waMessageId)) {
+    logWA('info', instanceKey, 'whatsapp.message.ignored_duplicate', { messageId: waMessageId })
+    return
+  }
 
   const alreadyInDb = await prisma.message.findFirst({
     where: { waMessageId },
@@ -398,6 +435,7 @@ async function processMessage(instanceId: string, msg: WAMessage, instanceKey: s
 
   if (alreadyInDb) {
     set?.add(waMessageId)
+    logWA('info', instanceKey, 'whatsapp.message.ignored_already_in_db', { messageId: waMessageId })
     return
   }
 
@@ -527,7 +565,7 @@ export async function startSession(instanceKey: string, instanceId: string): Pro
       printQRInTerminal: false,
       browser: ['ClinicMedia', 'Safari', '1.0'],
       getMessage: async (key) => {
-        return await getStoredMessageForRetry(instanceId, key)
+        return await getStoredMessageForRetry(instanceId, instanceKey, key)
       },
       msgRetryCounterCache,
       userDevicesCache,
@@ -778,8 +816,18 @@ export async function startSession(instanceKey: string, instanceId: string): Pro
     })
 
     sock.ev.on('messages.upsert', async ({ messages, type }) => {
+      logWA('info', instanceKey, 'whatsapp.messages_upsert.received', {
+        type,
+        count: messages.length,
+      })
       if (type !== 'notify' && type !== 'append') return
       for (const msg of messages) {
+        logWA('info', instanceKey, 'whatsapp.message.incoming_raw', {
+          messageId: msg.key.id,
+          fromMe: msg.key.fromMe,
+          remoteJid: msg.key.remoteJid,
+          hasMessage: !!msg.message,
+        })
         await processMessage(instanceId, msg, instanceKey).catch(console.error)
       }
     })

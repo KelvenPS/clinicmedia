@@ -269,6 +269,12 @@ async function handleIncomingMessage(instanceId: string, msg: WAMessage): Promis
     const loc = mc.locationMessage
     content = `[Localização] Lat: ${loc.degreesLatitude}, Lng: ${loc.degreesLongitude}`
     messageType = 'LOCATION'
+  } else if (mc.buttonsResponseMessage?.selectedButtonId) {
+    content = mc.buttonsResponseMessage.selectedButtonId
+    messageType = 'TEXT'
+  } else if (mc.listResponseMessage?.singleSelectReply?.selectedRowId) {
+    content = mc.listResponseMessage.singleSelectReply.selectedRowId
+    messageType = 'TEXT'
   } else {
     return // tipo desconhecido, ignora
   }
@@ -282,10 +288,6 @@ async function handleIncomingMessage(instanceId: string, msg: WAMessage): Promis
   const lastMessageSender = isGroup ? senderName : null
   const instance = await prisma.whatsAppInstance.findUnique({ where: { id: instanceId } })
   if (!instance) return
-  if (instance.type === 'CHATBOT_LIGHT') {
-    await handleIncomingLightMessage(instanceId, msg)
-    return
-  }
 
   // Checar configuração de resposta a grupos
   if (isGroup && !fromMe) {
@@ -379,6 +381,36 @@ async function handleIncomingMessage(instanceId: string, msg: WAMessage): Promis
         link: '/chatbot',
       },
     }).catch(() => {})
+  }
+
+  // Logger helper
+  const logWA = (level: 'info' | 'warn' | 'error', instanceKey: string, event: string, meta?: Record<string, unknown>) => {
+    const ts = new Date().toISOString()
+    console.log(JSON.stringify({ ts, level, module: 'WA', instanceKey, event, ...meta }))
+  }
+
+  logWA('info', instance.instanceKey, 'whatsapp.message.saved', {
+    messageId: msg.key.id,
+    conversationId: conversation.id,
+    contactPhone,
+  })
+
+  if (instance.type === 'CHATBOT_LIGHT') {
+    logWA('info', instance.instanceKey, 'whatsapp.message.light_engine_called', {
+      messageId: msg.key.id,
+      contactPhone,
+    })
+    await handleIncomingLightMessage({
+      socketInstanceKey: instance.instanceKey,
+      whatsappInstanceId: instance.id,
+      conversationId: conversation.id,
+      contactPhone,
+      remoteJid,
+      messageId: msg.key.id!,
+      messageText: content,
+      msgRaw: msg
+    })
+    return
   }
 }
 

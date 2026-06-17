@@ -90,6 +90,7 @@ function WhatsAppQRModal({ onClose }: { onClose: () => void }) {
   const qrExpired = countdown === 0
 
   function handleRetry() {
+    if (connectMutation.isPending) return
     setPhase('starting')
     setCountdown(55)
     connectMutation.mutate()
@@ -273,6 +274,7 @@ export default function ConfiguracoesPanel() {
   const [settingsForm, setSettingsForm] = useState<Partial<ChatbotSettings>>({})
   const [settingsDirty, setSettingsDirty] = useState(false)
   const [savedFeedback, setSavedFeedback] = useState(false)
+  const [showDisconnectConfirm, setShowDisconnectConfirm] = useState(false)
 
   const { data: instance, isLoading: instanceLoading } = useQuery<ChatbotInstance | null>({
     queryKey: ['chatbot-instance'],
@@ -329,8 +331,24 @@ export default function ConfiguracoesPanel() {
     },
   })
 
+  const recoverMutation = useMutation({
+    mutationFn: () => api.post('/chatbot/instance/recover'),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['chatbot-instance'] })
+    },
+  })
+
+  const forceNewQrMutation = useMutation({
+    mutationFn: () => api.post('/chatbot/instance/force-new-qr'),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['chatbot-instance'] })
+      setShowQRModal(true)
+    },
+  })
+
   const isConnected  = instance?.status === 'CONNECTED'
   const isConnecting = instance?.status === 'CONNECTING'
+  const isQuarantined = instance?.status === 'QUARANTINED'
 
   const { data: syncData } = useQuery<SyncStatus>({
     queryKey: ['chatbot-sync-status'],
@@ -387,6 +405,11 @@ export default function ConfiguracoesPanel() {
                   <div className="flex items-center gap-2 px-3 py-1.5 bg-amber-50 border border-amber-200 rounded-full">
                     <Loader2 className="w-3.5 h-3.5 text-amber-500 animate-spin" />
                     <span className="text-xs font-semibold text-amber-700">Conectando...</span>
+                  </div>
+                ) : isQuarantined ? (
+                  <div className="flex items-center gap-2 px-3 py-1.5 bg-amber-50 border border-amber-200 rounded-full">
+                    <AlertCircle className="w-3.5 h-3.5 text-amber-500" />
+                    <span className="text-xs font-semibold text-amber-700">Em Quarentena</span>
                   </div>
                 ) : (
                   <div className="flex items-center gap-2 px-3 py-1.5 bg-slate-100 border border-slate-200 rounded-full">
@@ -455,7 +478,7 @@ export default function ConfiguracoesPanel() {
 
               {/* Botões de ação */}
               <div className="flex gap-2 flex-wrap">
-                {!isConnected && (
+                {!isConnected && !isQuarantined && (
                   <button
                     onClick={() => setShowQRModal(true)}
                     className="flex items-center gap-2 px-4 py-2.5 bg-emerald-500 hover:bg-emerald-600 text-white rounded-xl text-sm font-semibold transition-all shadow-sm hover:shadow"
@@ -467,7 +490,7 @@ export default function ConfiguracoesPanel() {
 
                 {isConnected && (
                   <button
-                    onClick={() => disconnectMutation.mutate()}
+                    onClick={() => setShowDisconnectConfirm(true)}
                     disabled={disconnectMutation.isPending}
                     className="flex items-center gap-2 px-4 py-2.5 bg-rose-50 hover:bg-rose-100 border border-rose-200 text-rose-600 rounded-xl text-sm font-semibold transition-all"
                   >
@@ -481,7 +504,59 @@ export default function ConfiguracoesPanel() {
                 )}
               </div>
 
-              {!isConnected && (
+              {isQuarantined && (
+                <div className="bg-amber-50 border border-amber-200 rounded-xl p-4 mb-4">
+                  <div className="flex items-center gap-2 mb-3">
+                    <AlertCircle className="w-5 h-5 text-amber-500" />
+                    <p className="text-sm font-bold text-amber-800">Sessão em Quarentena</p>
+                  </div>
+                  <p className="text-xs text-amber-700 mb-4">
+                    A conexão WhatsApp foi interrompida várias vezes consecutivas. A sessão foi preservada e pode ser recuperada.
+                  </p>
+                  <div className="flex gap-2">
+                    <button
+                      onClick={() => recoverMutation.mutate()}
+                      disabled={recoverMutation.isPending}
+                      className="flex items-center gap-2 px-3 py-2 bg-amber-500 hover:bg-amber-600 text-white rounded-lg text-xs font-semibold transition-colors"
+                    >
+                      {recoverMutation.isPending ? <Loader2 className="w-3 h-3 animate-spin" /> : <RefreshCw className="w-3 h-3" />}
+                      Tentar Recuperar
+                    </button>
+                    <button
+                      onClick={() => forceNewQrMutation.mutate()}
+                      disabled={forceNewQrMutation.isPending}
+                      className="flex items-center gap-2 px-3 py-2 bg-white hover:bg-slate-50 border border-slate-200 text-slate-600 rounded-lg text-xs font-semibold transition-colors"
+                    >
+                      {forceNewQrMutation.isPending ? <Loader2 className="w-3 h-3 animate-spin" /> : <QrCode className="w-3 h-3" />}
+                      Gerar Novo QR Code
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              {showDisconnectConfirm && (
+                <div className="bg-rose-50 border border-rose-200 rounded-xl p-4 mt-3">
+                  <p className="text-sm font-semibold text-rose-800 mb-1">Desconectar WhatsApp?</p>
+                  <p className="text-xs text-rose-600 mb-3">Todas as sessões ativas serão encerradas. Você precisará escanear o QR Code novamente.</p>
+                  <div className="flex gap-2">
+                    <button
+                      onClick={() => { disconnectMutation.mutate(); setShowDisconnectConfirm(false) }}
+                      disabled={disconnectMutation.isPending}
+                      className="px-3 py-1.5 bg-rose-500 hover:bg-rose-600 text-white rounded-lg text-xs font-semibold transition-colors"
+                    >
+                      {disconnectMutation.isPending ? 'Desconectando...' : 'Sim, desconectar'}
+                    </button>
+                    <button
+                      onClick={() => setShowDisconnectConfirm(false)}
+                      className="px-3 py-1.5 bg-white hover:bg-slate-50 border border-slate-200 text-slate-600 rounded-lg text-xs font-semibold transition-colors"
+                    >
+                      Cancelar
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              {!isConnected && !isQuarantined && (
                 <p className="text-[11px] text-slate-400 mt-3 leading-relaxed">
                   Clique em "Conectar WhatsApp" para abrir o QR Code e escanear com o aplicativo.
                 </p>

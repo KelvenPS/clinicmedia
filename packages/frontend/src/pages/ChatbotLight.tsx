@@ -1531,12 +1531,13 @@ function ConexaoTab() {
   const [showQrModal, setShowQrModal] = useState(false)
 
   const { data: instance, refetch } = useQuery({
-    queryKey: ['light-wa-instance'],
+    queryKey: ['chatbot-instance'],
     queryFn:  () => api.get('/chatbot/instance').then(r => r.data).catch(() => null),
     staleTime: 10_000,
   })
 
   const isConnected = instance?.status === 'CONNECTED'
+  const isQuarantined = instance?.status === 'QUARANTINED'
 
   useEffect(() => {
     if (!polling) return
@@ -1565,7 +1566,7 @@ function ConexaoTab() {
     mutationFn: () => api.post('/chatbot/instance/disconnect').then(r => r.data),
     onSuccess:  () => {
       toast.success('WhatsApp desconectado')
-      qc.invalidateQueries({ queryKey: ['light-wa-instance'] })
+      qc.invalidateQueries({ queryKey: ['chatbot-instance'] })
       refetch()
     },
     onError: () => toast.error('Erro ao desconectar'),
@@ -1580,19 +1581,21 @@ function ConexaoTab() {
         </p>
       </div>
 
-      <div className={`flex items-center gap-4 p-5 rounded-2xl border ${isConnected ? 'bg-emerald-50 border-emerald-200' : 'bg-slate-50 border-slate-200'}`}>
-        <div className={`w-12 h-12 rounded-2xl flex items-center justify-center ${isConnected ? 'bg-emerald-500' : 'bg-slate-300'}`}>
-          {isConnected ? <Wifi className="w-6 h-6 text-white" /> : <WifiOff className="w-6 h-6 text-white" />}
+      <div className={`flex items-center gap-4 p-5 rounded-2xl border ${isConnected ? 'bg-emerald-50 border-emerald-200' : isQuarantined ? 'bg-amber-50 border-amber-200' : 'bg-slate-50 border-slate-200'}`}>
+        <div className={`w-12 h-12 rounded-2xl flex items-center justify-center ${isConnected ? 'bg-emerald-500' : isQuarantined ? 'bg-amber-500' : 'bg-slate-300'}`}>
+          {isConnected ? <Wifi className="w-6 h-6 text-white" /> : isQuarantined ? <AlertCircle className="w-6 h-6 text-white" /> : <WifiOff className="w-6 h-6 text-white" />}
         </div>
         <div className="flex-1">
           <p className="font-semibold text-slate-900">
-            {isConnected ? 'WhatsApp conectado' : 'WhatsApp desconectado'}
+            {isConnected ? 'WhatsApp conectado' : isQuarantined ? 'WhatsApp em Quarentena' : 'WhatsApp desconectado'}
           </p>
           {isConnected ? (
             <div className="text-sm text-emerald-700 space-y-0.5 mt-0.5">
               {instance?.phoneNumber  && <p>{instance.phoneNumber}</p>}
               {instance?.displayName  && <p className="text-xs text-emerald-600">{instance.displayName}</p>}
             </div>
+          ) : isQuarantined ? (
+            <p className="text-sm text-amber-700">A conexão foi interrompida repetidamente. Acesse as configurações completas do chatbot para recuperar.</p>
           ) : (
             <p className="text-sm text-slate-500">Escaneie o QR code para conectar</p>
           )}
@@ -1606,6 +1609,10 @@ function ConexaoTab() {
             >
               Desconectar
             </button>
+          ) : isQuarantined ? (
+            <span className="text-xs font-semibold text-amber-600 bg-amber-50 border border-amber-200 px-3 py-1.5 rounded-xl">
+              Em Quarentena
+            </span>
           ) : (
             <button
               onClick={() => connectMutation.mutate()}
@@ -1618,7 +1625,7 @@ function ConexaoTab() {
               }
             </button>
           )}
-          {!isConnected && (
+          {!isConnected && !isQuarantined && (
             <button
               onClick={() => refetch()}
               className="text-xs text-slate-400 hover:text-slate-600 transition-colors"
@@ -1923,20 +1930,21 @@ function SideNavBtn({
 
 function SidebarConnectionStatus() {
   const { data: instance } = useQuery({
-    queryKey: ['light-wa-instance'],
+    queryKey: ['chatbot-instance'],
     queryFn:  () => api.get('/chatbot/instance').then(r => r.data).catch(() => null),
     refetchInterval: 30_000,
     staleTime: 15_000,
   })
 
   const isConnected = instance?.status === 'CONNECTED'
+  const isQuarantined = instance?.status === 'QUARANTINED'
 
   return (
     <div className="px-3 py-3 border-t border-white/8">
-      <div className={`flex items-center gap-2 px-3 py-2 rounded-xl text-xs ${isConnected ? 'bg-emerald-500/10 text-emerald-400' : 'bg-slate-800 text-slate-500'}`}>
-        <span className={`w-2 h-2 rounded-full flex-shrink-0 ${isConnected ? 'bg-emerald-400 animate-pulse' : 'bg-slate-600'}`} />
+      <div className={`flex items-center gap-2 px-3 py-2 rounded-xl text-xs ${isConnected ? 'bg-emerald-500/10 text-emerald-400' : isQuarantined ? 'bg-amber-500/10 text-amber-400' : 'bg-slate-800 text-slate-500'}`}>
+        <span className={`w-2 h-2 rounded-full flex-shrink-0 ${isConnected ? 'bg-emerald-400 animate-pulse' : isQuarantined ? 'bg-amber-400 animate-pulse' : 'bg-slate-600'}`} />
         <span className="truncate">
-          {isConnected ? `Conectado${instance?.phoneNumber ? ' · ' + instance.phoneNumber : ''}` : 'WhatsApp desconectado'}
+          {isConnected ? `Conectado${instance?.phoneNumber ? ' · ' + instance.phoneNumber : ''}` : isQuarantined ? 'Sessão em Quarentena' : 'WhatsApp desconectado'}
         </span>
       </div>
     </div>

@@ -33,6 +33,10 @@ services:
       BACKEND_URL: http://${VPS_IP:-2.25.185.223}
       MP_ACCESS_TOKEN: ${MP_ACCESS_TOKEN:-}
       SESSIONS_DIR: /app/sessions
+      WA_ENABLE_HISTORY_SYNC: "false"
+      WA_ENABLE_AVATAR_SYNC: "false"
+      WA_ENABLE_TYPING: "true"
+      WA_ENABLE_READ_RECEIPTS: "true"
     volumes:
       - whatsapp_sessions:/app/sessions
     depends_on:

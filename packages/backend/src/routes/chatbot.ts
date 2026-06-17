@@ -554,6 +554,77 @@ router.post('/instance/disconnect', async (req: AuthRequest, res: Response) => {
   }
 })
 
+router.post('/instance/recover', async (req: AuthRequest, res: Response) => {
+  try {
+    const userId = req.user!.userId
+    const instance = await resolveInstance(userId)
+    if (!instance) {
+      res.status(404).json({ message: 'Instância não encontrada' })
+      return
+    }
+
+    if (instance.status !== 'QUARANTINED') {
+      res.status(400).json({ message: 'A instância não está em quarentena' })
+      return
+    }
+
+    // Marca como CONNECTING para que o watchdog não interfira
+    await prisma.whatsAppInstance.update({
+      where: { id: instance.id },
+      data: { status: 'CONNECTING', reconnectAttempts: 0 },
+    })
+
+    // Inicia sessão Baileys usando as credenciais em disco
+    startSession(instance.instanceKey, instance.id).catch(err =>
+      console.error('[/instance/recover] Erro Baileys:', err)
+    )
+
+    res.json({ status: 'CONNECTING', instanceKey: instance.instanceKey })
+  } catch (err) {
+    console.error('[/instance/recover]', err)
+    res.status(500).json({ message: 'Erro ao tentar recuperar conexão' })
+  }
+})
+
+router.post('/instance/force-new-qr', async (req: AuthRequest, res: Response) => {
+  try {
+    const userId = req.user!.userId
+    const instance = await resolveInstance(userId)
+    if (!instance) {
+      res.status(404).json({ message: 'Instância não encontrada' })
+      return
+    }
+
+    // Para o socket e apaga as credenciais do disco
+    await stopSession(instance.instanceKey)
+
+    // Reseta status no banco de dados e limpa QR
+    await prisma.whatsAppInstance.update({
+      where: { id: instance.id },
+      data: {
+        status: 'CONNECTING',
+        qrCode: null,
+        qrCodeExpiresAt: null,
+        phoneNumber: null,
+        displayName: null,
+        reconnectAttempts: 0,
+        quarantinedAt: null,
+        lastDisconnectCode: null
+      },
+    })
+
+    // Inicia nova sessão Baileys para gerar novo QR
+    startSession(instance.instanceKey, instance.id).catch(err =>
+      console.error('[/instance/force-new-qr] Erro Baileys:', err)
+    )
+
+    res.json({ status: 'CONNECTING', instanceKey: instance.instanceKey })
+  } catch (err) {
+    console.error('[/instance/force-new-qr]', err)
+    res.status(500).json({ message: 'Erro ao forçar novo QR Code' })
+  }
+})
+
 // ─── Settings ─────────────────────────────────────────────────────────────────
 
 router.get('/settings', async (req: AuthRequest, res: Response) => {

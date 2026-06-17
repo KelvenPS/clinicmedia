@@ -85,7 +85,7 @@ export interface ChatbotInstance {
   id: string
   doctorId: string
   instanceKey: string
-  status: 'CONNECTED' | 'DISCONNECTED' | 'CONNECTING'
+  status: 'CONNECTED' | 'DISCONNECTED' | 'CONNECTING' | 'QUARANTINED'
   qrCode: string | null
   qrCodeExpiresAt: string | null
   phoneNumber: string | null
@@ -97,7 +97,7 @@ export interface ChatbotInstance {
 }
 
 export interface InstanceStatus {
-  status: 'NONE' | 'CONNECTED' | 'DISCONNECTED' | 'CONNECTING'
+  status: 'NONE' | 'CONNECTED' | 'DISCONNECTED' | 'CONNECTING' | 'QUARANTINED'
   qrCode: string | null
   qrCodeExpired: boolean
   phoneNumber: string | null

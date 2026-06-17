@@ -3,6 +3,8 @@ import { z } from 'zod'
 import { prisma } from '../lib/prisma'
 import { authenticate, requireRole, requireFeature, AuthRequest } from '../middleware/auth'
 
+import { triggerLightAutomatedMessage } from '../lib/chatbot-light-engine'
+
 const router = Router()
 router.use(authenticate)
 router.use(requireRole('ADMIN', 'DOCTOR'))
@@ -122,11 +124,21 @@ router.post('/', async (req, res) => {
         doctor: { select: { id: true, name: true } },
         appointment: {
           include: {
-            patient: { select: { id: true, name: true } },
+            patient: { select: { id: true, name: true, phone: true } },
           },
         },
       },
     })
+
+    if (transaction.status === 'PENDING' && transaction.appointment?.patient.phone) {
+      triggerLightAutomatedMessage(transaction.doctorId, 'PAYMENT_REMINDER', {
+        patientName: transaction.appointment.patient.name,
+        patientPhone: transaction.appointment.patient.phone,
+        doctorName: transaction.doctor.name,
+        paymentValue: String(transaction.amount),
+        link: `${process.env.FRONTEND_URL || 'http://2.25.185.223'}/pagar/${transaction.id}`
+      }).catch(err => console.error('[triggerLightAutomatedMessage PAYMENT error]', err))
+    }
 
     res.status(201).json(transaction)
   } catch (error) {

@@ -4,6 +4,8 @@ import { prisma } from '../lib/prisma'
 import { authenticate, AuthRequest } from '../middleware/auth'
 import { fireWebhooks } from '../lib/webhook'
 
+import { triggerLightAutomatedMessage } from '../lib/chatbot-light-engine'
+
 const router = Router()
 router.use(authenticate)
 
@@ -194,6 +196,13 @@ router.post('/', async (req: AuthRequest, res) => {
         phone: patient.phone,
         email: patient.email,
       }).catch(() => {})
+    }
+
+    if (doctorId && patient.phone) {
+      triggerLightAutomatedMessage(doctorId, 'NEW_PATIENT_WELCOME', {
+        patientName: patient.name,
+        patientPhone: patient.phone,
+      }).catch(err => console.error('[triggerLightAutomatedMessage WELCOME error]', err))
     }
 
     res.status(201).json(patient)

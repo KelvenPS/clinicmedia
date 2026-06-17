@@ -3,6 +3,8 @@ import { z } from 'zod'
 import { prisma } from '../lib/prisma'
 import { authenticate, requireRole, requireFeature, AuthRequest } from '../middleware/auth'
 
+import { triggerLightAutomatedMessage } from '../lib/chatbot-light-engine'
+
 const router = Router()
 router.use(authenticate)
 router.use(requireRole('ADMIN', 'DOCTOR'))
@@ -93,10 +95,19 @@ router.post('/', async (req: AuthRequest, res) => {
         status: data.status ?? 'DRAFT',
       },
       include: {
-        patient: { select: { id: true, name: true, birthDate: true } },
+        patient: { select: { id: true, name: true, birthDate: true, phone: true } },
         doctor: { select: { id: true, name: true, specialty: true } },
       },
     })
+
+    if (assessment.status === 'COMPLETED' && assessment.patient?.phone) {
+      triggerLightAutomatedMessage(assessment.doctorId, 'ASSESSMENT_COMPLETE', {
+        patientName: assessment.patient.name,
+        patientPhone: assessment.patient.phone,
+        doctorName: assessment.doctor.name,
+        link: `${process.env.FRONTEND_URL || 'http://2.25.185.223'}/assessment/${assessment.id}`
+      }).catch(err => console.error('[triggerLightAutomatedMessage ASSESSMENT error]', err))
+    }
 
     res.status(201).json(assessment)
   } catch (error) {
@@ -137,10 +148,19 @@ router.put('/:id', async (req: AuthRequest, res) => {
         ...(data.status && { status: data.status }),
       },
       include: {
-        patient: { select: { id: true, name: true, birthDate: true } },
+        patient: { select: { id: true, name: true, birthDate: true, phone: true } },
         doctor: { select: { id: true, name: true, specialty: true } },
       },
     })
+
+    if (updated.status === 'COMPLETED' && updated.patient?.phone) {
+      triggerLightAutomatedMessage(updated.doctorId, 'ASSESSMENT_COMPLETE', {
+        patientName: updated.patient.name,
+        patientPhone: updated.patient.phone,
+        doctorName: updated.doctor.name,
+        link: `${process.env.FRONTEND_URL || 'http://2.25.185.223'}/assessment/${updated.id}`
+      }).catch(err => console.error('[triggerLightAutomatedMessage ASSESSMENT error]', err))
+    }
 
     res.json(updated)
   } catch (error) {

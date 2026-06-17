@@ -4,6 +4,8 @@ import { Prisma } from '@prisma/client'
 import { prisma } from '../lib/prisma'
 import { authenticate, requireRole, requireFeature, AuthRequest } from '../middleware/auth'
 
+import { triggerLightAutomatedMessage } from '../lib/chatbot-light-engine'
+
 const router = Router()
 router.use(authenticate)
 router.use(requireFeature('prontuario'))
@@ -92,10 +94,18 @@ router.post('/', requireRole('ADMIN', 'DOCTOR', 'SECRETARY'), async (req: AuthRe
         specialtyData: specialtyData as Prisma.InputJsonValue | undefined,
       },
       include: {
-        patient: { select: { id: true, name: true } },
+        patient: { select: { id: true, name: true, phone: true } },
         doctor: { select: { id: true, name: true, specialty: true } },
       },
     })
+
+    if (record.patient?.phone) {
+      triggerLightAutomatedMessage(record.doctorId, 'POST_CONSULTATION_SUMMARY', {
+        patientName: record.patient.name,
+        patientPhone: record.patient.phone,
+        doctorName: record.doctor.name,
+      }).catch(err => console.error('[triggerLightAutomatedMessage SUMMARY error]', err))
+    }
 
     res.status(201).json(record)
   } catch (error) {

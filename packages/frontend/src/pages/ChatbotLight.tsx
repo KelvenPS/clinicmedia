@@ -17,11 +17,21 @@ import api from '../lib/api'
 import { useAuthStore } from '../store/authStore'
 import Modal from '../components/ui/Modal'
 
+const generateUUID = () => {
+  if (typeof window !== 'undefined' && window.crypto && typeof window.crypto.randomUUID === 'function') {
+    return window.crypto.randomUUID()
+  }
+  return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, c => {
+    const r = Math.random() * 16 | 0
+    return (c === 'x' ? r : (r & 0x3 | 0x8)).toString(16)
+  })
+}
+
 // ─── Types ────────────────────────────────────────────────────────────────────
 
 type Panel = 'relatorio' | 'fluxos' | 'mensagens' | 'templates' | 'respostas' | 'historico' | 'configuracoes'
 type ConfigTab = 'conexao' | 'teste' | 'telas'
-type FluxoActionType = 'SEND_MESSAGE' | 'TRANSFER_QUEUE' | 'OPEN_MENU' | 'SYSTEM_ACTION' | 'END_CHAT'
+type FluxoActionType = 'SEND_MESSAGE' | 'TRANSFER_QUEUE' | 'OPEN_MENU' | 'SYSTEM_ACTION' | 'END_CHAT' | 'START_PLAN_SCHEDULING'
 
 interface LightTemplate {
   id: string
@@ -77,6 +87,15 @@ interface FluxoOption {
   queueId: string | null
   nextFlowId: string | null
   systemAction: string | null
+  planSource?: string | null
+  doctorSelect?: string | null
+  limitSlots?: number | string | null
+  searchWindowDays?: number | string | null
+  durationMinutes?: number | string | null
+  requireCpf?: boolean | string | null
+  requireConvenio?: boolean | string | null
+  useWhatsappPhone?: boolean | string | null
+  successMessage?: string | null
 }
 
 interface LightFluxo {
@@ -177,6 +196,7 @@ const FLUXO_ACTIONS: { value: FluxoActionType; label: string }[] = [
   { value: 'OPEN_MENU',      label: 'Abrir outro menu' },
   { value: 'SYSTEM_ACTION',  label: 'Executar ação do sistema' },
   { value: 'END_CHAT',       label: 'Encerrar atendimento' },
+  { value: 'START_PLAN_SCHEDULING', label: 'Iniciar agendamento por plano/serviço' },
 ]
 
 const FLUXO_QUEUES = [
@@ -452,7 +472,7 @@ function FluxosPanel() {
 
   const addOption = () => {
     setOptions(prev => [...prev, {
-      id: crypto.randomUUID(),
+      id: generateUUID(),
       number: prev.length + 1,
       label: '',
       triggers: String(prev.length + 1),
@@ -812,6 +832,115 @@ function FluxosPanel() {
                               <option key={a.value} value={a.value}>{a.label}</option>
                             ))}
                           </select>
+                        </div>
+                      )}
+
+                      {opt.actionType === 'START_PLAN_SCHEDULING' && (
+                        <div className="col-span-1 md:col-span-2 bg-white border border-slate-200 rounded-xl p-4 space-y-3 mt-2 shadow-inner">
+                          <p className="text-xs font-bold text-slate-700 uppercase tracking-wide border-b pb-1.5">Configuração do Agendamento por Plano/Serviço</p>
+                          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                            <div>
+                              <label className="label text-[11px] mb-0.5">Fonte dos planos/serviços *</label>
+                              <select
+                                value={opt.planSource ?? 'DOCTOR_SERVICES'}
+                                onChange={e => updateOption(opt.id, { planSource: e.target.value })}
+                                className="input-field text-sm py-1.5"
+                              >
+                                <option value="DOCTOR_SERVICES">Serviços do Médico (AppointmentType)</option>
+                                <option value="DOCTOR_CONVENIOS">Convênios do Médico (HealthPlan)</option>
+                              </select>
+                            </div>
+                            <div>
+                              <label className="label text-[11px] mb-0.5">Médico responsável *</label>
+                              <select
+                                value={opt.doctorSelect ?? 'INSTANCE_OWNER'}
+                                onChange={e => updateOption(opt.id, { doctorSelect: e.target.value })}
+                                className="input-field text-sm py-1.5"
+                              >
+                                <option value="INSTANCE_OWNER">Dono da conexão WhatsApp</option>
+                              </select>
+                            </div>
+                          </div>
+
+                          <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                            <div>
+                              <label className="label text-[11px] mb-0.5">Horários a oferecer *</label>
+                              <input
+                                type="number"
+                                min={1} max={5}
+                                value={opt.limitSlots ?? 3}
+                                onChange={e => updateOption(opt.id, { limitSlots: parseInt(e.target.value) || 3 })}
+                                className="input-field text-sm py-1.5"
+                              />
+                            </div>
+                            <div>
+                              <label className="label text-[11px] mb-0.5">Janela de busca (dias) *</label>
+                              <select
+                                value={opt.searchWindowDays ?? 15}
+                                onChange={e => updateOption(opt.id, { searchWindowDays: parseInt(e.target.value) || 15 })}
+                                className="input-field text-sm py-1.5"
+                              >
+                                <option value="7">Próximos 7 dias</option>
+                                <option value="15">Próximos 15 dias</option>
+                                <option value="30">Próximos 30 dias</option>
+                              </select>
+                            </div>
+                            <div>
+                              <label className="label text-[11px] mb-0.5">Duração (minutos) *</label>
+                              <select
+                                value={opt.durationMinutes ?? 30}
+                                onChange={e => updateOption(opt.id, { durationMinutes: parseInt(e.target.value) || 30 })}
+                                className="input-field text-sm py-1.5"
+                              >
+                                <option value="15">15 minutos</option>
+                                <option value="30">30 minutos</option>
+                                <option value="45">45 minutos</option>
+                                <option value="60">60 minutos</option>
+                              </select>
+                            </div>
+                          </div>
+
+                          <div className="flex flex-wrap gap-x-5 gap-y-2 pt-2 border-t">
+                            <label className="flex items-center gap-2 text-xs font-semibold text-slate-600 cursor-pointer">
+                              <input
+                                type="checkbox"
+                                checked={opt.requireCpf === true || opt.requireCpf === 'true'}
+                                onChange={e => updateOption(opt.id, { requireCpf: e.target.checked })}
+                                className="rounded text-cyan-600 focus:ring-cyan-500"
+                              />
+                              Solicitar CPF
+                            </label>
+                            <label className="flex items-center gap-2 text-xs font-semibold text-slate-600 cursor-pointer">
+                              <input
+                                type="checkbox"
+                                checked={opt.requireConvenio === true || opt.requireConvenio === 'true'}
+                                onChange={e => updateOption(opt.id, { requireConvenio: e.target.checked })}
+                                className="rounded text-cyan-600 focus:ring-cyan-500"
+                              />
+                              Solicitar Convênio
+                            </label>
+                            <label className="flex items-center gap-2 text-xs font-semibold text-slate-600 cursor-pointer">
+                              <input
+                                type="checkbox"
+                                checked={opt.useWhatsappPhone === true || opt.useWhatsappPhone === 'true'}
+                                onChange={e => updateOption(opt.id, { useWhatsappPhone: e.target.checked })}
+                                className="rounded text-cyan-600 focus:ring-cyan-500"
+                              />
+                              Usar telefone do WhatsApp
+                            </label>
+                          </div>
+
+                          <div className="pt-2">
+                            <label className="label text-[11px] mb-0.5">Mensagem de Sucesso *</label>
+                            <textarea
+                              value={opt.successMessage ?? 'Agendamento confirmado com sucesso!\n\nConsulta: {planoNome}\nData: {data}'}
+                              onChange={e => updateOption(opt.id, { successMessage: e.target.value })}
+                              rows={2}
+                              className="input-field text-sm py-1.5 resize-none font-sans"
+                              placeholder="Variáveis: {nome}, {planoNome}, {medico}, {data}"
+                            />
+                            <p className="text-[10px] text-slate-400">Suporta variáveis: {"{nome}"}, {"{planoNome}"}, {"{medico}"}, {"{data}"}</p>
+                          </div>
                         </div>
                       )}
                     </div>

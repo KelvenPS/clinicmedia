@@ -5,6 +5,8 @@ import { authenticate, AuthRequest } from '../middleware/auth'
 import { createNotification } from './notifications'
 import { fireWebhooks } from '../lib/webhook'
 
+import { triggerLightAutomatedMessage } from '../lib/chatbot-light-engine'
+
 const router = Router()
 router.use(authenticate)
 
@@ -173,6 +175,18 @@ router.post('/', async (req: AuthRequest, res) => {
     )
 
     const appointment = created[0]
+
+    if (appointment.patient?.phone) {
+      const apptDateStr = appointment.date.toLocaleDateString('pt-BR')
+      const apptTimeStr = appointment.date.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })
+      triggerLightAutomatedMessage(appointment.doctorId, 'APPOINTMENT_CONFIRMATION', {
+        patientName: appointment.patient.name,
+        patientPhone: appointment.patient.phone,
+        appointmentDate: apptDateStr,
+        appointmentTime: apptTimeStr,
+        doctorName: appointment.doctor.name,
+      }).catch(err => console.error('[triggerLightAutomatedMessage CONFIRMATION error]', err))
+    }
 
     await createNotification(
       appointment.doctorId,

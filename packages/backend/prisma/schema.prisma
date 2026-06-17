@@ -261,6 +261,8 @@ model Appointment {
   notes       String?
   type        String?
   value       Float?
+  reminder24hSent     Boolean           @default(false)
+  reminder2hSent      Boolean           @default(false)
   createdAt   DateTime          @default(now())
   updatedAt   DateTime          @updatedAt
 
@@ -315,6 +317,8 @@ model Transaction {
   date          DateTime
   status        TransactionStatus @default(PENDING)
   category      String?
+  reminderSent        Boolean           @default(false)
+  overdueReminderSent Boolean           @default(false)
   createdAt     DateTime          @default(now())
   updatedAt     DateTime          @updatedAt
 
@@ -795,3 +799,28 @@ model ChatbotSettings {
 
   @@map("TBLCHATBOTCONFIG")
 }
+
+model LightFlowSession {
+  id              String    @id @default(uuid())
+  instanceId      String
+  conversationId  String?
+  contactPhone    String
+  flowId          String
+  currentStepKey  String
+  status          String    @default("ACTIVE") // ACTIVE, COMPLETED, CANCELLED, FAILED, EXPIRED
+  collectedData   Json?     // Nome, Telefone, CPF, convenioId, serviceId, dataEscolhida, appointmentId
+  dynamicOptions  Json?     // Mapeamento dinâmico (ex: {"1": "service_id_X", "2": "slot_id_Y"})
+  invalidAttempts Int       @default(0)
+  lastMessageAt   DateTime?
+  expiresAt       DateTime?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  @@index([instanceId, contactPhone, status])
+  @@index([instanceId])
+  @@index([contactPhone])
+  @@index([flowId])
+  @@index([expiresAt])
+  @@map("TBLLIGHTFLOWSESSION")
+}
+

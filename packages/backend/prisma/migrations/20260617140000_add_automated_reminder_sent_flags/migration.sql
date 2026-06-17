@@ -1,0 +1,7 @@
+-- AlterTable
+ALTER TABLE "TBLAGENDAMENTO" ADD COLUMN     "reminder24hSent" BOOLEAN NOT NULL DEFAULT false,
+ADD COLUMN     "reminder2hSent" BOOLEAN NOT NULL DEFAULT false;
+
+-- AlterTable
+ALTER TABLE "TBLTRANSACAO" ADD COLUMN     "overdueReminderSent" BOOLEAN NOT NULL DEFAULT false,
+ADD COLUMN     "reminderSent" BOOLEAN NOT NULL DEFAULT false;

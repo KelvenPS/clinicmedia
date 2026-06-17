@@ -16,6 +16,8 @@ import {
   isSessionActive,
 } from '../lib/whatsapp'
 
+import { handleIncomingLightMessage } from '../lib/chatbot-light-engine'
+
 const router = Router()
 
 // ─── Seed: default chatbot templates ─────────────────────────────────────────
@@ -279,7 +281,11 @@ async function handleIncomingMessage(instanceId: string, msg: WAMessage): Promis
   // O "lastMessageSender" só é relevante em grupos — em privado o contact já é a pessoa
   const lastMessageSender = isGroup ? senderName : null
   const instance = await prisma.whatsAppInstance.findUnique({ where: { id: instanceId } })
-  if (!instance || instance.type !== 'CLINICAL_AGENT') return
+  if (!instance) return
+  if (instance.type === 'CHATBOT_LIGHT') {
+    await handleIncomingLightMessage(instanceId, msg)
+    return
+  }
 
   // Checar configuração de resposta a grupos
   if (isGroup && !fromMe) {

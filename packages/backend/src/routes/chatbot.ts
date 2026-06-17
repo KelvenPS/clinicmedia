@@ -192,7 +192,14 @@ const upsertSettingsSchema = z.object({
 // ─── Helper: resolve or create instance ──────────────────────────────────────
 
 async function resolveInstance(userId: string) {
-  const instance = await prisma.whatsAppInstance.findUnique({ where: { doctorId: userId } })
+  const instance = await prisma.whatsAppInstance.findUnique({
+    where: {
+      doctorId_type: {
+        doctorId: userId,
+        type: 'CLINICAL_AGENT',
+      },
+    },
+  })
   if (!instance) return instance
 
   // O status no banco pode ficar desatualizado se o processo reiniciou e a sessão
@@ -209,10 +216,17 @@ async function resolveInstance(userId: string) {
 }
 
 async function resolveOrCreateInstance(userId: string) {
-  const existing = await prisma.whatsAppInstance.findUnique({ where: { doctorId: userId } })
+  const existing = await prisma.whatsAppInstance.findUnique({
+    where: {
+      doctorId_type: {
+        doctorId: userId,
+        type: 'CLINICAL_AGENT',
+      },
+    },
+  })
   if (existing) return existing
   return prisma.whatsAppInstance.create({
-    data: { doctorId: userId, status: 'DISCONNECTED' },
+    data: { doctorId: userId, type: 'CLINICAL_AGENT', status: 'DISCONNECTED' },
   })
 }
 
@@ -264,9 +278,8 @@ async function handleIncomingMessage(instanceId: string, msg: WAMessage): Promis
   const senderName = pushName || null
   // O "lastMessageSender" só é relevante em grupos — em privado o contact já é a pessoa
   const lastMessageSender = isGroup ? senderName : null
-
   const instance = await prisma.whatsAppInstance.findUnique({ where: { id: instanceId } })
-  if (!instance) return
+  if (!instance || instance.type !== 'CLINICAL_AGENT') return
 
   // Checar configuração de resposta a grupos
   if (isGroup && !fromMe) {
@@ -396,7 +409,14 @@ router.post('/instance', async (req: AuthRequest, res: Response) => {
     const userId = req.user!.userId
     const data = createInstanceSchema.parse(req.body)
 
-    const existing = await prisma.whatsAppInstance.findUnique({ where: { doctorId: userId } })
+    const existing = await prisma.whatsAppInstance.findUnique({
+      where: {
+        doctorId_type: {
+          doctorId: userId,
+          type: 'CLINICAL_AGENT',
+        },
+      },
+    })
     if (existing) {
       res.status(409).json({ message: 'Instância já existe. Use a existente ou exclua-a primeiro.' })
       return
@@ -405,6 +425,7 @@ router.post('/instance', async (req: AuthRequest, res: Response) => {
     const instance = await prisma.whatsAppInstance.create({
       data: {
         doctorId: userId,
+        type: 'CLINICAL_AGENT',
         webhookUrl: data.webhookUrl ?? null,
         displayName: data.displayName ?? null,
         status: 'DISCONNECTED',

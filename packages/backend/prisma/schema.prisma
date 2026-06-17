@@ -100,7 +100,7 @@ model User {
   subscription        DoctorSubscription?   @relation("DoctorSubscription")
   subscriptionPayments SubscriptionPayment[] @relation("DoctorPayments")
   integrations        Integration[]       @relation("DoctorIntegrations")
-  whatsappInstance    WhatsAppInstance?   @relation("DoctorWhatsApp")
+  whatsappInstances   WhatsAppInstance[]  @relation("DoctorWhatsApp")
   healthPlans         HealthPlan[]        @relation("DoctorHealthPlans")
   appointmentTypes    AppointmentType[]   @relation("DoctorAppointmentTypes")
   sqlLogs             SqlQueryLog[]       @relation("AdminSqlLogs")
@@ -533,30 +533,37 @@ enum FlowTrigger {
   AFTER_HOURS
 }
 
+enum WhatsAppInstanceType {
+  CHATBOT_LIGHT
+  CLINICAL_AGENT
+}
+
 model WhatsAppInstance {
-  id                  String         @id @default(uuid())
-  doctorId            String         @unique
-  instanceKey         String         @unique @default(uuid())
-  status              InstanceStatus @default(DISCONNECTED)
-  qrCode              String?        @db.Text
+  id                  String               @id @default(uuid())
+  doctorId            String
+  type                WhatsAppInstanceType @default(CLINICAL_AGENT)
+  instanceKey         String               @unique @default(uuid())
+  status              InstanceStatus       @default(DISCONNECTED)
+  qrCode              String?              @db.Text
   qrCodeExpiresAt     DateTime?
   phoneNumber         String?
   displayName         String?
   webhookUrl          String?
-  active              Boolean        @default(true)
+  active              Boolean              @default(true)
   connectedAt         DateTime?
   disconnectedAt      DateTime?
   lastDisconnectCode  Int?
-  reconnectAttempts   Int      @default(0)
+  reconnectAttempts   Int                  @default(0)
   quarantinedAt       DateTime?
-  createdAt           DateTime       @default(now())
-  updatedAt           DateTime       @updatedAt
+  createdAt           DateTime             @default(now())
+  updatedAt           DateTime             @updatedAt
 
   doctor        User             @relation("DoctorWhatsApp", fields: [doctorId], references: [id])
   conversations Conversation[]
   flows         ChatbotFlow[]
   settings      ChatbotSettings?
 
+  @@unique([doctorId, type])
   @@map("TBLWHATSAPPINSTANCIA")
 }
 

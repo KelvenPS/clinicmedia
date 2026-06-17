@@ -1,8 +1,8 @@
-import { Router } from 'express'
+import { Router, Response } from 'express'
 import { z } from 'zod'
 import { prisma } from '../lib/prisma'
 import { authenticate, requireFeature, AuthRequest } from '../middleware/auth'
-import { sendWhatsAppMessage, isSessionActive } from '../lib/whatsapp'
+import { sendWhatsAppMessage, isSessionActive, startSession, stopSession } from '../lib/whatsapp'
 import { requireSecretaryPermission } from '../lib/secretaryAccess'
 
 const router = Router()
@@ -237,7 +237,14 @@ router.post('/test', async (req: AuthRequest, res) => {
     })
     const { phone, content } = schema.parse(req.body)
 
-    const instance = await prisma.whatsAppInstance.findUnique({ where: { doctorId } })
+    const instance = await prisma.whatsAppInstance.findUnique({
+      where: {
+        doctorId_type: {
+          doctorId,
+          type: 'CHATBOT_LIGHT',
+        },
+      },
+    })
     if (!instance || instance.status !== 'CONNECTED') {
       res.status(400).json({ message: 'WhatsApp não conectado. Conecte na aba Conexão.' })
       return
@@ -499,6 +506,127 @@ router.put('/settings', async (req: AuthRequest, res) => {
       return
     }
     res.status(500).json({ message: 'Erro interno do servidor' })
+  }
+})
+
+// ─── WhatsApp Instance Management (Chatbot Light) ──────────────────────────
+
+async function resolveInstance(userId: string) {
+  const instance = await prisma.whatsAppInstance.findUnique({
+    where: {
+      doctorId_type: {
+        doctorId: userId,
+        type: 'CHATBOT_LIGHT',
+      },
+    },
+  })
+  if (!instance) return instance
+
+  if (instance.status === 'CONNECTED' && !isSessionActive(instance.instanceKey)) {
+    return prisma.whatsAppInstance.update({
+      where: { id: instance.id },
+      data: { status: 'DISCONNECTED', disconnectedAt: new Date() },
+    }).catch(() => instance)
+  }
+
+  return instance
+}
+
+async function resolveOrCreateInstance(userId: string) {
+  const existing = await prisma.whatsAppInstance.findUnique({
+    where: {
+      doctorId_type: {
+        doctorId: userId,
+        type: 'CHATBOT_LIGHT',
+      },
+    },
+  })
+  if (existing) return existing
+  return prisma.whatsAppInstance.create({
+    data: { doctorId: userId, type: 'CHATBOT_LIGHT', status: 'DISCONNECTED' },
+  })
+}
+
+router.get('/instance', async (req: AuthRequest, res: Response) => {
+  try {
+    const instance = await resolveInstance(req.user!.userId)
+    res.json(instance ?? null)
+  } catch {
+    res.status(500).json({ message: 'Erro interno do servidor' })
+  }
+})
+
+router.post('/instance/connect', async (req: AuthRequest, res: Response) => {
+  try {
+    const userId = req.user!.userId
+    const instance = await resolveOrCreateInstance(userId)
+
+    await prisma.whatsAppInstance.update({
+      where: { id: instance.id },
+      data: { status: 'CONNECTING', qrCode: null, qrCodeExpiresAt: null },
+    })
+
+    startSession(instance.instanceKey, instance.id).catch(err =>
+      console.error('[/chatbot-light/instance/connect] Erro Baileys:', err)
+    )
+
+    res.json({ status: 'CONNECTING', instanceKey: instance.instanceKey })
+  } catch (err) {
+    console.error('[/chatbot-light/instance/connect]', err)
+    res.status(500).json({ message: 'Erro ao iniciar conexão com WhatsApp' })
+  }
+})
+
+router.get('/instance/status', async (req: AuthRequest, res: Response) => {
+  try {
+    const instance = await resolveInstance(req.user!.userId)
+    if (!instance) {
+      res.json({ status: 'NONE' })
+      return
+    }
+
+    const now = new Date()
+    const qrExpired = instance.qrCodeExpiresAt ? instance.qrCodeExpiresAt < now : false
+
+    res.json({
+      status: instance.status,
+      qrCode: qrExpired ? null : instance.qrCode,
+      qrCodeExpired: qrExpired,
+      phoneNumber: instance.phoneNumber,
+      displayName: instance.displayName,
+      connectedAt: instance.connectedAt,
+    })
+  } catch {
+    res.status(500).json({ message: 'Erro interno do servidor' })
+  }
+})
+
+router.post('/instance/disconnect', async (req: AuthRequest, res: Response) => {
+  try {
+    const instance = await resolveInstance(req.user!.userId)
+    if (!instance) {
+      res.status(404).json({ message: 'Instância não encontrada' })
+      return
+    }
+
+    await stopSession(instance.instanceKey)
+
+    const updated = await prisma.whatsAppInstance.update({
+      where: { id: instance.id },
+      data: {
+        status: 'DISCONNECTED',
+        qrCode: null,
+        qrCodeExpiresAt: null,
+        phoneNumber: null,
+        displayName: null,
+        disconnectedAt: new Date(),
+      },
+    })
+
+    res.json(updated)
+  } catch (err) {
+    console.error('[/chatbot-light/instance/disconnect]', err)
+    res.status(500).json({ message: 'Erro ao desconectar WhatsApp' })
   }
 })
 

@@ -1531,8 +1531,8 @@ function ConexaoTab() {
   const [showQrModal, setShowQrModal] = useState(false)
 
   const { data: instance, refetch } = useQuery({
-    queryKey: ['chatbot-instance'],
-    queryFn:  () => api.get('/chatbot/instance').then(r => r.data).catch(() => null),
+    queryKey: ['chatbot-light-instance'],
+    queryFn:  () => api.get('/chatbot-light/instance').then(r => r.data).catch(() => null),
     staleTime: 10_000,
   })
 
@@ -1543,7 +1543,7 @@ function ConexaoTab() {
     if (!polling) return
     const interval = setInterval(async () => {
       try {
-        const res = await api.get('/chatbot/instance/status').then(r => r.data)
+        const res = await api.get('/chatbot-light/instance/status').then(r => r.data)
         if (res.qrCode) setQrCode(res.qrCode)
         if (res.status === 'CONNECTED') {
           setPolling(false)
@@ -1557,16 +1557,16 @@ function ConexaoTab() {
   }, [polling, refetch])
 
   const connectMutation = useMutation({
-    mutationFn: () => api.post('/chatbot/instance/connect').then(r => r.data),
+    mutationFn: () => api.post('/chatbot-light/instance/connect').then(r => r.data),
     onSuccess:  () => { setPolling(true); setShowQrModal(true) },
     onError:    () => toast.error('Erro ao iniciar conexão'),
   })
 
   const disconnectMutation = useMutation({
-    mutationFn: () => api.post('/chatbot/instance/disconnect').then(r => r.data),
+    mutationFn: () => api.post('/chatbot-light/instance/disconnect').then(r => r.data),
     onSuccess:  () => {
       toast.success('WhatsApp desconectado')
-      qc.invalidateQueries({ queryKey: ['chatbot-instance'] })
+      qc.invalidateQueries({ queryKey: ['chatbot-light-instance'] })
       refetch()
     },
     onError: () => toast.error('Erro ao desconectar'),
@@ -1949,8 +1949,8 @@ function SideNavBtn({
 
 function SidebarConnectionStatus() {
   const { data: instance } = useQuery({
-    queryKey: ['chatbot-instance'],
-    queryFn:  () => api.get('/chatbot/instance').then(r => r.data).catch(() => null),
+    queryKey: ['chatbot-light-instance'],
+    queryFn:  () => api.get('/chatbot-light/instance').then(r => r.data).catch(() => null),
     refetchInterval: 30_000,
     staleTime: 15_000,
   })

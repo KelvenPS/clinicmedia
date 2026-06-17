@@ -1,0 +1,11 @@
+-- CreateEnum
+CREATE TYPE "WhatsAppInstanceType" AS ENUM ('CHATBOT_LIGHT', 'CLINICAL_AGENT');
+
+-- DropIndex
+DROP INDEX "TBLWHATSAPPINSTANCIA_doctorId_key";
+
+-- AlterTable
+ALTER TABLE "TBLWHATSAPPINSTANCIA" ADD COLUMN     "type" "WhatsAppInstanceType" NOT NULL DEFAULT 'CLINICAL_AGENT';
+
+-- CreateIndex
+CREATE UNIQUE INDEX "TBLWHATSAPPINSTANCIA_doctorId_type_key" ON "TBLWHATSAPPINSTANCIA"("doctorId", "type");

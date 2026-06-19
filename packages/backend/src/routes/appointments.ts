@@ -282,18 +282,39 @@ router.put('/:id', async (req: AuthRequest, res) => {
       where: { id },
       data,
       include: {
-        patient: { select: { id: true, name: true, phone: true } },
+        patient: {
+          select: {
+            id: true, name: true, phone: true,
+            patientPlans: {
+              take: 1,
+              include: { healthPlan: { select: { discountPercent: true } } },
+            },
+          },
+        },
         doctor: { select: { id: true, name: true, specialty: true } },
         room: { select: { id: true, name: true, logradouro: true, cidade: true } },
       },
     })
 
-    const completingNow =
+    const beingCompleted =
       data.status === 'COMPLETED' &&
       current?.status !== 'COMPLETED' &&
-      !current?.transaction &&
-      appointment.value &&
-      appointment.value > 0
+      !current?.transaction
+
+    let transactionAmount: number | null = appointment.value ?? null
+
+    // Fallback: se o agendamento não tem valor, busca do tipo de atendimento com repasse do plano
+    if (beingCompleted && (!transactionAmount || transactionAmount <= 0) && appointment.type) {
+      const appType = await prisma.appointmentType.findFirst({
+        where: { name: appointment.type, doctorId: appointment.doctorId },
+      })
+      if (appType?.baseValue && appType.baseValue > 0) {
+        const discount = appointment.patient.patientPlans?.[0]?.healthPlan?.discountPercent ?? 0
+        transactionAmount = Math.round(appType.baseValue * (1 - discount / 100) * 100) / 100
+      }
+    }
+
+    const completingNow = beingCompleted && transactionAmount && transactionAmount > 0
 
     if (completingNow) {
       await prisma.transaction.create({
@@ -301,7 +322,7 @@ router.put('/:id', async (req: AuthRequest, res) => {
           doctorId: appointment.doctorId,
           appointmentId: appointment.id,
           type: 'INCOME',
-          amount: appointment.value!,
+          amount: transactionAmount!,
           description: `${appointment.type || 'Consulta'} - ${appointment.patient.name}`,
           date: appointment.date,
           status: 'PAID',
@@ -311,7 +332,7 @@ router.put('/:id', async (req: AuthRequest, res) => {
       await createNotification(
         appointment.doctorId,
         'Atendimento concluído',
-        `${appointment.type || 'Consulta'} de ${appointment.patient.name} — R$ ${appointment.value!.toFixed(2)} lançado no financeiro`,
+        `${appointment.type || 'Consulta'} de ${appointment.patient.name} — R$ ${transactionAmount!.toFixed(2)} lançado no financeiro`,
         'SUCCESS',
         '/financeiro',
       )
@@ -321,7 +342,7 @@ router.put('/:id', async (req: AuthRequest, res) => {
         patientPhone: appointment.patient.phone,
         date: appointment.date,
         type: appointment.type,
-        value: appointment.value,
+        value: transactionAmount,
       }).catch(() => {})
     }
 

@@ -186,12 +186,23 @@ const MODULES = [
       { event: 'PAYMENT_OVERDUE',  label: 'Aviso de pagamento em atraso',   hasDelay: false },
     ],
   },
+  {
+    key: 'documentos',
+    label: 'Documentos',
+    icon: FileText,
+    color: 'text-rose-600',
+    bg: 'bg-rose-50',
+    border: 'border-rose-200',
+    triggers: [
+      { event: 'DOCUMENT_SENT', label: 'Documento gerado para o paciente', hasDelay: false },
+    ],
+  },
 ]
 
 const MODULE_LABELS: Record<string, string> = Object.fromEntries(MODULES.map(m => [m.key, m.label]))
 const MODULE_COLORS: Record<string, string> = Object.fromEntries(MODULES.map(m => [m.key, m.color]))
 
-const VARIABLES = ['{nome}', '{data}', '{hora}', '{medico}', '{valor}', '{link}']
+const VARIABLES = ['{nome}', '{data}', '{hora}', '{medico}', '{valor}', '{link}', '{documento}']
 
 const FLUXO_ACTIONS: { value: FluxoActionType; label: string }[] = [
   { value: 'SEND_MESSAGE',   label: 'Enviar apenas mensagem' },
@@ -218,12 +229,13 @@ const FLUXO_SYSTEM_ACTIONS = [
 ]
 
 const CATEGORIES = [
-  { key: 'geral',      label: 'Geral' },
-  { key: 'agenda',     label: 'Agenda' },
-  { key: 'pacientes',  label: 'Pacientes' },
-  { key: 'prontuario', label: 'Prontuário' },
-  { key: 'avaliacao',  label: 'Avaliação' },
-  { key: 'financeiro', label: 'Financeiro' },
+  { key: 'geral',       label: 'Geral' },
+  { key: 'agenda',      label: 'Agenda' },
+  { key: 'pacientes',   label: 'Pacientes' },
+  { key: 'prontuario',  label: 'Prontuário' },
+  { key: 'avaliacao',   label: 'Avaliação' },
+  { key: 'financeiro',  label: 'Financeiro' },
+  { key: 'documentos',  label: 'Documentos' },
 ]
 
 // ─── Shared components ────────────────────────────────────────────────────────

@@ -635,6 +635,7 @@ export async function triggerLightAutomatedMessage(
       .replace(/\{medico\}/g, contextData.doctorName ?? '')
       .replace(/\{valor\}/g, contextData.paymentValue ?? '')
       .replace(/\{link\}/g, contextData.link ?? '')
+      .replace(/\{documento\}/g, contextData.documentName ?? '')
 
     const sendFn = async () => {
       const sessionAlive = isSessionActive(instance.instanceKey)

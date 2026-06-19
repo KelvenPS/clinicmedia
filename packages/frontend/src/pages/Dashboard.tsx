@@ -274,7 +274,7 @@ export default function Dashboard() {
                         <div className="flex-1 min-w-0 flex items-center gap-2">
                           <Lock className="w-3.5 h-3.5 text-amber-600 flex-shrink-0" />
                           <div>
-                            <p className="font-medium text-amber-800 text-sm">Horário reservado</p>
+                            <p className="font-medium text-amber-800 text-sm">Reservado pelo médico</p>
                             <p className="text-xs text-amber-600">Dr(a). {appt.doctor.name}</p>
                           </div>
                         </div>

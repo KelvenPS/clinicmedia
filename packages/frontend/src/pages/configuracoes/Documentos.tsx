@@ -3,10 +3,10 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { z } from 'zod'
-import { Plus, Edit2, FileText, Upload, CheckCircle, XCircle, Download } from 'lucide-react'
+import { Plus, Edit2, FileText, Upload, CheckCircle, XCircle, Download, Send, Search, User } from 'lucide-react'
 import toast from 'react-hot-toast'
 import api from '../../lib/api'
-import type { DocumentTemplate } from '../../types'
+import type { DocumentTemplate, Patient } from '../../types'
 import Modal from '../../components/ui/Modal'
 
 const DOC_TYPES = [
@@ -131,10 +131,19 @@ export default function Documentos() {
   const [modalOpen, setModalOpen] = useState(false)
   const [editDoc, setEditDoc] = useState<DocumentTemplate | null>(null)
   const [filterType, setFilterType] = useState('')
+  const [emitDoc, setEmitDoc] = useState<DocumentTemplate | null>(null)
+  const [patientSearch, setPatientSearch] = useState('')
+  const [selectedPatient, setSelectedPatient] = useState<Patient | null>(null)
 
   const { data: docs = [] } = useQuery<DocumentTemplate[]>({
     queryKey: ['documents'],
     queryFn: () => api.get('/documents').then(r => r.data),
+  })
+
+  const { data: patients = [] } = useQuery<Patient[]>({
+    queryKey: ['patients-list'],
+    queryFn: () => api.get('/patients').then(r => r.data),
+    enabled: !!emitDoc,
   })
 
   const saveMutation = useMutation({
@@ -153,6 +162,28 @@ export default function Documentos() {
     mutationFn: (id: string) => api.patch(`/documents/${id}/toggle`),
     onSuccess: () => { qc.invalidateQueries({ queryKey: ['documents'] }); toast.success('Status alterado') },
   })
+
+  const emitMutation = useMutation({
+    mutationFn: ({ docId, patientId }: { docId: string; patientId: string }) =>
+      api.post(`/documents/${docId}/emit`, { patientId }),
+    onSuccess: () => {
+      toast.success('Notificação WhatsApp enviada ao paciente!')
+      setEmitDoc(null)
+      setSelectedPatient(null)
+      setPatientSearch('')
+    },
+    onError: (err: any) => {
+      const msg = err?.response?.data?.message ?? 'Erro ao enviar notificação'
+      toast.error(msg)
+    },
+  })
+
+  const filteredPatients = patients.filter(p =>
+    patientSearch.length < 2
+      ? false
+      : p.name.toLowerCase().includes(patientSearch.toLowerCase()) ||
+        p.phone?.includes(patientSearch)
+  )
 
   const displayed = docs.filter(d => !filterType || d.type === filterType)
 
@@ -230,6 +261,13 @@ export default function Documentos() {
                   </div>
                   <div className="flex items-center gap-1 flex-shrink-0">
                     <button
+                      onClick={() => { setEmitDoc(doc); setSelectedPatient(null); setPatientSearch('') }}
+                      className="p-1.5 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition-colors"
+                      title="Enviar para Paciente via WhatsApp"
+                    >
+                      <Send className="w-4 h-4" />
+                    </button>
+                    <button
                       onClick={() => exportDoc(doc)}
                       className="p-1.5 text-slate-400 hover:text-emerald-600 hover:bg-emerald-50 rounded-lg transition-colors"
                       title="Exportar"
@@ -264,6 +302,96 @@ export default function Documentos() {
         size="lg"
       >
         <DocForm doc={editDoc} onSubmit={(data) => saveMutation.mutate(data)} loading={saveMutation.isPending} />
+      </Modal>
+
+      {/* Modal: Enviar para Paciente */}
+      <Modal
+        isOpen={!!emitDoc}
+        onClose={() => { setEmitDoc(null); setSelectedPatient(null); setPatientSearch('') }}
+        title="Enviar Documento para Paciente"
+        size="md"
+      >
+        {emitDoc && (
+          <div className="space-y-4">
+            <div className="flex items-center gap-3 p-3 bg-rose-50 rounded-xl border border-rose-100">
+              <FileText className="w-5 h-5 text-rose-600 flex-shrink-0" />
+              <div>
+                <p className="font-semibold text-slate-900 text-sm">{emitDoc.name}</p>
+                <p className="text-xs text-slate-500 mt-0.5">
+                  Uma notificação WhatsApp será enviada ao paciente conforme a mensagem configurada no Chatbot Light → Documentos.
+                </p>
+              </div>
+            </div>
+
+            <div>
+              <label className="label">Buscar paciente</label>
+              <div className="relative">
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+                <input
+                  type="text"
+                  value={patientSearch}
+                  onChange={e => { setPatientSearch(e.target.value); setSelectedPatient(null) }}
+                  className="input-field pl-9"
+                  placeholder="Digite o nome ou telefone (mín. 2 caracteres)"
+                  autoFocus
+                />
+              </div>
+
+              {patientSearch.length >= 2 && (
+                <div className="mt-2 border border-slate-200 rounded-xl divide-y divide-slate-100 max-h-56 overflow-y-auto">
+                  {filteredPatients.length === 0 ? (
+                    <p className="text-sm text-slate-400 text-center py-4">Nenhum paciente encontrado</p>
+                  ) : (
+                    filteredPatients.slice(0, 20).map(p => (
+                      <button
+                        key={p.id}
+                        onClick={() => { setSelectedPatient(p); setPatientSearch(p.name) }}
+                        className={`w-full flex items-center gap-3 px-4 py-3 text-left hover:bg-slate-50 transition-colors ${selectedPatient?.id === p.id ? 'bg-rose-50' : ''}`}
+                      >
+                        <div className="w-8 h-8 rounded-full bg-rose-100 flex items-center justify-center flex-shrink-0">
+                          <User className="w-4 h-4 text-rose-600" />
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <p className="font-medium text-slate-900 text-sm truncate">{p.name}</p>
+                          <p className="text-xs text-slate-400">{p.phone || 'Sem telefone'}</p>
+                        </div>
+                        {selectedPatient?.id === p.id && (
+                          <CheckCircle className="w-4 h-4 text-rose-600 flex-shrink-0" />
+                        )}
+                      </button>
+                    ))
+                  )}
+                </div>
+              )}
+            </div>
+
+            {selectedPatient && !selectedPatient.phone && (
+              <p className="text-xs text-red-600 bg-red-50 border border-red-100 rounded-lg px-3 py-2">
+                Este paciente não possui telefone cadastrado e não pode receber a notificação.
+              </p>
+            )}
+
+            <div className="flex gap-3 pt-2">
+              <button
+                onClick={() => { setEmitDoc(null); setSelectedPatient(null); setPatientSearch('') }}
+                className="btn-secondary flex-1"
+              >
+                Cancelar
+              </button>
+              <button
+                disabled={!selectedPatient?.phone || emitMutation.isPending}
+                onClick={() => emitDoc && selectedPatient && emitMutation.mutate({ docId: emitDoc.id, patientId: selectedPatient.id })}
+                className="btn-primary flex-1 flex items-center justify-center gap-2"
+              >
+                {emitMutation.isPending ? (
+                  <><div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />Enviando...</>
+                ) : (
+                  <><Send className="w-4 h-4" />Enviar notificação</>
+                )}
+              </button>
+            </div>
+          </div>
+        )}
       </Modal>
     </div>
   )

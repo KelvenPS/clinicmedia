@@ -3,6 +3,7 @@ import { z } from 'zod'
 import { prisma } from '../lib/prisma'
 import { authenticate, requireRole, AuthRequest } from '../middleware/auth'
 import { getEffectiveDoctorId, requireSecretaryPermission } from '../lib/secretaryAccess'
+import { triggerLightAutomatedMessage } from '../lib/chatbot-light-engine'
 
 const router = Router()
 router.use(authenticate)
@@ -93,6 +94,68 @@ router.delete('/:id', async (req: AuthRequest, res) => {
     await prisma.documentTemplate.delete({ where: { id } })
     res.json({ message: 'Documento removido com sucesso' })
   } catch {
+    res.status(500).json({ message: 'Erro interno do servidor' })
+  }
+})
+
+// Envia notificação WhatsApp ao paciente quando um documento é gerado para ele
+router.post('/:id/emit', async (req: AuthRequest, res) => {
+  try {
+    const { id } = req.params
+    const { patientId } = z.object({ patientId: z.string().min(1) }).parse(req.body)
+
+    const doctorId = await getEffectiveDoctorId(req)
+    if (!doctorId) {
+      res.status(400).json({ message: 'Não foi possível identificar o médico responsável' })
+      return
+    }
+
+    const template = await prisma.documentTemplate.findUnique({ where: { id } })
+    if (!template || template.doctorId !== doctorId) {
+      res.status(404).json({ message: 'Documento não encontrado' })
+      return
+    }
+
+    const [patient, doctor] = await Promise.all([
+      prisma.patient.findUnique({ where: { id: patientId }, select: { id: true, name: true, phone: true } }),
+      prisma.user.findUnique({ where: { id: doctorId }, select: { name: true } }),
+    ])
+
+    if (!patient?.phone) {
+      res.status(400).json({ message: 'Paciente não encontrado ou sem telefone cadastrado' })
+      return
+    }
+
+    // Dedup: bloqueia reenvio ao mesmo paciente dentro de 2 minutos
+    const cleanPhone = patient.phone.replace(/\D/g, '')
+    const twoMinutesAgo = new Date(Date.now() - 2 * 60 * 1000)
+    const recentLog = await prisma.lightMessageLog.findFirst({
+      where: {
+        doctorId,
+        phone: cleanPhone,
+        triggerEvent: 'DOCUMENT_SENT',
+        createdAt: { gte: twoMinutesAgo },
+        status: { in: ['SENT', 'PENDING'] },
+      },
+    })
+    if (recentLog) {
+      res.status(429).json({ message: 'Mensagem já enviada recentemente para este paciente. Aguarde 2 minutos antes de reenviar.' })
+      return
+    }
+
+    triggerLightAutomatedMessage(doctorId, 'DOCUMENT_SENT', {
+      patientName: patient.name,
+      patientPhone: patient.phone,
+      doctorName: doctor?.name ?? '',
+      documentName: template.name,
+    }).catch(() => {})
+
+    res.json({ message: 'Notificação enviada com sucesso' })
+  } catch (error) {
+    if (error instanceof z.ZodError) {
+      res.status(400).json({ message: 'Dados inválidos', errors: error.errors })
+      return
+    }
     res.status(500).json({ message: 'Erro interno do servidor' })
   }
 })

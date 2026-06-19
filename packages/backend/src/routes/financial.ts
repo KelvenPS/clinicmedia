@@ -114,6 +114,98 @@ router.get('/monthly', async (req: AuthRequest, res) => {
   }
 })
 
+router.get('/analytics', async (req: AuthRequest, res) => {
+  try {
+    const { startDate, endDate, doctorId } = req.query
+
+    const where: Record<string, unknown> = {
+      type: 'INCOME',
+      status: 'PAID',
+    }
+
+    if (req.user!.role === 'DOCTOR') {
+      where.doctorId = req.user!.userId
+    } else if (doctorId) {
+      where.doctorId = doctorId as string
+    }
+
+    if (startDate && endDate) {
+      where.date = {
+        gte: new Date(startDate as string),
+        lte: new Date(endDate as string),
+      }
+    }
+
+    const transactions = await prisma.transaction.findMany({
+      where,
+      include: {
+        appointment: {
+          include: {
+            room: { select: { id: true, name: true, cidade: true } },
+            patient: {
+              include: {
+                patientPlans: {
+                  include: {
+                    healthPlan: { select: { id: true, name: true, type: true } },
+                  },
+                  take: 1,
+                },
+              },
+            },
+          },
+        },
+      },
+    })
+
+    // Aggregate by room/location
+    const roomMap = new Map<string, { name: string; cidade?: string | null; total: number; count: number }>()
+    // Aggregate by appointment type
+    const typeMap = new Map<string, { total: number; count: number }>()
+    // Aggregate by health plan
+    const planMap = new Map<string, { name: string; planType: string; total: number; count: number }>()
+
+    for (const tx of transactions) {
+      // By room
+      if (tx.appointment?.room) {
+        const room = tx.appointment.room
+        const prev = roomMap.get(room.id) ?? { name: room.name, cidade: room.cidade, total: 0, count: 0 }
+        roomMap.set(room.id, { ...prev, total: prev.total + tx.amount, count: prev.count + 1 })
+      }
+
+      // By type
+      const typeKey = tx.appointment?.type || tx.category || 'Outros'
+      const prevType = typeMap.get(typeKey) ?? { total: 0, count: 0 }
+      typeMap.set(typeKey, { total: prevType.total + tx.amount, count: prevType.count + 1 })
+
+      // By health plan
+      const plan = tx.appointment?.patient?.patientPlans?.[0]?.healthPlan
+      if (plan) {
+        const prev = planMap.get(plan.id) ?? { name: plan.name, planType: plan.type, total: 0, count: 0 }
+        planMap.set(plan.id, { ...prev, total: prev.total + tx.amount, count: prev.count + 1 })
+      } else {
+        const prev = planMap.get('particular') ?? { name: 'Particular', planType: 'PARTICULAR', total: 0, count: 0 }
+        planMap.set('particular', { ...prev, total: prev.total + tx.amount, count: prev.count + 1 })
+      }
+    }
+
+    const byRoom = Array.from(roomMap.entries())
+      .map(([id, v]) => ({ id, ...v }))
+      .sort((a, b) => b.total - a.total)
+
+    const byType = Array.from(typeMap.entries())
+      .map(([type, v]) => ({ type, ...v }))
+      .sort((a, b) => b.total - a.total)
+
+    const byHealthPlan = Array.from(planMap.entries())
+      .map(([id, v]) => ({ id, ...v }))
+      .sort((a, b) => b.total - a.total)
+
+    res.json({ byRoom, byType, byHealthPlan })
+  } catch {
+    res.status(500).json({ message: 'Erro interno do servidor' })
+  }
+})
+
 router.post('/', async (req, res) => {
   try {
     const data = transactionSchema.parse(req.body)

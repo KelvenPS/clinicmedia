@@ -194,6 +194,22 @@ export interface FinancialResponse {
   summary: FinancialSummary
 }
 
+export interface FinancialAnalyticsItem {
+  id: string
+  name?: string
+  type?: string
+  total: number
+  count: number
+  cidade?: string | null
+  planType?: string
+}
+
+export interface FinancialAnalytics {
+  byRoom: (FinancialAnalyticsItem & { name: string; cidade?: string | null })[]
+  byType: (FinancialAnalyticsItem & { type: string })[]
+  byHealthPlan: (FinancialAnalyticsItem & { name: string; planType: string })[]
+}
+
 export interface AppointmentStats {
   todayTotal: number
   todayCompleted: number

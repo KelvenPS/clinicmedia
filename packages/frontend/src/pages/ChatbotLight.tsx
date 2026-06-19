@@ -968,6 +968,13 @@ function MensagensPanel() {
     queryFn:  () => api.get('/chatbot-light/settings').then(r => r.data),
   })
 
+  const { data: instance } = useQuery({
+    queryKey: ['chatbot-light-instance'],
+    queryFn:  () => api.get('/chatbot-light/instance').then(r => r.data).catch(() => null),
+    refetchInterval: 30_000,
+    staleTime: 15_000,
+  })
+
   const saveMutation = useMutation({
     mutationFn: (data: { module: string; triggerEvent: string; enabled: boolean; templateId?: string | null; delayMinutes?: number }) =>
       api.put('/chatbot-light/integrations', data).then(r => r.data),
@@ -981,6 +988,9 @@ function MensagensPanel() {
   const getConfig = (module: string, event: string) =>
     configs.find(c => c.module === module && c.triggerEvent === event)
 
+  const isConnected = instance?.status === 'CONNECTED'
+  const enabledWithoutTemplate = configs.filter(c => c.enabled && !c.templateId)
+
   return (
     <div className="p-6 space-y-6">
       <div>
@@ -988,10 +998,46 @@ function MensagensPanel() {
         <p className="text-sm text-slate-500 mt-0.5">Disparos iniciados pelo sistema — a clínica envia primeiro</p>
       </div>
 
+      {/* Status de conexão WhatsApp */}
+      <div className={`flex items-center gap-3 px-4 py-3 rounded-xl border text-sm ${
+        isConnected
+          ? 'bg-emerald-50 border-emerald-200 text-emerald-800'
+          : 'bg-red-50 border-red-200 text-red-800'
+      }`}>
+        {isConnected ? (
+          <Wifi className="w-4 h-4 flex-shrink-0 text-emerald-600" />
+        ) : (
+          <WifiOff className="w-4 h-4 flex-shrink-0 text-red-500" />
+        )}
+        <div className="flex-1">
+          <span className="font-medium">
+            {isConnected
+              ? `WhatsApp conectado${instance?.phoneNumber ? ' · ' + instance.phoneNumber : ''}`
+              : 'WhatsApp desconectado'}
+          </span>
+          {!isConnected && (
+            <span className="text-xs block text-red-600 mt-0.5">
+              As mensagens automáticas não serão enviadas até você conectar o WhatsApp em <strong>Configurações</strong>.
+            </span>
+          )}
+        </div>
+        {isConnected && <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse flex-shrink-0" />}
+      </div>
+
       {templates.length === 0 && (
         <div className="bg-amber-50 border border-amber-200 rounded-xl px-4 py-3 flex items-center gap-2 text-sm text-amber-700">
           <AlertCircle className="w-4 h-4 flex-shrink-0" />
           Crie templates de mensagem em <strong>Templates</strong> antes de ativar as integrações.
+        </div>
+      )}
+
+      {enabledWithoutTemplate.length > 0 && (
+        <div className="bg-amber-50 border border-amber-200 rounded-xl px-4 py-3 flex items-start gap-2 text-sm text-amber-700">
+          <AlertCircle className="w-4 h-4 flex-shrink-0 mt-0.5" />
+          <span>
+            {enabledWithoutTemplate.length} gatilho{enabledWithoutTemplate.length > 1 ? 's ativados' : ' ativado'} sem template selecionado — as mensagens não serão enviadas.
+            Selecione um template abaixo.
+          </span>
         </div>
       )}
 
@@ -1013,11 +1059,21 @@ function MensagensPanel() {
                   const isEnabled      = cfg?.enabled ?? false
                   const selectedTemplate = cfg?.templateId ?? ''
 
+                  const hasTemplateWarning = isEnabled && !selectedTemplate
+
                   return (
-                    <div key={trigger.event} className="px-5 py-4">
+                    <div key={trigger.event} className={`px-5 py-4 ${hasTemplateWarning ? 'bg-amber-50/40' : ''}`}>
                       <div className="flex items-start justify-between gap-4">
                         <div className="flex-1">
-                          <p className="text-sm font-medium text-slate-800">{trigger.label}</p>
+                          <div className="flex items-center gap-2">
+                            <p className="text-sm font-medium text-slate-800">{trigger.label}</p>
+                            {hasTemplateWarning && (
+                              <span className="inline-flex items-center gap-1 text-xs text-amber-700 bg-amber-100 px-2 py-0.5 rounded-full font-medium">
+                                <AlertCircle className="w-3 h-3" />
+                                Sem template
+                              </span>
+                            )}
+                          </div>
                           {isEnabled && cfg?.template && (
                             <p className="text-xs text-slate-500 mt-0.5 truncate">Template: {cfg.template.name}</p>
                           )}

@@ -15,7 +15,8 @@ export async function sendLightMessage(
   to: string, // JID or phone
   content: string,
   module: string,
-  triggerEvent?: string
+  triggerEvent?: string,
+  recipientName?: string
 ): Promise<boolean> {
   const jid = resolveDeliveryJid(to)
   const cleanPhone = jid.split('@')[0]
@@ -24,6 +25,7 @@ export async function sendLightMessage(
     data: {
       doctorId: instance.doctorId,
       phone: cleanPhone,
+      recipientName: recipientName ?? null,
       content,
       module,
       triggerEvent,
@@ -635,22 +637,24 @@ export async function triggerLightAutomatedMessage(
       .replace(/\{link\}/g, contextData.link ?? '')
 
     const sendFn = async () => {
-      if (instance.status !== 'CONNECTED') {
+      const sessionAlive = isSessionActive(instance.instanceKey)
+      if (instance.status !== 'CONNECTED' || !sessionAlive) {
         // Registrar log de erro no banco
         await prisma.lightMessageLog.create({
           data: {
             doctorId,
             phone: contextData.patientPhone.replace(/\D/g, ''),
+            recipientName: contextData.patientName ?? null,
             content: interpolatedText,
             module: config.module,
             triggerEvent: event,
             status: 'FAILED',
-            errorMessage: 'WhatsApp desconectado',
+            errorMessage: !sessionAlive ? 'Sessão WhatsApp inativa' : 'WhatsApp desconectado',
           },
         })
         return
       }
-      await sendLightMessage(instance, contextData.patientPhone, interpolatedText, config.module, event)
+      await sendLightMessage(instance, contextData.patientPhone, interpolatedText, config.module, event, contextData.patientName)
     }
 
     if (config.delayMinutes > 0) {
@@ -696,7 +700,7 @@ export async function checkScheduledReminders() {
 
   const appts24h = await prisma.appointment.findMany({
     where: {
-      status: 'SCHEDULED',
+      status: { in: ['SCHEDULED', 'CONFIRMED'] },
       isBlocked: false,
       reminder24hSent: false,
       date: { gte: range24hStart, lte: range24hEnd },
@@ -727,7 +731,7 @@ export async function checkScheduledReminders() {
 
   const appts2h = await prisma.appointment.findMany({
     where: {
-      status: 'SCHEDULED',
+      status: { in: ['SCHEDULED', 'CONFIRMED'] },
       isBlocked: false,
       reminder2hSent: false,
       date: { gte: range2hStart, lte: range2hEnd },

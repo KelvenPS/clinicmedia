@@ -11,6 +11,10 @@ import {
   Trash2,
   BarChart3,
   ChevronDown,
+  MapPin,
+  Tag,
+  HeartPulse,
+  TrendingUp as GrowthIcon,
 } from 'lucide-react'
 import {
   BarChart,
@@ -21,19 +25,80 @@ import {
   Tooltip,
   ResponsiveContainer,
   Legend,
+  PieChart,
+  Pie,
+  Cell,
 } from 'recharts'
 import toast from 'react-hot-toast'
 import api from '../lib/api'
 import { useAuthStore } from '../store/authStore'
-import type { Transaction, FinancialResponse, MonthlyData, User } from '../types'
+import type { Transaction, FinancialResponse, MonthlyData, User, FinancialAnalytics } from '../types'
 import Modal from '../components/ui/Modal'
 import TransactionForm from '../components/Financial/TransactionForm'
 import PageHeader from '../components/ui/PageHeader'
 
 const MONTH_NAMES = ['Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun', 'Jul', 'Ago', 'Set', 'Out', 'Nov', 'Dez']
 
+const ANALYTICS_COLORS = ['#3b82f6', '#10b981', '#f59e0b', '#8b5cf6', '#ef4444', '#06b6d4', '#f97316', '#84cc16']
+
 function currency(v: number) {
   return new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(v)
+}
+
+function AnalyticsBar({ label, value, max, color }: { label: string; value: number; max: number; color: string }) {
+  const pct = max > 0 ? Math.round((value / max) * 100) : 0
+  return (
+    <div className="space-y-1">
+      <div className="flex items-center justify-between text-xs">
+        <span className="text-slate-700 font-medium truncate max-w-[60%]">{label}</span>
+        <span className="text-slate-500 tabular-nums font-semibold">{currency(value)}</span>
+      </div>
+      <div className="h-2 bg-slate-100 rounded-full overflow-hidden">
+        <div
+          className="h-full rounded-full transition-all duration-700"
+          style={{ width: `${pct}%`, backgroundColor: color }}
+        />
+      </div>
+    </div>
+  )
+}
+
+interface AnalyticsCardProps {
+  icon: React.ElementType
+  title: string
+  subtitle: string
+  color: string
+  iconBg: string
+  children: React.ReactNode
+  pieData?: { name: string; value: number }[]
+}
+
+function AnalyticsCard({ icon: Icon, title, subtitle, color, iconBg, children, pieData }: AnalyticsCardProps) {
+  return (
+    <div className="card space-y-4">
+      <div className="flex items-center gap-3">
+        <div className={`w-9 h-9 rounded-xl flex items-center justify-center flex-shrink-0 ${iconBg}`}>
+          <Icon className={`w-4 h-4 ${color}`} />
+        </div>
+        <div>
+          <h3 className="text-sm font-semibold text-slate-900">{title}</h3>
+          <p className="text-xs text-slate-400">{subtitle}</p>
+        </div>
+        {pieData && pieData.length > 0 && (
+          <div className="ml-auto">
+            <PieChart width={64} height={64}>
+              <Pie data={pieData} cx={28} cy={28} innerRadius={18} outerRadius={30} dataKey="value" strokeWidth={0}>
+                {pieData.map((_, i) => (
+                  <Cell key={i} fill={ANALYTICS_COLORS[i % ANALYTICS_COLORS.length]} />
+                ))}
+              </Pie>
+            </PieChart>
+          </div>
+        )}
+      </div>
+      <div className="space-y-3">{children}</div>
+    </div>
+  )
 }
 
 interface SummaryCardProps {
@@ -112,6 +177,18 @@ export default function Financeiro() {
     queryKey: ['doctors'],
     queryFn: () => api.get('/doctors').then(r => r.data),
     enabled: user?.role === 'ADMIN',
+  })
+
+  const { data: analytics } = useQuery<FinancialAnalytics>({
+    queryKey: ['financial-analytics', period, filterDoctorId],
+    queryFn: () =>
+      api.get('/financial/analytics', {
+        params: {
+          startDate: startDate.toISOString(),
+          endDate: endDate.toISOString(),
+          ...(filterDoctorId && { doctorId: filterDoctorId }),
+        },
+      }).then(r => r.data),
   })
 
   const saveMutation = useMutation({
@@ -294,6 +371,142 @@ export default function Financeiro() {
           </BarChart>
         </ResponsiveContainer>
       </div>
+
+      {/* ── Análises detalhadas ── */}
+      {analytics && (analytics.byRoom.length > 0 || analytics.byType.length > 0 || analytics.byHealthPlan.length > 0) && (
+        <div className="space-y-4">
+          <div className="flex items-center gap-2">
+            <div className="w-8 h-8 bg-violet-100 rounded-xl flex items-center justify-center">
+              <GrowthIcon className="w-4 h-4 text-violet-600" />
+            </div>
+            <div>
+              <h2 className="text-base font-semibold text-slate-900">Análise de Receitas</h2>
+              <p className="text-xs text-slate-400">Oportunidades de crescimento e distribuição de faturamento</p>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+            {/* Por Local de Atendimento */}
+            <AnalyticsCard
+              icon={MapPin}
+              title="Por Local de Atendimento"
+              subtitle="Receita por sala / consultório"
+              color="text-blue-600"
+              iconBg="bg-blue-50"
+              pieData={analytics.byRoom.slice(0, 5).map(r => ({ name: r.name, value: r.total }))}
+            >
+              {analytics.byRoom.length === 0 ? (
+                <p className="text-xs text-slate-400 text-center py-2">Sem dados com local associado</p>
+              ) : (
+                analytics.byRoom.slice(0, 5).map((room, i) => (
+                  <div key={room.id}>
+                    <AnalyticsBar
+                      label={room.cidade ? `${room.name} — ${room.cidade}` : room.name}
+                      value={room.total}
+                      max={analytics.byRoom[0].total}
+                      color={ANALYTICS_COLORS[i % ANALYTICS_COLORS.length]}
+                    />
+                    <p className="text-xs text-slate-400 mt-0.5 pl-0.5">
+                      {room.count} atendimento{room.count !== 1 ? 's' : ''} · ticket médio {currency(room.total / room.count)}
+                    </p>
+                  </div>
+                ))
+              )}
+              {analytics.byRoom.length === 0 && (
+                <div className="mt-2 p-3 bg-blue-50 rounded-xl border border-blue-100 text-xs text-blue-700">
+                  Vincule salas aos agendamentos para ver análise por local.
+                </div>
+              )}
+            </AnalyticsCard>
+
+            {/* Por Tipo de Atendimento */}
+            <AnalyticsCard
+              icon={Tag}
+              title="Por Tipo de Atendimento"
+              subtitle="Receita por procedimento / consulta"
+              color="text-emerald-600"
+              iconBg="bg-emerald-50"
+              pieData={analytics.byType.slice(0, 5).map(t => ({ name: t.type, value: t.total }))}
+            >
+              {analytics.byType.length === 0 ? (
+                <p className="text-xs text-slate-400 text-center py-2">Sem dados de tipo associado</p>
+              ) : (
+                analytics.byType.slice(0, 6).map((item, i) => (
+                  <div key={item.type}>
+                    <AnalyticsBar
+                      label={item.type}
+                      value={item.total}
+                      max={analytics.byType[0].total}
+                      color={ANALYTICS_COLORS[i % ANALYTICS_COLORS.length]}
+                    />
+                    <p className="text-xs text-slate-400 mt-0.5 pl-0.5">
+                      {item.count} atendimento{item.count !== 1 ? 's' : ''} · ticket médio {currency(item.total / item.count)}
+                    </p>
+                  </div>
+                ))
+              )}
+            </AnalyticsCard>
+
+            {/* Por Plano de Saúde */}
+            <AnalyticsCard
+              icon={HeartPulse}
+              title="Por Plano de Saúde"
+              subtitle="Receita por convênio / particular"
+              color="text-rose-600"
+              iconBg="bg-rose-50"
+              pieData={analytics.byHealthPlan.slice(0, 5).map(p => ({ name: p.name, value: p.total }))}
+            >
+              {analytics.byHealthPlan.length === 0 ? (
+                <p className="text-xs text-slate-400 text-center py-2">Sem dados de plano associado</p>
+              ) : (
+                analytics.byHealthPlan.slice(0, 5).map((plan, i) => (
+                  <div key={plan.id}>
+                    <AnalyticsBar
+                      label={plan.name}
+                      value={plan.total}
+                      max={analytics.byHealthPlan[0].total}
+                      color={ANALYTICS_COLORS[i % ANALYTICS_COLORS.length]}
+                    />
+                    <p className="text-xs text-slate-400 mt-0.5 pl-0.5">
+                      {plan.count} atendimento{plan.count !== 1 ? 's' : ''} · ticket médio {currency(plan.total / plan.count)}
+                      {plan.planType === 'CONVENIO' && <span className="ml-1 text-blue-500">(convênio)</span>}
+                    </p>
+                  </div>
+                ))
+              )}
+            </AnalyticsCard>
+          </div>
+
+          {/* Insight de crescimento */}
+          {(analytics.byRoom.length > 0 || analytics.byType.length > 0) && (() => {
+            const topRoom = analytics.byRoom[0]
+            const topType = analytics.byType[0]
+            const insights: string[] = []
+            if (topRoom) insights.push(`"${topRoom.name}" é seu local mais rentável com ${currency(topRoom.total)} (${topRoom.count} atendimentos).`)
+            if (topType) insights.push(`"${topType.type}" é o procedimento que mais gera receita com ${currency(topType.total)}.`)
+            const weakRoom = analytics.byRoom[analytics.byRoom.length - 1]
+            if (weakRoom && analytics.byRoom.length > 1 && weakRoom.total < analytics.byRoom[0].total * 0.3) {
+              insights.push(`O local "${weakRoom.name}" está gerando apenas ${currency(weakRoom.total)} — avalie realocar horários.`)
+            }
+            return insights.length > 0 ? (
+              <div className="bg-gradient-to-r from-violet-50 to-blue-50 border border-violet-200 rounded-2xl p-4">
+                <div className="flex items-center gap-2 mb-3">
+                  <GrowthIcon className="w-4 h-4 text-violet-600" />
+                  <span className="text-sm font-semibold text-violet-900">Oportunidades de Crescimento</span>
+                </div>
+                <ul className="space-y-2">
+                  {insights.map((insight, i) => (
+                    <li key={i} className="text-xs text-slate-700 flex items-start gap-2">
+                      <span className="w-1.5 h-1.5 rounded-full bg-violet-400 flex-shrink-0 mt-1.5" />
+                      {insight}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            ) : null
+          })()}
+        </div>
+      )}
 
       {/* ── Transactions table ── */}
       <div className="card p-0 overflow-hidden animate-stagger-5">

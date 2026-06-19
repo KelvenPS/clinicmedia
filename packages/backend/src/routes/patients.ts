@@ -232,11 +232,14 @@ router.put('/:id', async (req: AuthRequest, res) => {
       return
     }
 
-    const { plans, ...rest } = patientSchema.partial().parse(req.body)
+    const { plans, birthDate: rawBirthDate, ...rest } = patientSchema.partial().parse(req.body)
 
     const updateData: Record<string, unknown> = { ...rest }
-    if (rest.birthDate) updateData.birthDate = new Date(rest.birthDate)
-    // Normalize empty strings to null for nullable unique/optional fields
+    // Converte birthDate: string vazia ou undefined → null, string válida → Date
+    if (rawBirthDate !== undefined) {
+      updateData.birthDate = rawBirthDate ? new Date(rawBirthDate) : null
+    }
+    // Normalize empty strings to null for nullable optional fields
     if (rest.email !== undefined) updateData.email = rest.email || null
     if (rest.cpf !== undefined) updateData.cpf = rest.cpf || null
     if (rest.rg !== undefined) updateData.rg = rest.rg || null

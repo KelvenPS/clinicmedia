@@ -5,7 +5,7 @@ import {
   format, startOfWeek, addDays, addWeeks, subWeeks, isSameDay, parseISO,
 } from 'date-fns'
 import { ptBR } from 'date-fns/locale'
-import { ChevronLeft, ChevronRight, Plus, Calendar, Clock, Lock, Trash2, X, MapPin, User as UserIcon, CalendarDays } from 'lucide-react'
+import { ChevronLeft, ChevronRight, Plus, Calendar, Clock, Lock, Trash2, X, MapPin, User as UserIcon, CalendarDays, LayoutList } from 'lucide-react'
 import toast from 'react-hot-toast'
 import api from '../lib/api'
 import { useAuthStore } from '../store/authStore'
@@ -153,6 +153,7 @@ export default function Agenda() {
   const [selectedAppt, setSelectedAppt] = useState<Appointment | null>(null)
   const [selectedSlot, setSelectedSlot] = useState<{ date: Date } | null>(null)
   const [filterDoctorId, setFilterDoctorId] = useState('')
+  const [viewMode, setViewMode] = useState<'calendar' | 'list'>('calendar')
   const [tooltip, setTooltip] = useState<TooltipState | null>(null)
   const tooltipTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
   const tooltipRef = useRef<HTMLDivElement>(null)
@@ -330,6 +331,19 @@ export default function Agenda() {
             </button>
           )}
           <button
+            onClick={() => setViewMode(v => v === 'calendar' ? 'list' : 'calendar')}
+            className="inline-flex items-center gap-2 px-4 py-2.5
+                       bg-white hover:bg-slate-50 active:scale-95
+                       text-slate-700 rounded-xl font-medium text-sm transition-all duration-150
+                       shadow-sm border border-slate-200 hover:border-slate-300"
+          >
+            {viewMode === 'calendar' ? (
+              <><LayoutList className="w-4 h-4" /><span className="hidden sm:inline">Lista</span></>
+            ) : (
+              <><Calendar className="w-4 h-4" /><span className="hidden sm:inline">Calendário</span></>
+            )}
+          </button>
+          <button
             onClick={() => { setSelectedAppt(null); setSelectedSlot(null); setModalOpen(true) }}
             className="btn-primary"
           >
@@ -408,8 +422,82 @@ export default function Agenda() {
         </div>
       </div>
 
+      {/* ── List view ── */}
+      {viewMode === 'list' && (
+        <div className="card p-0 overflow-hidden">
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="bg-slate-50/80 border-b border-slate-200">
+                  {['Data', 'Hora', 'Nome Paciente', 'Local de Atendimento', 'Valor Total', 'Agendado por', 'Profissional', 'Tipo', 'Status'].map(col => (
+                    <th key={col} className="px-4 py-3 text-left text-xs font-bold text-slate-500 uppercase tracking-wider whitespace-nowrap">
+                      {col}
+                    </th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {appointments
+                  .filter(a => !(user?.role === 'SECRETARY' && a.isBlocked))
+                  .sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime())
+                  .map((appt, idx) => (
+                    <tr
+                      key={appt.id}
+                      className={`border-b border-slate-100 hover:bg-blue-50/40 cursor-pointer transition-colors ${idx % 2 !== 0 ? 'bg-slate-50/30' : ''}`}
+                      onClick={e => handleApptClick(e as React.MouseEvent, appt)}
+                    >
+                      <td className="px-4 py-3 text-slate-700 font-medium whitespace-nowrap">
+                        {format(parseISO(appt.date), "dd/MM/yyyy", { locale: ptBR })}
+                      </td>
+                      <td className="px-4 py-3 text-slate-700 font-semibold tabular-nums whitespace-nowrap">
+                        {format(parseISO(appt.date), 'HH:mm')}
+                      </td>
+                      <td className="px-4 py-3 text-slate-900 font-semibold whitespace-nowrap">
+                        {appt.patient.name}
+                      </td>
+                      <td className="px-4 py-3 text-slate-600 whitespace-nowrap">
+                        {appt.room?.name || '—'}
+                      </td>
+                      <td className="px-4 py-3 text-slate-700 font-medium tabular-nums whitespace-nowrap">
+                        {appt.value != null
+                          ? appt.value.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
+                          : '—'}
+                      </td>
+                      <td className="px-4 py-3 text-slate-600 whitespace-nowrap">
+                        {appt.createdBy
+                          ? (appt.createdById === appt.doctorId ? `Dr. ${appt.createdBy.name}` : appt.createdBy.name)
+                          : '—'}
+                      </td>
+                      <td className="px-4 py-3 text-slate-600 whitespace-nowrap">
+                        {appt.doctor.name}
+                      </td>
+                      <td className="px-4 py-3 text-slate-600 whitespace-nowrap">
+                        {appt.type || 'Consulta'}
+                      </td>
+                      <td className="px-4 py-3 whitespace-nowrap">
+                        <StatusBadge status={appt.status} />
+                      </td>
+                    </tr>
+                  ))
+                }
+                {appointments.filter(a => !(user?.role === 'SECRETARY' && a.isBlocked)).length === 0 && (
+                  <tr>
+                    <td colSpan={9} className="px-4 py-12 text-center">
+                      <div className="flex flex-col items-center gap-2 text-slate-400">
+                        <LayoutList className="w-8 h-8" />
+                        <p className="font-medium">Nenhum agendamento nesta semana</p>
+                      </div>
+                    </td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+
       {/* Calendar grid */}
-      <div className="card p-0 overflow-hidden">
+      {viewMode === 'calendar' && <div className="card p-0 overflow-hidden">
         <div className="grid border-b border-slate-200 bg-slate-50/80" style={{ gridTemplateColumns: '56px repeat(7, 1fr)' }}>
           <div className="border-r border-slate-200" />
           {weekDays.map(day => {
@@ -562,10 +650,10 @@ export default function Agenda() {
             })}
           </div>
         </div>
-      </div>
+      </div>}
 
       {/* ── Mobile list ── */}
-      <div className="xl:hidden space-y-2 animate-stagger-3">
+      {viewMode === 'calendar' && <div className="xl:hidden space-y-2 animate-stagger-3">
         {appointments.length === 0 ? (
           <div className="card text-center py-10">
             <div className="w-14 h-14 bg-slate-100 rounded-2xl flex items-center justify-center mx-auto mb-3 animate-float">
@@ -609,7 +697,7 @@ export default function Agenda() {
               </div>
             ))
         )}
-      </div>
+      </div>}
 
       {/* Hover tooltip — rendered via portal to escape transform/overflow ancestors */}
       {tooltip && createPortal(

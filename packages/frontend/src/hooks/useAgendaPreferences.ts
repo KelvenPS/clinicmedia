@@ -10,8 +10,8 @@ export interface AgendaPreferences {
 }
 
 const DEFAULT_PREFERENCES: AgendaPreferences = {
-  startHour: 7,
-  endHour: 18,
+  startHour: 6,
+  endHour: 19,
   interval: 30,
   hideWeekends: false,
   compactMode: false,

@@ -13,7 +13,7 @@ interface AgendaSettingsModalProps {
 export default function AgendaSettingsModal({ isOpen, onClose, preferences, onUpdate }: AgendaSettingsModalProps) {
   const handlePresetChange = (preset: 'commercial' | 'extended') => {
     if (preset === 'commercial') {
-      onUpdate({ startHour: 7, endHour: 18 })
+      onUpdate({ startHour: 6, endHour: 19 })
     } else if (preset === 'extended') {
       onUpdate({ startHour: 1, endHour: 23 })
     }
@@ -34,13 +34,13 @@ export default function AgendaSettingsModal({ isOpen, onClose, preferences, onUp
             <button
               onClick={() => handlePresetChange('commercial')}
               className={`flex-1 py-2 px-3 rounded-xl border text-sm font-medium transition-colors ${
-                preferences.startHour === 7 && preferences.endHour === 18
+                preferences.startHour === 6 && preferences.endHour === 19
                   ? 'bg-blue-50 border-blue-200 text-blue-700'
                   : 'bg-white border-slate-200 text-slate-600 hover:bg-slate-50'
               }`}
             >
               Comercial
-              <span className="block text-xs font-normal opacity-70">07:00 às 18:00</span>
+              <span className="block text-xs font-normal opacity-70">06:00 às 19:00</span>
             </button>
             <button
               onClick={() => handlePresetChange('extended')}

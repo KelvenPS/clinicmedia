@@ -926,6 +926,13 @@ export default function Agenda() {
           loading={blockMutation.isPending}
         />
       </Modal>
+
+      <AgendaSettingsModal
+        isOpen={settingsModalOpen}
+        onClose={() => setSettingsModalOpen(false)}
+        preferences={preferences}
+        onUpdate={setPreferences}
+      />
     </div>
   )
 }

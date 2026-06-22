@@ -2,7 +2,7 @@ import { useState, useRef, useCallback, useEffect } from 'react'
 import { createPortal } from 'react-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import {
-  format, startOfWeek, addDays, addWeeks, subWeeks, isSameDay, parseISO,
+  format, startOfWeek, addDays, addWeeks, subWeeks, subDays, isSameDay, parseISO,
 } from 'date-fns'
 import { ptBR } from 'date-fns/locale'
 import { ChevronLeft, ChevronRight, Plus, Calendar, Clock, Lock, Trash2, X, MapPin, User as UserIcon, CalendarDays, LayoutList } from 'lucide-react'
@@ -16,8 +16,8 @@ import AppointmentForm from '../components/Agenda/AppointmentForm'
 import PageHeader from '../components/ui/PageHeader'
 
 const SLOT_HEIGHT = 40
-const DEFAULT_START_HOUR = 7
-const DEFAULT_END_HOUR = 20
+const DEFAULT_START_HOUR = 1
+const DEFAULT_END_HOUR = 23
 
 function buildTimeSlots(startHour: number, endHour: number) {
   return Array.from(
@@ -154,13 +154,16 @@ export default function Agenda() {
   const [selectedSlot, setSelectedSlot] = useState<{ date: Date } | null>(null)
   const [filterDoctorId, setFilterDoctorId] = useState('')
   const [viewMode, setViewMode] = useState<'calendar' | 'list'>('calendar')
+  const [calendarMode, setCalendarMode] = useState<'week' | 'day'>('day')
   const [tooltip, setTooltip] = useState<TooltipState | null>(null)
   const tooltipTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
   const tooltipRef = useRef<HTMLDivElement>(null)
   const mouseCoords = useRef({ x: 0, y: 0 })
 
   const weekStart = startOfWeek(currentWeek, { weekStartsOn: 1 })
-  const weekDays = Array.from({ length: 7 }, (_, i) => addDays(weekStart, i))
+  const weekDays = calendarMode === 'week'
+    ? Array.from({ length: 7 }, (_, i) => addDays(weekStart, i))
+    : [currentWeek]
 
   const { data: appointments = [] } = useQuery<Appointment[]>({
     queryKey: ['appointments', format(weekStart, 'yyyy-MM-dd'), filterDoctorId],
@@ -330,6 +333,24 @@ export default function Agenda() {
               <span className="hidden sm:inline">Bloquear</span>
             </button>
           )}
+          <div className="flex items-center bg-slate-100 p-1 rounded-xl">
+            <button
+              onClick={() => setCalendarMode('day')}
+              className={`px-3 py-1.5 text-sm font-medium rounded-lg transition-colors ${
+                calendarMode === 'day' ? 'bg-white text-blue-600 shadow-sm' : 'text-slate-600 hover:text-slate-900'
+              }`}
+            >
+              Dia
+            </button>
+            <button
+              onClick={() => setCalendarMode('week')}
+              className={`px-3 py-1.5 text-sm font-medium rounded-lg transition-colors ${
+                calendarMode === 'week' ? 'bg-white text-blue-600 shadow-sm' : 'text-slate-600 hover:text-slate-900'
+              }`}
+            >
+              Semana
+            </button>
+          </div>
           <button
             onClick={() => setViewMode(v => v === 'calendar' ? 'list' : 'calendar')}
             className="inline-flex items-center gap-2 px-4 py-2.5
@@ -361,25 +382,31 @@ export default function Agenda() {
           {/* Week navigation */}
           <div className="flex items-center gap-2">
             <button
-              onClick={() => setCurrentWeek(subWeeks(currentWeek, 1))}
+              onClick={() => setCurrentWeek(calendarMode === 'week' ? subWeeks(currentWeek, 1) : subDays(currentWeek, 1))}
               className="w-8 h-8 rounded-xl border border-slate-200 flex items-center justify-center
                          hover:bg-slate-50 hover:border-slate-300 active:scale-90
                          transition-all duration-150"
-              aria-label="Semana anterior"
+              aria-label="Anterior"
             >
               <ChevronLeft className="w-4 h-4 text-slate-500" />
             </button>
             <p className="font-semibold text-slate-900 text-sm min-w-[190px] text-center">
-              {format(weekStart, "d 'de' MMM", { locale: ptBR })}
-              {' '}–{' '}
-              {format(addDays(weekStart, 6), "d 'de' MMM yyyy", { locale: ptBR })}
+              {calendarMode === 'week' ? (
+                <>
+                  {format(weekStart, "d 'de' MMM", { locale: ptBR })}
+                  {' '}–{' '}
+                  {format(addDays(weekStart, 6), "d 'de' MMM yyyy", { locale: ptBR })}
+                </>
+              ) : (
+                format(currentWeek, "d 'de' MMMM 'de' yyyy", { locale: ptBR })
+              )}
             </p>
             <button
-              onClick={() => setCurrentWeek(addWeeks(currentWeek, 1))}
+              onClick={() => setCurrentWeek(calendarMode === 'week' ? addWeeks(currentWeek, 1) : addDays(currentWeek, 1))}
               className="w-8 h-8 rounded-xl border border-slate-200 flex items-center justify-center
                          hover:bg-slate-50 hover:border-slate-300 active:scale-90
                          transition-all duration-150"
-              aria-label="Próxima semana"
+              aria-label="Próximo"
             >
               <ChevronRight className="w-4 h-4 text-slate-500" />
             </button>
@@ -437,59 +464,122 @@ export default function Agenda() {
                 </tr>
               </thead>
               <tbody>
-                {appointments
-                  .filter(a => !(user?.role === 'SECRETARY' && a.isBlocked))
-                  .sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime())
-                  .map((appt, idx) => (
-                    <tr
-                      key={appt.id}
-                      className={`border-b border-slate-100 hover:bg-blue-50/40 cursor-pointer transition-colors ${idx % 2 !== 0 ? 'bg-slate-50/30' : ''}`}
-                      onClick={e => handleApptClick(e as React.MouseEvent, appt)}
-                    >
-                      <td className="px-4 py-3 text-slate-700 font-medium whitespace-nowrap">
-                        {format(parseISO(appt.date), "dd/MM/yyyy", { locale: ptBR })}
-                      </td>
-                      <td className="px-4 py-3 text-slate-700 font-semibold tabular-nums whitespace-nowrap">
-                        {format(parseISO(appt.date), 'HH:mm')}
-                      </td>
-                      <td className="px-4 py-3 text-slate-900 font-semibold whitespace-nowrap">
-                        {appt.patient.name}
-                      </td>
-                      <td className="px-4 py-3 text-slate-600 whitespace-nowrap">
-                        {appt.room?.name || '—'}
-                      </td>
-                      <td className="px-4 py-3 text-slate-700 font-medium tabular-nums whitespace-nowrap">
-                        {appt.value != null
-                          ? appt.value.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
-                          : '—'}
-                      </td>
-                      <td className="px-4 py-3 text-slate-600 whitespace-nowrap">
-                        {appt.createdBy
-                          ? (appt.createdById === appt.doctorId ? `Dr. ${appt.createdBy.name}` : appt.createdBy.name)
-                          : '—'}
-                      </td>
-                      <td className="px-4 py-3 text-slate-600 whitespace-nowrap">
-                        {appt.doctor.name}
-                      </td>
-                      <td className="px-4 py-3 text-slate-600 whitespace-nowrap">
-                        {appt.type || 'Consulta'}
-                      </td>
-                      <td className="px-4 py-3 whitespace-nowrap">
-                        <StatusBadge status={appt.status} />
-                      </td>
-                    </tr>
-                  ))
-                }
-                {appointments.filter(a => !(user?.role === 'SECRETARY' && a.isBlocked)).length === 0 && (
-                  <tr>
-                    <td colSpan={9} className="px-4 py-12 text-center">
-                      <div className="flex flex-col items-center gap-2 text-slate-400">
-                        <LayoutList className="w-8 h-8" />
-                        <p className="font-medium">Nenhum agendamento nesta semana</p>
-                      </div>
-                    </td>
-                  </tr>
-                )}
+                {weekDays.map(day => {
+                  const dayAppts = getApptsByDay(day)
+                  const dayBlocks = getBlocksByDay(day)
+                  const dayAllowed = isAllowedDay(day)
+
+                  if (!dayAllowed) return null
+
+                  let skipUntil: Date | null = null
+
+                  return activeSlots.map((slot, idx) => {
+                    const slotStart = new Date(day)
+                    slotStart.setHours(slot.h, slot.m, 0, 0)
+
+                    // Skip if within an ongoing appointment
+                    if (skipUntil && slotStart < skipUntil) return null
+
+                    // Check if an appointment is active
+                    const activeAppt = dayAppts.find(a => {
+                      const aStart = parseISO(a.date)
+                      const aEnd = new Date(aStart.getTime() + a.duration * 60000)
+                      return slotStart >= aStart && slotStart < aEnd
+                    })
+
+                    if (activeAppt) {
+                      const aStart = parseISO(activeAppt.date)
+                      skipUntil = new Date(aStart.getTime() + activeAppt.duration * 60000)
+                      if (user?.role === 'SECRETARY' && activeAppt.isBlocked) return null // Secretary can't see blocked details
+                      return (
+                        <tr
+                          key={activeAppt.id}
+                          className={`border-b border-slate-100 hover:bg-blue-50/40 cursor-pointer transition-colors ${idx % 2 !== 0 ? 'bg-slate-50/30' : ''}`}
+                          onClick={e => handleApptClick(e as React.MouseEvent, activeAppt)}
+                        >
+                          <td className="px-4 py-3 text-slate-700 font-medium whitespace-nowrap">
+                            {format(parseISO(activeAppt.date), "dd/MM/yyyy", { locale: ptBR })}
+                          </td>
+                          <td className="px-4 py-3 text-slate-700 font-semibold tabular-nums whitespace-nowrap">
+                            {format(parseISO(activeAppt.date), 'HH:mm')}
+                          </td>
+                          <td className="px-4 py-3 text-slate-900 font-semibold whitespace-nowrap">
+                            {activeAppt.patient.name}
+                          </td>
+                          <td className="px-4 py-3 text-slate-600 whitespace-nowrap">
+                            {activeAppt.room?.name || '—'}
+                          </td>
+                          <td className="px-4 py-3 text-slate-700 font-medium tabular-nums whitespace-nowrap">
+                            {activeAppt.value != null
+                              ? activeAppt.value.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
+                              : '—'}
+                          </td>
+                          <td className="px-4 py-3 text-slate-600 whitespace-nowrap">
+                            {activeAppt.createdBy
+                              ? (activeAppt.createdById === activeAppt.doctorId ? `Dr. ${activeAppt.createdBy.name}` : activeAppt.createdBy.name)
+                              : '—'}
+                          </td>
+                          <td className="px-4 py-3 text-slate-600 whitespace-nowrap">
+                            {activeAppt.doctor.name}
+                          </td>
+                          <td className="px-4 py-3 text-slate-600 whitespace-nowrap">
+                            {activeAppt.type || 'Consulta'}
+                          </td>
+                          <td className="px-4 py-3 whitespace-nowrap">
+                            <StatusBadge status={activeAppt.status} />
+                          </td>
+                        </tr>
+                      )
+                    }
+
+                    // Check for block
+                    const activeBlock = dayBlocks.find(b => {
+                      const bStart = parseISO(b.date)
+                      const bEnd = parseISO(b.endDate)
+                      return slotStart >= bStart && slotStart < bEnd
+                    })
+
+                    if (activeBlock) {
+                      skipUntil = parseISO(activeBlock.endDate)
+                      return (
+                        <tr key={`block-${activeBlock.id}-${slot.h}-${slot.m}`} className="border-b border-amber-100 bg-amber-50/30">
+                          <td className="px-4 py-3 text-amber-700 font-medium whitespace-nowrap">
+                            {format(slotStart, "dd/MM/yyyy", { locale: ptBR })}
+                          </td>
+                          <td className="px-4 py-3 text-amber-700 font-semibold tabular-nums whitespace-nowrap">
+                            {format(slotStart, 'HH:mm')}
+                          </td>
+                          <td colSpan={7} className="px-4 py-3 text-amber-700">
+                            <div className="flex items-center gap-2">
+                              <Lock className="w-4 h-4" />
+                              <span className="font-semibold">Bloqueado</span>
+                              {activeBlock.reason && <span className="opacity-80">({activeBlock.reason})</span>}
+                            </div>
+                          </td>
+                        </tr>
+                      )
+                    }
+
+                    // Otherwise, FREE slot
+                    return (
+                      <tr 
+                        key={`free-${day.toISOString()}-${slot.h}-${slot.m}`}
+                        className="border-b border-slate-100 bg-white hover:bg-slate-50 cursor-pointer group"
+                        onClick={() => handleSlotClick(day, slot)}
+                      >
+                        <td className="px-4 py-3 text-slate-400 font-medium whitespace-nowrap group-hover:text-blue-600 transition-colors">
+                          {format(slotStart, "dd/MM/yyyy", { locale: ptBR })}
+                        </td>
+                        <td className="px-4 py-3 text-slate-400 font-semibold tabular-nums whitespace-nowrap group-hover:text-blue-600 transition-colors">
+                          {format(slotStart, 'HH:mm')}
+                        </td>
+                        <td colSpan={7} className="px-4 py-3 text-slate-400 font-medium group-hover:text-blue-600 transition-colors">
+                          Livre
+                        </td>
+                      </tr>
+                    )
+                  })
+                })}
               </tbody>
             </table>
           </div>

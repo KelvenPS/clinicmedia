@@ -23,6 +23,7 @@ const appointmentSchema = z.object({
   isBlocked: z.boolean().optional(),
   roomId: z.string().optional().nullable(),
   repeatCount: z.number().int().min(1).max(50).optional(),
+  forceOverlap: z.boolean().optional(),
 })
 
 router.get('/', async (req: AuthRequest, res) => {
@@ -90,7 +91,7 @@ router.get('/', async (req: AuthRequest, res) => {
 router.post('/', async (req: AuthRequest, res) => {
   try {
     const data = appointmentSchema.parse(req.body)
-    const { repeatCount, ...apptData } = data
+    const { repeatCount, forceOverlap, ...apptData } = data
 
     // When blocked, disallow replication — force single occurrence
     const effectiveRepeatCount = apptData.isBlocked ? 1 : (repeatCount && repeatCount > 1 ? repeatCount : 1)
@@ -120,7 +121,9 @@ router.post('/', async (req: AuthRequest, res) => {
       })
       if (roomAssignments.length > 0) {
         const allowedRoomIds = new Set(roomAssignments.map(r => r.roomId))
-        if (!apptData.roomId || !allowedRoomIds.has(apptData.roomId)) {
+        if (!apptData.roomId) {
+          apptData.roomId = roomAssignments[0].roomId
+        } else if (!allowedRoomIds.has(apptData.roomId)) {
           res.status(403).json({ message: 'Acesso negado: você não está vinculada a esta sala' })
           return
         }
@@ -148,6 +151,43 @@ router.post('/', async (req: AuthRequest, res) => {
       })
       if (hasConflict) {
         res.status(409).json({ message: 'Este horário está bloqueado pelo médico.' })
+        return
+      }
+    }
+
+    // Overlap validation
+    if (!apptData.isBlocked && !forceOverlap) {
+      const durationMs = (apptData.duration ?? 30) * 60000
+      
+      const existingAppts = await prisma.appointment.findMany({
+        where: {
+          doctorId: apptData.doctorId,
+          status: { notIn: ['CANCELLED', 'NO_SHOW'] },
+          date: {
+            gte: new Date(dates[0].getTime() - 24 * 60 * 60000),
+            lte: new Date(dates[dates.length - 1].getTime() + 24 * 60 * 60000),
+          }
+        },
+        select: { date: true, duration: true }
+      })
+
+      let hasOverlap = false
+      for (const d of dates) {
+        const start1 = d.getTime()
+        const end1 = start1 + durationMs
+        for (const existing of existingAppts) {
+          const start2 = existing.date.getTime()
+          const end2 = start2 + (existing.duration * 60000)
+          if (start1 < end2 && end1 > start2) {
+            hasOverlap = true
+            break
+          }
+        }
+        if (hasOverlap) break
+      }
+
+      if (hasOverlap) {
+        res.status(409).json({ code: 'OVERLAP_WARNING', message: 'O horário de agendamento vai impactar o próximo atendimento. Confirma?' })
         return
       }
     }
@@ -232,13 +272,15 @@ const appointmentUpdateSchema = z.object({
   value: z.number().optional().nullable(),
   isBlocked: z.boolean().optional(),
   roomId: z.string().optional().nullable(),
+  forceOverlap: z.boolean().optional(),
 })
 
 router.put('/:id', async (req: AuthRequest, res) => {
   try {
     const { id } = req.params
     const parsed = appointmentUpdateSchema.parse(req.body)
-    const data: Record<string, unknown> = { ...parsed }
+    const { forceOverlap, ...parsedData } = parsed
+    const data: Record<string, unknown> = { ...parsedData }
 
     if (data.date) data.date = new Date(data.date as string)
     if (data.roomId === '') data.roomId = null
@@ -254,6 +296,22 @@ router.put('/:id', async (req: AuthRequest, res) => {
           where: { secretaryId: req.user!.userId, doctorId: existing.doctorId, active: true }
         })
         if (!link) { res.status(403).json({ message: 'Acesso negado' }); return }
+
+        if ('roomId' in data) {
+          const roomAssignments = await prisma.roomSecretary.findMany({
+            where: { secretaryId: req.user!.userId },
+            select: { roomId: true },
+          })
+          if (roomAssignments.length > 0) {
+            const allowedRoomIds = new Set(roomAssignments.map(r => r.roomId))
+            if (!data.roomId) {
+               data.roomId = roomAssignments[0].roomId
+            } else if (!allowedRoomIds.has(data.roomId as string)) {
+               res.status(403).json({ message: 'Acesso negado: você não está vinculada a esta sala' })
+               return
+            }
+          }
+        }
       } else {
         res.status(403).json({ message: 'Acesso negado' })
         return
@@ -278,7 +336,43 @@ router.put('/:id', async (req: AuthRequest, res) => {
       }
     }
 
-    const appointment = await prisma.appointment.update({
+    // Overlap validation
+    if (!(data.isBlocked ?? current?.isBlocked) && !forceOverlap) {
+      const durationMs = ((data.duration as number | undefined) ?? current?.duration ?? 30) * 60000
+      const newDate = data.date ? (data.date as Date) : (current?.date ?? new Date())
+
+      const existingAppts = await prisma.appointment.findMany({
+        where: {
+          doctorId: existing.doctorId,
+          id: { not: id },
+          status: { notIn: ['CANCELLED', 'NO_SHOW'] },
+          date: {
+            gte: new Date(newDate.getTime() - 24 * 60 * 60000),
+            lte: new Date(newDate.getTime() + 24 * 60 * 60000),
+          }
+        },
+        select: { date: true, duration: true }
+      })
+
+      const start1 = newDate.getTime()
+      const end1 = start1 + durationMs
+      let hasOverlap = false
+      for (const ex of existingAppts) {
+        const start2 = ex.date.getTime()
+        const end2 = start2 + (ex.duration * 60000)
+        if (start1 < end2 && end1 > start2) {
+          hasOverlap = true
+          break
+        }
+      }
+
+      if (hasOverlap) {
+        res.status(409).json({ code: 'OVERLAP_WARNING', message: 'O horário de agendamento vai impactar o próximo atendimento. Confirma?' })
+        return
+      }
+    }
+
+    const updated = await prisma.appointment.update({
       where: { id },
       data,
       include: {
@@ -301,15 +395,14 @@ router.put('/:id', async (req: AuthRequest, res) => {
       current?.status !== 'COMPLETED' &&
       !current?.transaction
 
-    let transactionAmount: number | null = appointment.value ?? null
+    let transactionAmount: number | null = updated.value ?? null
 
-    // Fallback: se o agendamento não tem valor, busca do tipo de atendimento com repasse do plano
-    if (beingCompleted && (!transactionAmount || transactionAmount <= 0) && appointment.type) {
+    if (beingCompleted && (!transactionAmount || transactionAmount <= 0) && updated.type) {
       const appType = await prisma.appointmentType.findFirst({
-        where: { name: appointment.type, doctorId: appointment.doctorId },
+        where: { name: updated.type, doctorId: updated.doctorId },
       })
-      if (appType?.baseValue && appType.baseValue > 0) {
-        const discount = appointment.patient.patientPlans?.[0]?.healthPlan?.discountPercent ?? 0
+      if (appType?.baseValue && updated.patient?.patientPlans?.[0]) {
+        const discount = updated.patient.patientPlans[0].healthPlan.discountPercent ?? 0
         transactionAmount = Math.round(appType.baseValue * (1 - discount / 100) * 100) / 100
       }
     }
@@ -317,54 +410,71 @@ router.put('/:id', async (req: AuthRequest, res) => {
     const completingNow = beingCompleted && transactionAmount && transactionAmount > 0
 
     if (completingNow) {
-      await prisma.transaction.create({
-        data: {
-          doctorId: appointment.doctorId,
-          appointmentId: appointment.id,
-          type: 'INCOME',
-          amount: transactionAmount!,
-          description: `${appointment.type || 'Consulta'} - ${appointment.patient.name}`,
-          date: appointment.date,
-          status: 'PAID',
-          category: appointment.type || 'Consulta',
-        },
-      })
+      await prisma.$transaction([
+        prisma.transaction.create({
+          data: {
+            doctorId: updated.doctorId,
+            appointmentId: updated.id,
+            type: 'INCOME',
+            amount: transactionAmount!,
+            description: `${updated.type || 'Consulta'} - ${updated.patient.name}`,
+            date: updated.date,
+            status: 'PAID',
+            category: updated.type || 'Consulta',
+          },
+        }),
+        prisma.appointment.update({
+          where: { id },
+          data: { status: 'COMPLETED' }
+        })
+      ])
       await createNotification(
-        appointment.doctorId,
+        updated.doctorId,
         'Atendimento concluído',
-        `${appointment.type || 'Consulta'} de ${appointment.patient.name} — R$ ${transactionAmount!.toFixed(2)} lançado no financeiro`,
+        `${updated.type || 'Consulta'} de ${updated.patient.name} — R$ ${transactionAmount!.toFixed(2)} lançado no financeiro`,
         'SUCCESS',
         '/financeiro',
       )
-      fireWebhooks(appointment.doctorId, 'appointment.completed', {
-        id: appointment.id,
-        patientName: appointment.patient.name,
-        patientPhone: appointment.patient.phone,
-        date: appointment.date,
-        type: appointment.type,
+      fireWebhooks(updated.doctorId, 'appointment.completed', {
+        id: updated.id,
+        patientName: updated.patient.name,
+        patientPhone: updated.patient.phone,
+        date: updated.date,
+        type: updated.type,
         value: transactionAmount,
       }).catch(() => {})
     }
 
     if (data.status === 'CANCELLED' && current?.status !== 'CANCELLED') {
-      fireWebhooks(appointment.doctorId, 'appointment.cancelled', {
-        id: appointment.id,
-        patientName: appointment.patient.name,
-        date: appointment.date,
-        type: appointment.type,
+      if (updated.patient?.phone) {
+        const apptDateStr = updated.date.toLocaleDateString('pt-BR')
+        const apptTimeStr = updated.date.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })
+        triggerLightAutomatedMessage(updated.doctorId, 'APPOINTMENT_CANCELLATION', {
+          patientName: updated.patient.name,
+          patientPhone: updated.patient.phone,
+          appointmentDate: apptDateStr,
+          appointmentTime: apptTimeStr,
+          doctorName: updated.doctor.name,
+        }).catch(err => console.error('[triggerLightAutomatedMessage CANCELLATION error]', err))
+      }
+      fireWebhooks(updated.doctorId, 'appointment.cancelled', {
+        id: updated.id,
+        patientName: updated.patient.name,
+        date: updated.date,
+        type: updated.type,
       }).catch(() => {})
     }
 
     if (data.status && !completingNow && data.status !== 'CANCELLED') {
-      fireWebhooks(appointment.doctorId, 'appointment.updated', {
-        id: appointment.id,
-        patientName: appointment.patient.name,
-        date: appointment.date,
-        status: appointment.status,
+      fireWebhooks(updated.doctorId, 'appointment.updated', {
+        id: updated.id,
+        patientName: updated.patient.name,
+        date: updated.date,
+        status: updated.status,
       }).catch(() => {})
     }
 
-    res.json(appointment)
+    res.json(updated)
   } catch {
     res.status(500).json({ message: 'Erro interno do servidor' })
   }

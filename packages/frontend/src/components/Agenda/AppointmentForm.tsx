@@ -167,6 +167,26 @@ export default function AppointmentForm({
 
   return (
     <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
+      {patients.length === 0 && (
+        <div className="p-3 bg-red-50 border border-red-200 rounded-xl text-red-800 text-sm flex gap-2 items-start">
+          <Info className="w-5 h-5 flex-shrink-0" />
+          <div>
+            <p className="font-semibold">Nenhum paciente cadastrado</p>
+            <p>Você precisa cadastrar pelo menos um paciente no menu "Pacientes" antes de agendar uma consulta.</p>
+          </div>
+        </div>
+      )}
+
+      {currentUser?.role === 'SECRETARY' && doctors.length === 0 && (
+        <div className="p-3 bg-amber-50 border border-amber-200 rounded-xl text-amber-800 text-sm flex gap-2 items-start">
+          <Info className="w-5 h-5 flex-shrink-0" />
+          <div>
+            <p className="font-semibold">Nenhum profissional vinculado</p>
+            <p>Você não está vinculada a nenhum médico ativo. Contate o administrador.</p>
+          </div>
+        </div>
+      )}
+
       {/* Doctor block toggle — visible only to doctors */}
       {currentUser?.role === 'DOCTOR' && (
         <div

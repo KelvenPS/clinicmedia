@@ -120,9 +120,9 @@ export default function Agenda() {
   const [settingsModalOpen, setSettingsModalOpen] = useState(false)
   const [selectedAppt, setSelectedAppt] = useState<Appointment | null>(null)
   const [selectedSlot, setSelectedSlot] = useState<{ date: Date } | null>(null)
+  const [calendarMode, setCalendarMode] = useState<'week' | 'day'>('week')
   const [filterDoctorId, setFilterDoctorId] = useState('')
   const [viewMode, setViewMode] = useState<'calendar' | 'list'>('calendar')
-  const [calendarMode, setCalendarMode] = useState<'week' | 'day'>('day')
   const [tooltip, setTooltip] = useState<TooltipState | null>(null)
   const tooltipTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
   const tooltipRef = useRef<HTMLDivElement>(null)
@@ -221,9 +221,13 @@ export default function Agenda() {
     queryFn: () => api.get('/rooms').then(r => r.data),
   })
 
-  // For secretaries: restrict to room schedule
+  // For secretaries: restrict to all assigned rooms schedule bounds
   const roomSchedule = user?.role === 'SECRETARY' && myRooms.length > 0
-    ? { startHour: parseInt(myRooms[0].startTime.split(':')[0]), endHour: parseInt(myRooms[0].endTime.split(':')[0]), days: myRooms[0].daysOfWeek }
+    ? { 
+        startHour: Math.min(...myRooms.map(r => parseInt(r.startTime.split(':')[0]))), 
+        endHour: Math.max(...myRooms.map(r => parseInt(r.endTime.split(':')[0]))), 
+        days: Array.from(new Set(myRooms.flatMap(r => r.daysOfWeek))) 
+      }
     : null
 
   const saveMutation = useMutation({
@@ -237,7 +241,15 @@ export default function Agenda() {
       setModalOpen(false)
       setSelectedAppt(null)
     },
-    onError: () => toast.error('Erro ao salvar consulta'),
+    onError: (error: any, variables) => {
+      if (error.response?.data?.code === 'OVERLAP_WARNING') {
+        if (window.confirm(error.response.data.message)) {
+          saveMutation.mutate({ ...variables, forceOverlap: true })
+        }
+      } else {
+        toast.error(error.response?.data?.message || 'Erro ao salvar consulta')
+      }
+    },
   })
 
   const deleteMutation = useMutation({

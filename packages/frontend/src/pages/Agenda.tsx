@@ -14,43 +14,9 @@ import StatusBadge from '../components/ui/StatusBadge'
 import Modal from '../components/ui/Modal'
 import AppointmentForm from '../components/Agenda/AppointmentForm'
 import PageHeader from '../components/ui/PageHeader'
-
-const SLOT_HEIGHT = 40
-const DEFAULT_START_HOUR = 1
-const DEFAULT_END_HOUR = 23
-
-function buildTimeSlots(startHour: number, endHour: number) {
-  return Array.from(
-    { length: (endHour - startHour) * 2 },
-    (_, i) => {
-      const totalMins = startHour * 60 + i * 30
-      const h = Math.floor(totalMins / 60)
-      const m = totalMins % 60
-      return { h, m, label: `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}` }
-    }
-  )
-}
-
-const TIME_SLOTS = buildTimeSlots(DEFAULT_START_HOUR, DEFAULT_END_HOUR)
-
-function getApptPosition(date: Date) {
-  const minutesFromStart = (date.getHours() - DEFAULT_START_HOUR) * 60 + date.getMinutes()
-  return (minutesFromStart / 30) * SLOT_HEIGHT
-}
-
-function getApptHeight(duration: number) {
-  return Math.max((duration / 30) * SLOT_HEIGHT, 24)
-}
-
-function getBlockPosition(date: Date) {
-  const minutesFromStart = (date.getHours() - DEFAULT_START_HOUR) * 60 + date.getMinutes()
-  return (minutesFromStart / 30) * SLOT_HEIGHT
-}
-
-function getBlockHeight(start: Date, end: Date) {
-  const durationMins = (end.getTime() - start.getTime()) / 60000
-  return Math.max((durationMins / 30) * SLOT_HEIGHT, 24)
-}
+import { useAgendaPreferences } from '../hooks/useAgendaPreferences'
+import AgendaSettingsModal from '../components/Agenda/AgendaSettingsModal'
+import { Settings } from 'lucide-react'
 
 function getApptColor(status: string, isBlocked: boolean) {
   if (isBlocked) return 'bg-amber-500/90 border-amber-700'
@@ -147,9 +113,11 @@ interface TooltipState {
 export default function Agenda() {
   const { user } = useAuthStore()
   const qc = useQueryClient()
+  const { preferences, setPreferences } = useAgendaPreferences()
   const [currentWeek, setCurrentWeek] = useState(new Date())
   const [modalOpen, setModalOpen] = useState(false)
   const [blockModalOpen, setBlockModalOpen] = useState(false)
+  const [settingsModalOpen, setSettingsModalOpen] = useState(false)
   const [selectedAppt, setSelectedAppt] = useState<Appointment | null>(null)
   const [selectedSlot, setSelectedSlot] = useState<{ date: Date } | null>(null)
   const [filterDoctorId, setFilterDoctorId] = useState('')
@@ -160,9 +128,53 @@ export default function Agenda() {
   const tooltipRef = useRef<HTMLDivElement>(null)
   const mouseCoords = useRef({ x: 0, y: 0 })
 
-  const weekStart = startOfWeek(currentWeek, { weekStartsOn: 1 })
+  const SLOT_HEIGHT = preferences.compactMode ? 24 : 40
+  const START_HOUR = preferences.startHour
+  const END_HOUR = preferences.endHour
+  const INTERVAL = preferences.interval
+
+  function buildTimeSlots(startHour: number, endHour: number, interval: number) {
+    return Array.from(
+      { length: Math.ceil((endHour - startHour) * 60 / interval) },
+      (_, i) => {
+        const totalMins = startHour * 60 + i * interval
+        const h = Math.floor(totalMins / 60)
+        const m = totalMins % 60
+        return { h, m, label: `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}` }
+      }
+    )
+  }
+
+  const TIME_SLOTS = buildTimeSlots(START_HOUR, END_HOUR, INTERVAL)
+
+  function getApptPosition(date: Date) {
+    const minutesFromStart = (date.getHours() - START_HOUR) * 60 + date.getMinutes()
+    return (minutesFromStart / INTERVAL) * SLOT_HEIGHT
+  }
+
+  function getApptHeight(duration: number) {
+    return Math.max((duration / INTERVAL) * SLOT_HEIGHT, SLOT_HEIGHT)
+  }
+
+  function getBlockPosition(date: Date) {
+    const minutesFromStart = (date.getHours() - START_HOUR) * 60 + date.getMinutes()
+    return (minutesFromStart / INTERVAL) * SLOT_HEIGHT
+  }
+
+  function getBlockHeight(start: Date, end: Date) {
+    const durationMins = (end.getTime() - start.getTime()) / 60000
+    return Math.max((durationMins / INTERVAL) * SLOT_HEIGHT, SLOT_HEIGHT)
+  }
+
+  const weekStart = startOfWeek(currentWeek, { weekStartsOn: preferences.weekStartsOn })
   const weekDays = calendarMode === 'week'
-    ? Array.from({ length: 7 }, (_, i) => addDays(weekStart, i))
+    ? Array.from({ length: 7 }, (_, i) => addDays(weekStart, i)).filter(day => {
+        if (preferences.hideWeekends) {
+          const dayOfWeek = day.getDay()
+          return dayOfWeek !== 0 && dayOfWeek !== 6
+        }
+        return true
+      })
     : [currentWeek]
 
   const { data: appointments = [] } = useQuery<Appointment[]>({
@@ -302,7 +314,7 @@ export default function Agenda() {
   }, [])
 
   const activeSlots = roomSchedule
-    ? buildTimeSlots(roomSchedule.startHour, roomSchedule.endHour)
+    ? buildTimeSlots(roomSchedule.startHour, roomSchedule.endHour, INTERVAL)
     : TIME_SLOTS
 
   const totalGridHeight = activeSlots.length * SLOT_HEIGHT
@@ -320,6 +332,15 @@ export default function Agenda() {
         subtitle="Gerencie consultas e agendamentos"
         actions={
         <div className="flex items-center gap-2 flex-wrap">
+          {(user?.role === 'DOCTOR' || user?.role === 'ADMIN') && (
+            <button
+              onClick={() => setSettingsModalOpen(true)}
+              className="inline-flex items-center gap-2 px-4 py-2.5 bg-slate-100 hover:bg-slate-200 active:scale-95 text-slate-700 rounded-xl font-medium text-sm transition-all duration-150 shadow-sm"
+            >
+              <Settings className="w-4 h-4" />
+              <span className="hidden sm:inline">Personalizar</span>
+            </button>
+          )}
           {(user?.role === 'DOCTOR' || user?.role === 'ADMIN') && (
             <button
               onClick={() => setBlockModalOpen(true)}
@@ -588,7 +609,7 @@ export default function Agenda() {
 
       {/* Calendar grid */}
       {viewMode === 'calendar' && <div className="card p-0 overflow-hidden">
-        <div className="grid border-b border-slate-200 bg-slate-50/80" style={{ gridTemplateColumns: '56px repeat(7, 1fr)' }}>
+        <div className="grid border-b border-slate-200 bg-slate-50/80" style={{ gridTemplateColumns: `56px repeat(${weekDays.length}, 1fr)` }}>
           <div className="border-r border-slate-200" />
           {weekDays.map(day => {
             const isToday = isSameDay(day, new Date())
@@ -622,7 +643,7 @@ export default function Agenda() {
         </div>
 
         <div className="overflow-y-auto" style={{ maxHeight: '580px' }}>
-          <div className="grid" style={{ gridTemplateColumns: '56px repeat(7, 1fr)' }}>
+          <div className="grid" style={{ gridTemplateColumns: `56px repeat(${weekDays.length}, 1fr)` }}>
             {/* Time labels */}
             <div className="border-r border-slate-200">
               {activeSlots.map((slot, i) => (

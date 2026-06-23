@@ -19,15 +19,23 @@ import AgendaSettingsModal from '../components/Agenda/AgendaSettingsModal'
 import { Settings } from 'lucide-react'
 
 function getApptColor(status: string, isBlocked: boolean) {
-  if (isBlocked) return 'bg-amber-500/90 border-amber-700'
+  if (isBlocked) return 'bg-amber-50 text-amber-800 border-amber-500'
   const map: Record<string, string> = {
-    SCHEDULED: 'bg-blue-500 border-blue-700',
-    CONFIRMED: 'bg-emerald-500 border-emerald-700',
-    COMPLETED: 'bg-slate-400 border-slate-600',
-    CANCELLED: 'bg-red-400 border-red-600',
-    NO_SHOW: 'bg-orange-400 border-orange-600',
+    SCHEDULED: 'bg-blue-50 text-blue-700 border-blue-500',
+    CONFIRMED: 'bg-emerald-50 text-emerald-700 border-emerald-500',
+    COMPLETED: 'bg-slate-100 text-slate-700 border-slate-500',
+    CANCELLED: 'bg-red-50 text-red-700 border-red-500',
+    NO_SHOW: 'bg-orange-50 text-orange-700 border-orange-500',
   }
   return map[status] || map.SCHEDULED
+}
+
+const dotColors: Record<string, string> = {
+  SCHEDULED: 'bg-blue-500',
+  CONFIRMED: 'bg-emerald-500',
+  COMPLETED: 'bg-slate-400',
+  CANCELLED: 'bg-red-500',
+  NO_SHOW: 'bg-orange-500',
 }
 
 const rowStyles: Record<string, string> = {
@@ -138,8 +146,6 @@ export default function Agenda() {
   const mouseCoords = useRef({ x: 0, y: 0 })
 
   const SLOT_HEIGHT = preferences.compactMode ? 24 : 40
-  const START_HOUR = preferences.startHour
-  const END_HOUR = preferences.endHour
   const INTERVAL = preferences.interval
 
   function buildTimeSlots(startHour: number, endHour: number, interval: number) {
@@ -152,27 +158,6 @@ export default function Agenda() {
         return { h, m, label: `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}` }
       }
     )
-  }
-
-  const TIME_SLOTS = buildTimeSlots(START_HOUR, END_HOUR, INTERVAL)
-
-  function getApptPosition(date: Date) {
-    const minutesFromStart = (date.getHours() - START_HOUR) * 60 + date.getMinutes()
-    return (minutesFromStart / INTERVAL) * SLOT_HEIGHT
-  }
-
-  function getApptHeight(duration: number) {
-    return Math.max((duration / INTERVAL) * SLOT_HEIGHT, SLOT_HEIGHT)
-  }
-
-  function getBlockPosition(date: Date) {
-    const minutesFromStart = (date.getHours() - START_HOUR) * 60 + date.getMinutes()
-    return (minutesFromStart / INTERVAL) * SLOT_HEIGHT
-  }
-
-  function getBlockHeight(start: Date, end: Date) {
-    const durationMins = (end.getTime() - start.getTime()) / 60000
-    return Math.max((durationMins / INTERVAL) * SLOT_HEIGHT, SLOT_HEIGHT)
   }
 
   const weekStart = startOfWeek(currentWeek, { weekStartsOn: preferences.weekStartsOn })
@@ -236,14 +221,83 @@ export default function Agenda() {
     refetchInterval: 30000,
   })
 
-  // For secretaries: restrict to all assigned rooms schedule bounds
-  const roomSchedule = user?.role === 'SECRETARY' && myRooms.length > 0
-    ? { 
-        startHour: Math.min(...myRooms.map(r => parseInt(r.startTime.split(':')[0]))), 
-        endHour: Math.max(...myRooms.map(r => parseInt(r.endTime.split(':')[0]))), 
-        days: Array.from(new Set(myRooms.flatMap(r => r.daysOfWeek))) 
-      }
+  // 1. Resolve base hours from preferences
+  const defaultStartHour = preferences.startHour
+  const defaultEndHour = preferences.endHour
+
+  // 2. Resolve active rooms for schedule (considering filterDoctorId)
+  const activeRoomsForSchedule = filterDoctorId
+    ? myRooms.filter(r => r.doctorId === filterDoctorId)
+    : myRooms
+
+  // 3. Resolve room schedule with safety checks
+  const roomSchedule = (user?.role === 'SECRETARY' || user?.role === 'DOCTOR') && activeRoomsForSchedule.length > 0
+    ? (() => {
+        const startHours = activeRoomsForSchedule.map(r => {
+          const parts = (r.startTime || '').split(':')
+          const h = parseInt(parts[0])
+          return isNaN(h) ? defaultStartHour : h
+        })
+        const endHours = activeRoomsForSchedule.map(r => {
+          const parts = (r.endTime || '').split(':')
+          const h = parseInt(parts[0])
+          return isNaN(h) ? defaultEndHour : h
+        })
+        const days = activeRoomsForSchedule.flatMap(r => Array.isArray(r.daysOfWeek) ? r.daysOfWeek : [])
+
+        return {
+          startHour: startHours.length > 0 ? Math.min(...startHours) : defaultStartHour,
+          endHour: endHours.length > 0 ? Math.max(...endHours) : defaultEndHour,
+          days: Array.from(new Set(days))
+        }
+      })()
     : null
+
+  // 4. Resolve actual hours occupied by appointments/blocks to dynamically expand visible grid hours
+  let apptStartHour = roomSchedule ? roomSchedule.startHour : defaultStartHour
+  let apptEndHour = roomSchedule ? roomSchedule.endHour : defaultEndHour
+
+  appointments.forEach(appt => {
+    if (appt.isBlocked || appt.status === 'CANCELLED') return
+    const apptDate = parseISO(appt.date)
+    const startH = apptDate.getHours()
+    const endH = Math.ceil(startH + appt.duration / 60)
+    if (startH < apptStartHour) apptStartHour = startH
+    if (endH > apptEndHour) apptEndHour = endH
+  })
+
+  blocks.forEach(block => {
+    const blockStart = parseISO(block.date)
+    const blockEnd = parseISO(block.endDate)
+    const startH = blockStart.getHours()
+    const endH = Math.ceil(blockEnd.getHours() + blockEnd.getMinutes() / 60)
+    if (startH < apptStartHour) apptStartHour = startH
+    if (endH > apptEndHour) apptEndHour = endH
+  })
+
+  const effectiveStartHour = apptStartHour
+  const effectiveEndHour = apptEndHour
+
+  function getApptPosition(date: Date) {
+    const minutesFromStart = (date.getHours() - effectiveStartHour) * 60 + date.getMinutes()
+    return (minutesFromStart / INTERVAL) * SLOT_HEIGHT
+  }
+
+  function getApptHeight(duration: number) {
+    return Math.max((duration / INTERVAL) * SLOT_HEIGHT, SLOT_HEIGHT)
+  }
+
+  function getBlockPosition(date: Date) {
+    const minutesFromStart = (date.getHours() - effectiveStartHour) * 60 + date.getMinutes()
+    return (minutesFromStart / INTERVAL) * SLOT_HEIGHT
+  }
+
+  function getBlockHeight(start: Date, end: Date) {
+    const durationMins = (end.getTime() - start.getTime()) / 60000
+    return Math.max((durationMins / INTERVAL) * SLOT_HEIGHT, SLOT_HEIGHT)
+  }
+
+  const activeSlots = buildTimeSlots(effectiveStartHour, effectiveEndHour, INTERVAL)
 
   const saveMutation = useMutation({
     mutationFn: (data: Record<string, unknown>) =>
@@ -337,10 +391,6 @@ export default function Agenda() {
     if (tooltipTimer.current) clearTimeout(tooltipTimer.current)
     tooltipTimer.current = setTimeout(() => setTooltip(null), 150)
   }, [])
-
-  const activeSlots = roomSchedule
-    ? buildTimeSlots(roomSchedule.startHour, roomSchedule.endHour, INTERVAL)
-    : TIME_SLOTS
 
   const totalGridHeight = activeSlots.length * SLOT_HEIGHT
 
@@ -643,160 +693,164 @@ export default function Agenda() {
       )}
 
       {/* Calendar grid */}
-      {viewMode === 'calendar' && <div className="card p-0 overflow-hidden">
-        <div className="grid border-b border-slate-200 bg-slate-50/80" style={{ gridTemplateColumns: `56px repeat(${weekDays.length}, 1fr)` }}>
-          <div className="border-r border-slate-200" />
-          {weekDays.map(day => {
-            const isToday = isSameDay(day, new Date())
-            return (
-              <div
-                key={day.toISOString()}
-                className={`p-3 text-center border-r border-slate-200 last:border-r-0 transition-colors ${
-                  isToday ? 'bg-blue-50' : 'hover:bg-slate-100/60'
-                }`}
-              >
-                <p className={`text-xs font-bold uppercase tracking-wider ${
-                  isToday ? 'text-blue-600' : 'text-slate-400'
-                }`}>
-                  {format(day, 'EEE', { locale: ptBR })}
-                </p>
-                <div className={`w-8 h-8 rounded-full flex items-center justify-center mx-auto mt-1 transition-all ${
-                  isToday
-                    ? 'bg-blue-600 text-white shadow-md shadow-blue-600/30'
-                    : 'text-slate-600 hover:bg-slate-200'
-                }`}>
-                  <span className="text-sm font-bold">{format(day, 'd')}</span>
-                </div>
-                {getApptsByDay(day).length > 0 && (
-                  <div className={`w-1.5 h-1.5 rounded-full mx-auto mt-1.5 ${
-                    isToday ? 'bg-blue-300' : 'bg-blue-400'
-                  }`} />
-                )}
-              </div>
-            )
-          })}
-        </div>
-
-        <div className="overflow-y-auto" style={{ maxHeight: '580px' }}>
-          <div className="grid" style={{ gridTemplateColumns: `56px repeat(${weekDays.length}, 1fr)` }}>
-            {/* Time labels */}
-            <div className="border-r border-slate-200">
-              {activeSlots.map((slot, i) => (
-                <div
-                  key={i}
-                  style={{ height: SLOT_HEIGHT }}
-                  className={`border-b flex items-start justify-end pr-2 pt-1 ${slot.m === 0 ? 'border-slate-200' : 'border-slate-100'}`}
-                >
-                  {slot.m === 0 ? (
-                    <span className="text-xs font-semibold text-slate-500">{slot.label}</span>
-                  ) : (
-                    <span className="text-xs text-slate-300">{slot.label}</span>
-                  )}
-                </div>
-              ))}
+      {viewMode === 'calendar' && (
+        <div className="card p-0 overflow-hidden">
+          <div className="overflow-y-auto" style={{ maxHeight: '640px' }}>
+            {/* Headers (Sticky) */}
+            <div className="grid border-b border-slate-200 bg-slate-50/90 sticky top-0 z-30 backdrop-blur-sm" style={{ gridTemplateColumns: `56px repeat(${weekDays.length}, 1fr)` }}>
+              <div className="border-r border-slate-200" />
+              {weekDays.map(day => {
+                const isToday = isSameDay(day, new Date())
+                return (
+                  <div
+                    key={day.toISOString()}
+                    className={`p-3 text-center border-r border-slate-200 last:border-r-0 transition-colors ${
+                      isToday ? 'bg-blue-50' : 'hover:bg-slate-100/60'
+                    }`}
+                  >
+                    <p className={`text-xs font-bold uppercase tracking-wider ${
+                      isToday ? 'text-blue-600' : 'text-slate-400'
+                    }`}>
+                      {format(day, 'EEE', { locale: ptBR })}
+                    </p>
+                    <div className={`w-8 h-8 rounded-full flex items-center justify-center mx-auto mt-1 transition-all ${
+                      isToday
+                        ? 'bg-blue-600 text-white shadow-md shadow-blue-600/30'
+                        : 'text-slate-600 hover:bg-slate-200'
+                    }`}>
+                      <span className="text-sm font-bold">{format(day, 'd')}</span>
+                    </div>
+                    {getApptsByDay(day).length > 0 && (
+                      <div className={`w-1.5 h-1.5 rounded-full mx-auto mt-1.5 ${
+                        isToday ? 'bg-blue-300' : 'bg-blue-400'
+                      }`} />
+                    )}
+                  </div>
+                )
+              })}
             </div>
 
-            {/* Day columns */}
-            {weekDays.map(day => {
-              const dayAppts = getApptsByDay(day)
-              const dayBlocks = getBlocksByDay(day)
-              const isToday = isSameDay(day, new Date())
-              const dayAllowed = isAllowedDay(day)
+            {/* Grid Body */}
+            <div className="grid" style={{ gridTemplateColumns: `56px repeat(${weekDays.length}, 1fr)` }}>
+              {/* Time labels */}
+              <div className="border-r border-slate-200">
+                {activeSlots.map((slot, i) => (
+                  <div
+                    key={i}
+                    style={{ height: SLOT_HEIGHT }}
+                    className={`border-b flex items-start justify-end pr-2 pt-1 ${slot.m === 0 ? 'border-slate-200' : 'border-slate-100'}`}
+                  >
+                    {slot.m === 0 ? (
+                      <span className="text-xs font-semibold text-slate-500">{slot.label}</span>
+                    ) : (
+                      <span className="text-xs text-slate-300">{slot.label}</span>
+                    )}
+                  </div>
+                ))}
+              </div>
 
-              return (
-                <div
-                  key={day.toISOString()}
-                  className={`relative border-r border-slate-200 last:border-r-0 ${isToday ? 'bg-blue-50/20' : ''} ${!dayAllowed ? 'bg-slate-100/60' : ''}`}
-                  style={{ height: totalGridHeight }}
-                >
-                  {!dayAllowed && (
-                    <div className="absolute inset-0 flex items-center justify-center z-10 pointer-events-none">
-                      <p className="text-xs text-slate-400 font-medium rotate-90 whitespace-nowrap">Fora do horário</p>
-                    </div>
-                  )}
-                  {/* Slot lines */}
-                  {activeSlots.map((slot, i) => (
-                    <div
-                      key={i}
-                      style={{ top: i * SLOT_HEIGHT, height: SLOT_HEIGHT }}
-                      className={`absolute left-0 right-0 border-b transition-colors ${slot.m === 0 ? 'border-slate-200' : 'border-slate-100'} ${dayAllowed ? 'cursor-pointer hover:bg-blue-50/50' : 'cursor-not-allowed'}`}
-                      onClick={() => dayAllowed && handleSlotClick(day, slot)}
-                    />
-                  ))}
+              {/* Day columns */}
+              {weekDays.map(day => {
+                const dayAppts = getApptsByDay(day)
+                const dayBlocks = getBlocksByDay(day)
+                const isToday = isSameDay(day, new Date())
+                const dayAllowed = isAllowedDay(day)
 
-                  {/* Appointment Blocks */}
-                  {dayBlocks.map(block => {
-                    const blockStart = parseISO(block.date)
-                    const blockEnd = parseISO(block.endDate)
-                    const top = getBlockPosition(blockStart)
-                    const height = getBlockHeight(blockStart, blockEnd)
-                    const canDelete = user?.role === 'ADMIN' || user?.id === block.doctorId
-                    return (
+                return (
+                  <div
+                    key={day.toISOString()}
+                    className={`relative border-r border-slate-200 last:border-r-0 ${isToday ? 'bg-blue-50/20' : ''} ${!dayAllowed ? 'bg-slate-100/60' : ''}`}
+                    style={{ height: totalGridHeight }}
+                  >
+                    {!dayAllowed && (
+                      <div className="absolute inset-0 flex items-center justify-center z-10 pointer-events-none">
+                        <p className="text-xs text-slate-400 font-medium rotate-90 whitespace-nowrap">Fora do horário</p>
+                      </div>
+                    )}
+                    {/* Slot lines */}
+                    {activeSlots.map((slot, i) => (
                       <div
-                        key={block.id}
-                        style={{ top: top + 1, height: height - 2, left: 2, right: 2 }}
-                        className="absolute rounded-md border-l-4 border-amber-600 bg-amber-100/80 px-1.5 py-0.5 z-20 overflow-hidden group"
-                        onClick={e => e.stopPropagation()}
-                      >
-                        <div className="flex items-center gap-1">
-                          <Lock className="w-3 h-3 text-amber-700 flex-shrink-0" />
-                          <p className="text-xs font-bold text-amber-800 truncate">Bloqueado</p>
-                          {canDelete && (
-                            <button
-                              onClick={e => { e.stopPropagation(); deleteBlockMutation.mutate(block.id) }}
-                              className="ml-auto opacity-0 group-hover:opacity-100 p-0.5 hover:bg-amber-200 rounded transition-all"
-                            >
-                              <X className="w-3 h-3 text-amber-700" />
-                            </button>
+                        key={i}
+                        style={{ top: i * SLOT_HEIGHT, height: SLOT_HEIGHT }}
+                        className={`absolute left-0 right-0 border-b transition-colors ${slot.m === 0 ? 'border-slate-200' : 'border-slate-100'} ${dayAllowed ? 'cursor-pointer hover:bg-blue-50/50' : 'cursor-not-allowed'}`}
+                        onClick={() => dayAllowed && handleSlotClick(day, slot)}
+                      />
+                    ))}
+
+                    {/* Appointment Blocks */}
+                    {dayBlocks.map(block => {
+                      const blockStart = parseISO(block.date)
+                      const blockEnd = parseISO(block.endDate)
+                      const top = getBlockPosition(blockStart)
+                      const height = getBlockHeight(blockStart, blockEnd)
+                      const canDelete = user?.role === 'ADMIN' || user?.id === block.doctorId
+                      return (
+                        <div
+                          key={block.id}
+                          style={{ top: top + 1, height: height - 2, left: 2, right: 2 }}
+                          className="absolute rounded-md border-l-4 border-amber-600 bg-amber-100/80 px-1.5 py-0.5 z-20 overflow-hidden group"
+                          onClick={e => e.stopPropagation()}
+                        >
+                          <div className="flex items-center gap-1">
+                            <Lock className="w-3 h-3 text-amber-700 flex-shrink-0" />
+                            <p className="text-xs font-bold text-amber-800 truncate">Bloqueado</p>
+                            {canDelete && (
+                              <button
+                                onClick={e => { e.stopPropagation(); deleteBlockMutation.mutate(block.id) }}
+                                className="ml-auto opacity-0 group-hover:opacity-100 p-0.5 hover:bg-amber-200 rounded transition-all"
+                              >
+                                <X className="w-3 h-3 text-amber-700" />
+                              </button>
+                            )}
+                          </div>
+                          {height > 36 && block.reason && (
+                            <p className="text-xs text-amber-700 opacity-80 truncate">{block.reason}</p>
                           )}
                         </div>
-                        {height > 36 && block.reason && (
-                          <p className="text-xs text-amber-700 opacity-80 truncate">{block.reason}</p>
-                        )}
-                      </div>
-                    )
-                  })}
+                      )
+                    })}
 
-                  {/* Appointments */}
-                  {dayAppts.map(appt => {
-                    const apptDate = parseISO(appt.date)
-                    const top = getApptPosition(apptDate)
-                    const height = getApptHeight(appt.duration)
-                    const colorClass = getApptColor(appt.status, appt.isBlocked)
-                    const isSecretaryBlocked = user?.role === 'SECRETARY' && appt.isBlocked
+                    {/* Appointments */}
+                    {dayAppts.map(appt => {
+                      const apptDate = parseISO(appt.date)
+                      const top = getApptPosition(apptDate)
+                      const height = getApptHeight(appt.duration)
+                      const colorClass = getApptColor(appt.status, appt.isBlocked)
+                      const isSecretaryBlocked = user?.role === 'SECRETARY' && appt.isBlocked
 
-                    return (
-                      <div
-                        key={appt.id}
-                        style={{ top: top + 1, height: height - 2, left: 2, right: 2 }}
-                        className={`absolute rounded-md border-l-4 px-1.5 py-0.5 text-white shadow-sm z-10 overflow-hidden transition-all ${colorClass} ${isSecretaryBlocked ? 'cursor-not-allowed opacity-80' : 'cursor-pointer hover:brightness-95'}`}
-                        onClick={e => handleApptClick(e, appt)}
-                        onMouseEnter={e => handleApptMouseEnter(e, appt)}
-                        onMouseMove={handleApptMouseMove}
-                        onMouseLeave={handleApptMouseLeave}
-                      >
-                        <p className="text-xs font-bold leading-tight truncate">
-                          {isSecretaryBlocked ? (
-                            <span className="flex items-center gap-1">
-                              <Lock className="w-3 h-3" />
-                              Bloqueado
-                            </span>
-                          ) : (
-                            <>{format(apptDate, 'HH:mm')} {appt.patient.name}</>
+                      return (
+                        <div
+                          key={appt.id}
+                          style={{ top: top + 1, height: height - 2, left: 2, right: 2 }}
+                          className={`absolute rounded-md border-l-4 px-1.5 py-0.5 shadow-sm z-10 overflow-hidden transition-all ${colorClass} ${isSecretaryBlocked ? 'cursor-not-allowed opacity-80' : 'cursor-pointer hover:brightness-95'}`}
+                          onClick={e => handleApptClick(e, appt)}
+                          onMouseEnter={e => handleApptMouseEnter(e, appt)}
+                          onMouseMove={handleApptMouseMove}
+                          onMouseLeave={handleApptMouseLeave}
+                        >
+                          <p className="text-xs font-bold leading-tight truncate">
+                            {isSecretaryBlocked ? (
+                              <span className="flex items-center gap-1">
+                                <Lock className="w-3 h-3" />
+                                Bloqueado
+                              </span>
+                            ) : (
+                              <>{format(apptDate, 'HH:mm')} {appt.patient.name}</>
+                            )}
+                          </p>
+                          {height > 36 && !isSecretaryBlocked && (
+                            <p className="text-xs opacity-80 truncate leading-tight">{appt.duration}min · {appt.type || 'Consulta'}</p>
                           )}
-                        </p>
-                        {height > 36 && !isSecretaryBlocked && (
-                          <p className="text-xs opacity-80 truncate leading-tight">{appt.duration}min · {appt.type || 'Consulta'}</p>
-                        )}
-                      </div>
-                    )
-                  })}
-                </div>
-              )
-            })}
+                        </div>
+                      )
+                    })}
+                  </div>
+                )
+              })}
+            </div>
           </div>
         </div>
-      </div>}
+      )}
 
       {/* ── Mobile list ── */}
       {viewMode === 'calendar' && <div className="xl:hidden space-y-2 animate-stagger-3">
@@ -810,38 +864,38 @@ export default function Agenda() {
           </div>
         ) : (
           appointments
-            .filter(a => !(user?.role === 'SECRETARY' && a.isBlocked))
-            .map((appt, idx) => (
-              <div
-                key={appt.id}
-                className="card-hover flex items-center gap-4 py-3 px-4"
-                style={{ animationDelay: `${idx * 0.04}s` }}
-                onClick={e => handleApptClick(e, appt)}
-              >
-                <div className="text-center min-w-[52px]">
-                  <p className="text-xs font-semibold text-slate-400 uppercase">
-                    {format(parseISO(appt.date), 'EEE', { locale: ptBR })}
-                  </p>
-                  <p className="text-xl font-bold text-slate-900 tabular-nums leading-tight">
-                    {format(parseISO(appt.date), 'd')}
-                  </p>
-                  <p className="text-xs font-bold text-blue-600 tabular-nums">
-                    {format(parseISO(appt.date), 'HH:mm')}
-                  </p>
+              .filter(a => !(user?.role === 'SECRETARY' && a.isBlocked))
+              .map((appt, idx) => (
+                <div
+                  key={appt.id}
+                  className="card-hover flex items-center gap-4 py-3 px-4"
+                  style={{ animationDelay: `${idx * 0.04}s` }}
+                  onClick={e => handleApptClick(e, appt)}
+                >
+                  <div className="text-center min-w-[52px]">
+                    <p className="text-xs font-semibold text-slate-400 uppercase">
+                      {format(parseISO(appt.date), 'EEE', { locale: ptBR })}
+                    </p>
+                    <p className="text-xl font-bold text-slate-900 tabular-nums leading-tight">
+                      {format(parseISO(appt.date), 'd')}
+                    </p>
+                    <p className="text-xs font-bold text-blue-600 tabular-nums">
+                      {format(parseISO(appt.date), 'HH:mm')}
+                    </p>
+                  </div>
+                  <div className="w-px h-10 bg-slate-200 flex-shrink-0" />
+                  <div className="flex-1 min-w-0">
+                    <p className="font-semibold text-sm text-slate-900 truncate">{appt.patient.name}</p>
+                    <p className="text-xs text-slate-400 flex items-center gap-1 mt-0.5">
+                      <Clock className="w-3 h-3" />
+                      <span className="tabular-nums">{appt.duration}min</span>
+                      {' · '}
+                      <span className="truncate">{appt.doctor.name}</span>
+                    </p>
+                  </div>
+                  <StatusBadge status={appt.status} />
                 </div>
-                <div className="w-px h-10 bg-slate-200 flex-shrink-0" />
-                <div className="flex-1 min-w-0">
-                  <p className="font-semibold text-sm text-slate-900 truncate">{appt.patient.name}</p>
-                  <p className="text-xs text-slate-400 flex items-center gap-1 mt-0.5">
-                    <Clock className="w-3 h-3" />
-                    <span className="tabular-nums">{appt.duration}min</span>
-                    {' · '}
-                    <span className="truncate">{appt.doctor.name}</span>
-                  </p>
-                </div>
-                <StatusBadge status={appt.status} />
-              </div>
-            ))
+              ))
         )}
       </div>}
 
@@ -861,7 +915,7 @@ export default function Agenda() {
             onMouseLeave={handleApptMouseLeave}
           >
             <div className="flex items-center gap-2">
-              <div className={`w-2.5 h-2.5 rounded-full flex-shrink-0 ${getApptColor(tooltip.appt.status, tooltip.appt.isBlocked).split(' ')[0]}`} />
+              <div className={`w-2.5 h-2.5 rounded-full flex-shrink-0 ${tooltip.appt.isBlocked ? 'bg-amber-500' : (dotColors[tooltip.appt.status] || 'bg-blue-500')}`} />
               <p className="font-semibold text-slate-900 text-sm leading-tight truncate">{tooltip.appt.patient.name}</p>
             </div>
             <div className="space-y-1.5 text-xs text-slate-500">

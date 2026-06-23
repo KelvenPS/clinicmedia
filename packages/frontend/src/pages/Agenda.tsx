@@ -148,16 +148,63 @@ export default function Agenda() {
   const SLOT_HEIGHT = preferences.compactMode ? 24 : 40
   const INTERVAL = preferences.interval
 
-  function buildTimeSlots(startHour: number, endHour: number, interval: number) {
-    return Array.from(
-      { length: Math.ceil((endHour - startHour) * 60 / interval) },
-      (_, i) => {
-        const totalMins = startHour * 60 + i * interval
-        const h = Math.floor(totalMins / 60)
-        const m = totalMins % 60
-        return { h, m, label: `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}` }
+  function buildTimeSlots(
+    startHour: number,
+    endHour: number,
+    interval: number,
+    lunchStart?: string | null,
+    lunchEnd?: string | null
+  ) {
+    const slots: { h: number; m: number; label: string }[] = []
+    const startMins = startHour * 60
+    const endMins = endHour * 60
+
+    let lunchStartMins: number | null = null
+    let lunchEndMins: number | null = null
+    if (lunchStart && lunchEnd) {
+      const [lsH, lsM] = lunchStart.split(':').map(Number)
+      const [leH, leM] = lunchEnd.split(':').map(Number)
+      if (!isNaN(lsH) && !isNaN(lsM) && !isNaN(leH) && !isNaN(leM)) {
+        lunchStartMins = lsH * 60 + lsM
+        lunchEndMins = leH * 60 + leM
       }
-    )
+    }
+
+    const addSlot = (totalMins: number) => {
+      const h = Math.floor(totalMins / 60)
+      const m = totalMins % 60
+      const label = `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`
+      if (!slots.some(s => s.h === h && s.m === m)) {
+        slots.push({ h, m, label })
+      }
+    }
+
+    if (lunchStartMins !== null && lunchEndMins !== null && lunchStartMins >= startMins && lunchEndMins <= endMins) {
+      // morning slots
+      let current = startMins
+      while (current < lunchStartMins) {
+        addSlot(current)
+        current += interval
+      }
+      // Ensure the lunch start itself is a slot
+      addSlot(lunchStartMins)
+
+      // afternoon slots starting exactly at lunchEndMins
+      current = lunchEndMins
+      while (current < endMins) {
+        addSlot(current)
+        current += interval
+      }
+    } else {
+      let current = startMins
+      while (current < endMins) {
+        addSlot(current)
+        current += interval
+      }
+    }
+
+    slots.sort((a, b) => (a.h * 60 + a.m) - (b.h * 60 + b.m))
+    return slots
   }
 
   const weekStart = startOfWeek(currentWeek, { weekStartsOn: preferences.weekStartsOn })
@@ -295,26 +342,62 @@ export default function Agenda() {
   const effectiveStartHour = apptStartHour
   const effectiveEndHour = apptEndHour
 
-  function getApptPosition(date: Date) {
-    const minutesFromStart = (date.getHours() - effectiveStartHour) * 60 + date.getMinutes()
-    return (minutesFromStart / INTERVAL) * SLOT_HEIGHT
+  const activeSlots = buildTimeSlots(effectiveStartHour, effectiveEndHour, INTERVAL, activeLunchStart, activeLunchEnd)
+
+  function getTimePosition(date: Date) {
+    const timeMins = date.getHours() * 60 + date.getMinutes()
+    
+    const slotsWithTimes = activeSlots.map((slot, idx) => {
+      const startMins = slot.h * 60 + slot.m
+      let duration = INTERVAL
+      if (idx < activeSlots.length - 1) {
+        const nextSlot = activeSlots[idx + 1]
+        duration = (nextSlot.h * 60 + nextSlot.m) - startMins
+      }
+      return {
+        startMins,
+        duration,
+        endMins: startMins + duration
+      }
+    })
+
+    if (slotsWithTimes.length === 0) return 0
+    if (timeMins < slotsWithTimes[0].startMins) {
+      return 0
+    }
+
+    for (let i = 0; i < slotsWithTimes.length; i++) {
+      const s = slotsWithTimes[i]
+      if (timeMins >= s.startMins && timeMins < s.endMins) {
+        const fraction = (timeMins - s.startMins) / s.duration
+        return (i + fraction) * SLOT_HEIGHT
+      }
+    }
+
+    const lastSlot = slotsWithTimes[slotsWithTimes.length - 1]
+    if (timeMins >= lastSlot.endMins) {
+      return slotsWithTimes.length * SLOT_HEIGHT
+    }
+
+    return 0
   }
 
-  function getApptHeight(duration: number) {
-    return Math.max((duration / INTERVAL) * SLOT_HEIGHT, SLOT_HEIGHT)
+  function getApptPosition(date: Date) {
+    return getTimePosition(date)
+  }
+
+  function getApptHeight(date: Date, duration: number) {
+    const end = new Date(date.getTime() + duration * 60000)
+    return Math.max(getTimePosition(end) - getTimePosition(date), SLOT_HEIGHT)
   }
 
   function getBlockPosition(date: Date) {
-    const minutesFromStart = (date.getHours() - effectiveStartHour) * 60 + date.getMinutes()
-    return (minutesFromStart / INTERVAL) * SLOT_HEIGHT
+    return getTimePosition(date)
   }
 
   function getBlockHeight(start: Date, end: Date) {
-    const durationMins = (end.getTime() - start.getTime()) / 60000
-    return Math.max((durationMins / INTERVAL) * SLOT_HEIGHT, SLOT_HEIGHT)
+    return Math.max(getTimePosition(end) - getTimePosition(start), SLOT_HEIGHT)
   }
-
-  const activeSlots = buildTimeSlots(effectiveStartHour, effectiveEndHour, INTERVAL)
 
   const saveMutation = useMutation({
     mutationFn: (data: Record<string, unknown>) =>
@@ -906,7 +989,7 @@ export default function Agenda() {
                     {dayAppts.map(appt => {
                       const apptDate = parseISO(appt.date)
                       const top = getApptPosition(apptDate)
-                      const height = getApptHeight(appt.duration)
+                      const height = getApptHeight(apptDate, appt.duration)
                       const colorClass = getApptColor(appt.status, appt.isBlocked)
                       const isSecretaryBlocked = user?.role === 'SECRETARY' && appt.isBlocked
 

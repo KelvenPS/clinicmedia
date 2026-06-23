@@ -96,17 +96,28 @@ async function checkLunchOverlap(doctorId: string, date: Date, duration: number)
   if (!doctor || !doctor.lunchStart || !doctor.lunchEnd) {
     return false
   }
+
+  const formatter = new Intl.DateTimeFormat('en-US', {
+    timeZone: 'America/Sao_Paulo',
+    hour: 'numeric',
+    minute: 'numeric',
+    hour12: false
+  })
+  const parts = formatter.formatToParts(date)
+  const map: Record<string, string> = {}
+  for (const part of parts) {
+    map[part.type] = part.value
+  }
+  
+  const apptStartMins = parseInt(map.hour, 10) * 60 + parseInt(map.minute, 10)
+  const apptEndMins = apptStartMins + duration
+
   const [lStartH, lStartM] = doctor.lunchStart.split(':').map(Number)
   const [lEndH, lEndM] = doctor.lunchEnd.split(':').map(Number)
+  const lunchStartMins = lStartH * 60 + lStartM
+  const lunchEndMins = lEndH * 60 + lEndM
   
-  const lunchStart = new Date(date)
-  lunchStart.setHours(lStartH, lStartM, 0, 0)
-  
-  const lunchEnd = new Date(date)
-  lunchEnd.setHours(lEndH, lEndM, 0, 0)
-  
-  const occEnd = new Date(date.getTime() + duration * 60000)
-  return date < lunchEnd && occEnd > lunchStart
+  return apptStartMins < lunchEndMins && apptEndMins > lunchStartMins
 }
 
 router.post('/', async (req: AuthRequest, res) => {

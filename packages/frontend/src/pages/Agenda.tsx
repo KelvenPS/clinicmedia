@@ -1154,9 +1154,28 @@ export default function Agenda() {
           rooms={myRooms}
           currentUser={user}
           onSubmit={data => {
+            const apptDateStr = data.date as string
+            const apptDate = new Date(apptDateStr)
+            const duration = Number(data.duration) || 30
+
+            if (activeLunchStart && activeLunchEnd) {
+              const [lStartH, lStartM] = activeLunchStart.split(':').map(Number)
+              const [lEndH, lEndM] = activeLunchEnd.split(':').map(Number)
+              
+              const apptStartMins = apptDate.getHours() * 60 + apptDate.getMinutes()
+              const apptEndMins = apptStartMins + duration
+              const lunchStartMins = lStartH * 60 + lStartM
+              const lunchEndMins = lEndH * 60 + lEndM
+
+              if (apptStartMins < lunchEndMins && apptEndMins > lunchStartMins) {
+                toast.error('Este horário está reservado para o almoço do profissional.')
+                return
+              }
+            }
+
             const payload = {
               ...data,
-              date: new Date(data.date as string).toISOString(),
+              date: apptDate.toISOString(),
             }
             saveMutation.mutate(payload as Record<string, unknown>)
           }}

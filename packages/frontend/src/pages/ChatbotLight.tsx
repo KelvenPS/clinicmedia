@@ -10,7 +10,8 @@ import {
   Plus, Pencil, Trash2, Send, Wifi, WifiOff,
   CheckCircle2, XCircle, Clock, Loader2, AlertCircle,
   ToggleLeft, ToggleRight, Eye, EyeOff, QrCode,
-  Zap, GitBranch, Reply, X, FileText,
+  Zap, GitBranch, Reply, X, FileText, Play, RotateCcw,
+  Smartphone, Info,
 } from 'lucide-react'
 import toast from 'react-hot-toast'
 import api from '../lib/api'
@@ -444,13 +445,278 @@ function RelatorioPanel({ onGoTo }: { onGoTo: (p: Panel) => void }) {
   )
 }
 
+// ─── Chatbot Simulator Modal ──────────────────────────────────────────────────
+
+const STEP_LABELS: Record<string, string> = {
+  WAITING_MENU_OPTION: 'Aguardando opção de menu',
+  CHOOSE_PLAN:         'Escolha de plano/serviço',
+  ASK_NAME:            'Coletando nome',
+  ASK_PHONE_CONFIRM:   'Confirmação de telefone',
+  ASK_PHONE_TEXT:      'Coletando telefone',
+  ASK_CPF:             'Coletando CPF',
+  ASK_CONVENIO:        'Escolha de convênio',
+  ASK_DATE:            'Escolha de data',
+  ASK_DATE_EMPTY:      'Nenhum horário disponível',
+  CHOOSE_SLOT:         'Escolha de horário',
+  CONFIRMATION:        'Confirmação de agendamento',
+}
+
+const STATUS_LABELS: Record<string, string> = {
+  ACTIVE:      'Sessão ativa',
+  COMPLETED:   'Concluído',
+  CANCELLED:   'Cancelado',
+  FAILED:      'Falhou',
+  TRANSFER:    'Transferido para humano',
+  QUICK_REPLY: 'Resposta rápida',
+  NO_MATCH:    'Sem correspondência',
+  NO_INSTANCE: 'Sem instância',
+  EXPIRED:     'Expirado',
+}
+
+interface SimMessage {
+  id: string
+  fromMe: boolean
+  text: string
+  ts: Date
+}
+
+function FluxoSimulatorModal({
+  isOpen,
+  onClose,
+  initialFluxo,
+}: {
+  isOpen: boolean
+  onClose: () => void
+  initialFluxo?: LightFluxo | null
+}) {
+  const [sessionToken]  = useState(() => generateUUID().replace(/-/g, '').substring(0, 16))
+  const [messages, setMessages] = useState<SimMessage[]>([])
+  const [inputText, setInputText]   = useState('')
+  const [currentStep, setCurrentStep]   = useState<string | null>(null)
+  const [sessionStatus, setSessionStatus] = useState<string>('idle')
+  const [flowName, setFlowName]     = useState<string | null>(null)
+  const [sending, setSending]       = useState(false)
+  const endRef = useRef<HTMLDivElement>(null)
+  const inputRef = useRef<HTMLInputElement>(null)
+
+  const addBotMessages = (texts: string[]) => {
+    const now = new Date()
+    setMessages(prev => [
+      ...prev,
+      ...texts.map(t => ({ id: generateUUID(), fromMe: false, text: t, ts: now })),
+    ])
+  }
+
+  const scrollToBottom = () => {
+    setTimeout(() => endRef.current?.scrollIntoView({ behavior: 'smooth' }), 80)
+  }
+
+  useEffect(() => {
+    if (!isOpen) return
+    setMessages([])
+    setCurrentStep(null)
+    setSessionStatus('idle')
+    setFlowName(null)
+    setInputText('')
+    if (initialFluxo) {
+      const hint = initialFluxo.keywords.split(',').map(k => k.trim()).filter(Boolean)
+      setMessages([{
+        id: generateUUID(),
+        fromMe: false,
+        text: `Simulador iniciado para o fluxo "${initialFluxo.name}".\n\nEnvie uma das palavras-chave para começar:\n${hint.map(k => `• ${k}`).join('\n')}`,
+        ts: new Date(),
+      }])
+    } else {
+      setMessages([{
+        id: generateUUID(),
+        fromMe: false,
+        text: 'Simulador iniciado. Envie uma palavra-chave para ativar um fluxo.',
+        ts: new Date(),
+      }])
+    }
+  }, [isOpen, initialFluxo])
+
+  useEffect(() => { if (messages.length) scrollToBottom() }, [messages])
+
+  const handleReset = async () => {
+    try {
+      await api.delete(`/chatbot-light/simulate/${sessionToken}`)
+    } catch { /* ignore */ }
+    setMessages([{
+      id: generateUUID(),
+      fromMe: false,
+      text: 'Sessão reiniciada. Envie uma palavra-chave para começar.',
+      ts: new Date(),
+    }])
+    setCurrentStep(null)
+    setSessionStatus('idle')
+    setFlowName(null)
+    setInputText('')
+  }
+
+  const handleSend = async () => {
+    const text = inputText.trim()
+    if (!text || sending) return
+
+    const userMsg: SimMessage = { id: generateUUID(), fromMe: true, text, ts: new Date() }
+    setMessages(prev => [...prev, userMsg])
+    setInputText('')
+    setSending(true)
+
+    try {
+      const { data } = await api.post('/chatbot-light/simulate', {
+        sessionToken,
+        message: text,
+      })
+      const { botMessages, currentStep: step, sessionStatus: status, flowName: fn } = data
+      setCurrentStep(step)
+      setSessionStatus(status)
+      if (fn) setFlowName(fn)
+      if (botMessages?.length) addBotMessages(botMessages)
+    } catch (err: any) {
+      addBotMessages([`⚠️ Erro: ${err?.response?.data?.message || 'Falha na simulação'}`])
+    } finally {
+      setSending(false)
+      setTimeout(() => inputRef.current?.focus(), 100)
+      scrollToBottom()
+    }
+  }
+
+  const handleKey = (e: React.KeyboardEvent) => {
+    if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSend() }
+  }
+
+  const isFinished = ['COMPLETED', 'CANCELLED', 'FAILED', 'TRANSFER'].includes(sessionStatus)
+
+  if (!isOpen) return null
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm">
+      <div className="w-full max-w-sm h-[680px] rounded-3xl overflow-hidden shadow-2xl flex flex-col bg-white" style={{ maxHeight: '90vh' }}>
+
+        {/* WhatsApp-like header */}
+        <div className="flex items-center gap-3 px-4 py-3" style={{ background: 'linear-gradient(135deg, #075E54, #128C7E)' }}>
+          <div className="w-10 h-10 rounded-full bg-white/20 flex items-center justify-center flex-shrink-0">
+            <Smartphone className="w-5 h-5 text-white" />
+          </div>
+          <div className="flex-1 min-w-0">
+            <p className="text-white font-semibold text-sm leading-tight truncate">
+              {flowName ? `Fluxo: ${flowName}` : 'Chatbot Light — Simulador'}
+            </p>
+            <p className="text-white/70 text-xs">
+              {sessionStatus === 'idle' ? 'Aguardando início' : STATUS_LABELS[sessionStatus] ?? sessionStatus}
+            </p>
+          </div>
+          <button
+            onClick={handleReset}
+            title="Reiniciar simulação"
+            className="p-2 rounded-full hover:bg-white/10 text-white/80 hover:text-white transition-colors"
+          >
+            <RotateCcw className="w-4 h-4" />
+          </button>
+          <button
+            onClick={onClose}
+            className="p-2 rounded-full hover:bg-white/10 text-white/80 hover:text-white transition-colors"
+          >
+            <X className="w-4 h-4" />
+          </button>
+        </div>
+
+        {/* Debug bar */}
+        {currentStep && (
+          <div className="flex items-center gap-2 px-3 py-1.5 bg-amber-50 border-b border-amber-200">
+            <Info className="w-3.5 h-3.5 text-amber-600 flex-shrink-0" />
+            <p className="text-xs text-amber-700 font-medium truncate">
+              Passo: {STEP_LABELS[currentStep] ?? currentStep}
+            </p>
+          </div>
+        )}
+
+        {/* Chat area — WhatsApp background pattern */}
+        <div
+          className="flex-1 overflow-y-auto px-3 py-4 space-y-2"
+          style={{ background: '#ECE5DD url("data:image/svg+xml,%3Csvg width=\'60\' height=\'60\' viewBox=\'0 0 60 60\' xmlns=\'http://www.w3.org/2000/svg\'%3E%3Cg fill=\'none\' fill-rule=\'evenodd\'%3E%3Cg fill=\'%23d4c9bd\' fill-opacity=\'0.35\'%3E%3Cpath d=\'M36 34v-4h-2v4h-4v2h4v4h2v-4h4v-2h-4zm0-30V0h-2v4h-4v2h4v4h2V6h4V4h-4zM6 34v-4H4v4H0v2h4v4h2v-4h4v-2H6zM6 4V0H4v4H0v2h4v4h2V6h4V4H6z\'/%3E%3C/g%3E%3C/g%3E%3C/svg%3E")' }}
+        >
+          {messages.map(m => (
+            <div key={m.id} className={`flex ${m.fromMe ? 'justify-end' : 'justify-start'}`}>
+              <div
+                className={`max-w-[80%] rounded-2xl px-3 py-2 shadow-sm ${
+                  m.fromMe
+                    ? 'rounded-tr-sm bg-[#DCF8C6] text-slate-800'
+                    : 'rounded-tl-sm bg-white text-slate-800'
+                }`}
+              >
+                <p className="text-sm whitespace-pre-wrap leading-relaxed">{m.text}</p>
+                <p className="text-[10px] text-slate-400 mt-0.5 text-right">
+                  {m.ts.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}
+                </p>
+              </div>
+            </div>
+          ))}
+          {sending && (
+            <div className="flex justify-start">
+              <div className="bg-white rounded-2xl rounded-tl-sm px-4 py-3 shadow-sm flex gap-1 items-center">
+                <span className="w-2 h-2 rounded-full bg-slate-400 animate-bounce" style={{ animationDelay: '0ms' }} />
+                <span className="w-2 h-2 rounded-full bg-slate-400 animate-bounce" style={{ animationDelay: '150ms' }} />
+                <span className="w-2 h-2 rounded-full bg-slate-400 animate-bounce" style={{ animationDelay: '300ms' }} />
+              </div>
+            </div>
+          )}
+          <div ref={endRef} />
+        </div>
+
+        {/* Keyword hints for finished sessions */}
+        {isFinished && (
+          <div className="px-3 py-2 bg-slate-50 border-t border-slate-200 text-center">
+            <p className="text-xs text-slate-500">Conversa encerrada.</p>
+            <button onClick={handleReset} className="text-xs text-cyan-600 font-medium hover:underline mt-0.5">
+              Reiniciar simulação
+            </button>
+          </div>
+        )}
+
+        {/* Input area */}
+        {!isFinished && (
+          <div className="flex items-center gap-2 px-3 py-3 bg-[#F0F0F0] border-t border-slate-200">
+            <input
+              ref={inputRef}
+              type="text"
+              value={inputText}
+              onChange={e => setInputText(e.target.value)}
+              onKeyDown={handleKey}
+              placeholder="Digite uma mensagem..."
+              disabled={sending}
+              className="flex-1 bg-white rounded-full px-4 py-2 text-sm text-slate-800 border border-slate-200 focus:outline-none focus:border-cyan-400 disabled:opacity-50"
+            />
+            <button
+              onClick={handleSend}
+              disabled={!inputText.trim() || sending}
+              className="w-10 h-10 rounded-full flex items-center justify-center disabled:opacity-40 transition-opacity flex-shrink-0"
+              style={{ background: '#128C7E' }}
+            >
+              <Send className="w-4 h-4 text-white" />
+            </button>
+          </div>
+        )}
+      </div>
+    </div>
+  )
+}
+
 // ─── Fluxos panel ─────────────────────────────────────────────────────────────
 
 function FluxosPanel() {
   const qc = useQueryClient()
-  const [modalOpen, setModalOpen]   = useState(false)
-  const [editing, setEditing]       = useState<LightFluxo | null>(null)
+  const [modalOpen, setModalOpen]       = useState(false)
+  const [editing, setEditing]           = useState<LightFluxo | null>(null)
+  const [simulatorOpen, setSimulatorOpen] = useState(false)
+  const [simulatingFluxo, setSimulatingFluxo] = useState<LightFluxo | null>(null)
   const welcomeRef = useRef<HTMLTextAreaElement>(null)
+
+  const openSimulator = (f?: LightFluxo) => {
+    setSimulatingFluxo(f ?? null)
+    setSimulatorOpen(true)
+  }
 
   const { data: fluxos = [], isLoading } = useQuery<LightFluxo[]>({
     queryKey: ['light-fluxos'],
@@ -591,9 +857,17 @@ function FluxosPanel() {
           <h2 className="text-xl font-bold text-slate-900">Fluxos</h2>
           <p className="text-sm text-slate-500 mt-0.5">Menus automáticos ativados por palavras-chave enviadas pelo paciente</p>
         </div>
-        <button onClick={openNew} className="btn-primary text-sm">
-          <Plus className="w-4 h-4" /> Novo fluxo
-        </button>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={() => openSimulator()}
+            className="flex items-center gap-1.5 px-3 py-2 rounded-xl text-sm font-medium border border-emerald-200 bg-emerald-50 text-emerald-700 hover:bg-emerald-100 transition-colors"
+          >
+            <Play className="w-4 h-4" /> Testar chatbot
+          </button>
+          <button onClick={openNew} className="btn-primary text-sm">
+            <Plus className="w-4 h-4" /> Novo fluxo
+          </button>
+        </div>
       </div>
 
       {isLoading ? (
@@ -637,6 +911,13 @@ function FluxosPanel() {
                     disabled={toggleMutation.isPending}
                   />
                   <button
+                    onClick={() => openSimulator(f)}
+                    title="Testar este fluxo"
+                    className="p-2 rounded-xl text-slate-400 hover:text-emerald-600 hover:bg-emerald-50 border border-transparent hover:border-emerald-100 transition-all"
+                  >
+                    <Play className="w-4 h-4" />
+                  </button>
+                  <button
                     onClick={() => openEdit(f)}
                     className="p-2 rounded-xl text-slate-400 hover:text-blue-600 hover:bg-blue-50 border border-transparent hover:border-blue-100 transition-all"
                   >
@@ -671,6 +952,13 @@ function FluxosPanel() {
           ))}
         </div>
       )}
+
+      {/* Simulator modal */}
+      <FluxoSimulatorModal
+        isOpen={simulatorOpen}
+        onClose={() => setSimulatorOpen(false)}
+        initialFluxo={simulatingFluxo}
+      />
 
       {/* Fluxo editor modal */}
       <Modal

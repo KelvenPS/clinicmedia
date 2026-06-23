@@ -4,6 +4,7 @@ import { prisma } from '../lib/prisma'
 import { authenticate, requireFeature, AuthRequest } from '../middleware/auth'
 import { sendWhatsAppMessage, isSessionActive, startSession, stopSession, resolveDeliveryJid } from '../lib/whatsapp'
 import { requireSecretaryPermission, getEffectiveDoctorId } from '../lib/secretaryAccess'
+import { simulateLightMessage, resetSimulation } from '../lib/chatbot-light-simulator'
 
 const router = Router()
 router.use(authenticate)
@@ -882,6 +883,46 @@ router.post('/instance/disconnect', async (req: AuthRequest, res: Response) => {
   } catch (err) {
     console.error('[/chatbot-light/instance/disconnect]', err)
     res.status(500).json({ message: 'Erro ao desconectar WhatsApp' })
+  }
+})
+
+// ─── Simulator ───────────────────────────────────────────────────────────────
+
+const simulateSchema = z.object({
+  sessionToken: z.string().min(1).max(64),
+  message: z.string().min(1).max(500),
+})
+
+router.post('/simulate', async (req: AuthRequest, res: Response) => {
+  try {
+    const doctorId = await getTargetDoctorId(req)
+    const parsed = simulateSchema.safeParse(req.body)
+    if (!parsed.success) {
+      res.status(400).json({ message: 'Dados inválidos', errors: parsed.error.errors })
+      return
+    }
+    const { sessionToken, message } = parsed.data
+    const result = await simulateLightMessage({ doctorId, sessionToken, messageText: message })
+    res.json(result)
+  } catch (err) {
+    console.error('[/chatbot-light/simulate]', err)
+    res.status(500).json({ message: 'Erro interno no simulador' })
+  }
+})
+
+router.delete('/simulate/:sessionToken', async (req: AuthRequest, res: Response) => {
+  try {
+    const doctorId = await getTargetDoctorId(req)
+    const { sessionToken } = req.params
+    if (!sessionToken || sessionToken.length > 64) {
+      res.status(400).json({ message: 'sessionToken inválido' })
+      return
+    }
+    await resetSimulation(doctorId, sessionToken)
+    res.json({ ok: true })
+  } catch (err) {
+    console.error('[/chatbot-light/simulate DELETE]', err)
+    res.status(500).json({ message: 'Erro ao resetar simulação' })
   }
 })
 

@@ -78,6 +78,9 @@ export default function AppointmentForm({
   const watchType = watch('type')
   const watchValue = watch('value')
   const watchBlocked = watch('isBlocked')
+  const watchDoctorId = watch('doctorId')
+
+  const filteredRooms = rooms.filter(r => r.doctorId === watchDoctorId)
 
   // Find the selected appointment type object
   const selectedAppType = appointmentTypes.find(t => t.name === watchType)
@@ -311,7 +314,7 @@ export default function AppointmentForm({
       </div>
 
       {/* Room selector */}
-      {rooms.length > 0 && (
+      {filteredRooms.length > 0 && (
         <div>
           <label className="label flex items-center gap-1.5">
             <MapPin className="w-3.5 h-3.5 text-slate-400" />
@@ -319,7 +322,7 @@ export default function AppointmentForm({
           </label>
           <select {...register('roomId')} className="input-field">
             <option value="">Sem sala definida</option>
-            {rooms.map(r => (
+            {filteredRooms.map(r => (
               <option key={r.id} value={r.id}>
                 {r.name}{r.cidade ? ` — ${r.cidade}` : ''}
               </option>

@@ -1,20 +1,35 @@
-import { Router, Response } from 'express'
+import { Router, Response, NextFunction } from 'express'
 import { z } from 'zod'
 import { prisma } from '../lib/prisma'
 import { authenticate, requireFeature, AuthRequest } from '../middleware/auth'
 import { sendWhatsAppMessage, isSessionActive, startSession, stopSession, resolveDeliveryJid } from '../lib/whatsapp'
-import { requireSecretaryPermission } from '../lib/secretaryAccess'
+import { requireSecretaryPermission, getEffectiveDoctorId } from '../lib/secretaryAccess'
 
 const router = Router()
 router.use(authenticate)
 router.use(requireFeature('chatbot'))
-router.use(requireSecretaryPermission('chatbot'))
+
+// Permissão de secretária verificada dinamicamente para permitir que acessem status da conexão (/instance) sem a permissão total
+router.use(async (req: AuthRequest, res: Response, next: NextFunction) => {
+  const isStatusRoute = req.method === 'GET' && (req.path === '/instance' || req.path === '/instance/status')
+  if (isStatusRoute) {
+    next()
+    return
+  }
+  const middleware = requireSecretaryPermission('chatbot')
+  await middleware(req, res, next)
+})
+
+async function getTargetDoctorId(req: AuthRequest): Promise<string> {
+  const effectiveId = await getEffectiveDoctorId(req)
+  return effectiveId ?? req.user!.userId
+}
 
 // ─── Dashboard ────────────────────────────────────────────────────────────────
 
 router.get('/dashboard', async (req: AuthRequest, res) => {
   try {
-    const doctorId = req.user!.userId
+    const doctorId = await getTargetDoctorId(req)
     const now = new Date()
     const monthStart = new Date(now.getFullYear(), now.getMonth(), 1)
     const lastMonthStart = new Date(now.getFullYear(), now.getMonth() - 1, 1)
@@ -63,7 +78,7 @@ router.get('/dashboard', async (req: AuthRequest, res) => {
 
 router.get('/integrations', async (req: AuthRequest, res) => {
   try {
-    const doctorId = req.user!.userId
+    const doctorId = await getTargetDoctorId(req)
     const configs = await prisma.lightIntegrationConfig.findMany({
       where: { doctorId },
       include: { template: { select: { id: true, name: true, content: true } } },
@@ -76,7 +91,7 @@ router.get('/integrations', async (req: AuthRequest, res) => {
 
 router.put('/integrations', async (req: AuthRequest, res) => {
   try {
-    const doctorId = req.user!.userId
+    const doctorId = await getTargetDoctorId(req)
     const schema = z.object({
       module:        z.string().min(1),
       triggerEvent:  z.string().min(1),
@@ -120,7 +135,7 @@ router.put('/integrations', async (req: AuthRequest, res) => {
 
 router.get('/templates', async (req: AuthRequest, res) => {
   try {
-    const doctorId = req.user!.userId
+    const doctorId = await getTargetDoctorId(req)
     const templates = await prisma.lightTemplate.findMany({
       where: { doctorId },
       orderBy: { createdAt: 'desc' },
@@ -141,7 +156,7 @@ const templateSchema = z.object({
 
 router.post('/templates', async (req: AuthRequest, res) => {
   try {
-    const doctorId = req.user!.userId
+    const doctorId = await getTargetDoctorId(req)
     const data = templateSchema.parse(req.body)
     const template = await prisma.lightTemplate.create({ data: { doctorId, ...data } })
     res.status(201).json(template)
@@ -156,7 +171,7 @@ router.post('/templates', async (req: AuthRequest, res) => {
 
 router.put('/templates/:id', async (req: AuthRequest, res) => {
   try {
-    const doctorId = req.user!.userId
+    const doctorId = await getTargetDoctorId(req)
     const { id } = req.params
     const data = templateSchema.partial().parse(req.body)
 
@@ -183,7 +198,7 @@ router.put('/templates/:id', async (req: AuthRequest, res) => {
 
 router.delete('/templates/:id', async (req: AuthRequest, res) => {
   try {
-    const doctorId = req.user!.userId
+    const doctorId = await getTargetDoctorId(req)
     const { id } = req.params
     await prisma.lightTemplate.deleteMany({ where: { id, doctorId } })
     res.json({ message: 'Template removido' })
@@ -196,7 +211,7 @@ router.delete('/templates/:id', async (req: AuthRequest, res) => {
 
 router.get('/history', async (req: AuthRequest, res) => {
   try {
-    const doctorId = req.user!.userId
+    const doctorId = await getTargetDoctorId(req)
     const { module, status, page = '1' } = req.query
     const take = 20
     const skip = (parseInt(String(page)) - 1) * take
@@ -230,7 +245,7 @@ router.get('/history', async (req: AuthRequest, res) => {
 
 router.post('/test', async (req: AuthRequest, res) => {
   try {
-    const doctorId = req.user!.userId
+    const doctorId = await getTargetDoctorId(req)
     const schema = z.object({
       phone:   z.string().min(8, 'Telefone obrigatório'),
       content: z.string().min(1, 'Mensagem obrigatória'),
@@ -343,7 +358,7 @@ const fluxoSchema = z.object({
 
 router.get('/fluxos', async (req: AuthRequest, res) => {
   try {
-    const doctorId = req.user!.userId
+    const doctorId = await getTargetDoctorId(req)
     const fluxos = await prisma.lightFluxo.findMany({
       where: { doctorId },
       orderBy: { createdAt: 'desc' },
@@ -356,7 +371,7 @@ router.get('/fluxos', async (req: AuthRequest, res) => {
 
 router.post('/fluxos', async (req: AuthRequest, res) => {
   try {
-    const doctorId = req.user!.userId
+    const doctorId = await getTargetDoctorId(req)
     const data = fluxoSchema.parse(req.body)
     const fluxo = await prisma.lightFluxo.create({
       data: { doctorId, ...data, options: data.options as object[] },
@@ -373,7 +388,7 @@ router.post('/fluxos', async (req: AuthRequest, res) => {
 
 router.put('/fluxos/:id', async (req: AuthRequest, res) => {
   try {
-    const doctorId = req.user!.userId
+    const doctorId = await getTargetDoctorId(req)
     const { id } = req.params
     const data = fluxoSchema.partial().parse(req.body)
 
@@ -400,7 +415,7 @@ router.put('/fluxos/:id', async (req: AuthRequest, res) => {
 
 router.delete('/fluxos/:id', async (req: AuthRequest, res) => {
   try {
-    const doctorId = req.user!.userId
+    const doctorId = await getTargetDoctorId(req)
     const { id } = req.params
     await prisma.lightFluxo.deleteMany({ where: { id, doctorId } })
     res.json({ message: 'Fluxo removido' })
@@ -419,7 +434,7 @@ const quickReplySchema = z.object({
 
 router.get('/quick-replies', async (req: AuthRequest, res) => {
   try {
-    const doctorId = req.user!.userId
+    const doctorId = await getTargetDoctorId(req)
     const replies = await prisma.lightQuickReply.findMany({
       where: { doctorId },
       orderBy: { createdAt: 'desc' },
@@ -432,7 +447,7 @@ router.get('/quick-replies', async (req: AuthRequest, res) => {
 
 router.post('/quick-replies', async (req: AuthRequest, res) => {
   try {
-    const doctorId = req.user!.userId
+    const doctorId = await getTargetDoctorId(req)
     const data = quickReplySchema.parse(req.body)
     const reply = await prisma.lightQuickReply.create({ data: { doctorId, ...data } })
     res.status(201).json(reply)
@@ -447,7 +462,7 @@ router.post('/quick-replies', async (req: AuthRequest, res) => {
 
 router.put('/quick-replies/:id', async (req: AuthRequest, res) => {
   try {
-    const doctorId = req.user!.userId
+    const doctorId = await getTargetDoctorId(req)
     const { id } = req.params
     const data = quickReplySchema.partial().parse(req.body)
 
@@ -474,7 +489,7 @@ router.put('/quick-replies/:id', async (req: AuthRequest, res) => {
 
 router.delete('/quick-replies/:id', async (req: AuthRequest, res) => {
   try {
-    const doctorId = req.user!.userId
+    const doctorId = await getTargetDoctorId(req)
     const { id } = req.params
     await prisma.lightQuickReply.deleteMany({ where: { id, doctorId } })
     res.json({ message: 'Resposta rápida removida' })
@@ -487,7 +502,7 @@ router.delete('/quick-replies/:id', async (req: AuthRequest, res) => {
 
 router.get('/settings', async (req: AuthRequest, res) => {
   try {
-    const doctorId = req.user!.userId
+    const doctorId = await getTargetDoctorId(req)
     const settings = await prisma.lightSettings.findUnique({ where: { doctorId } })
     res.json(settings ?? {
       enabledScreens: ['agenda', 'pacientes', 'prontuario', 'avaliacao', 'financeiro'],
@@ -499,7 +514,7 @@ router.get('/settings', async (req: AuthRequest, res) => {
 
 router.put('/settings', async (req: AuthRequest, res) => {
   try {
-    const doctorId = req.user!.userId
+    const doctorId = await getTargetDoctorId(req)
     const schema = z.object({
       enabledScreens: z.array(z.string()),
     })
@@ -543,10 +558,11 @@ router.get('/system-actions/catalog', async (req: AuthRequest, res) => {
 
 router.get('/system-actions', async (req: AuthRequest, res) => {
   try {
+    const doctorId = await getTargetDoctorId(req)
     const instance = await prisma.whatsAppInstance.findUnique({
       where: {
         doctorId_type: {
-          doctorId: req.user!.userId,
+          doctorId,
           type: 'CHATBOT_LIGHT',
         },
       },
@@ -567,10 +583,11 @@ router.get('/system-actions', async (req: AuthRequest, res) => {
 
 router.post('/system-actions', async (req: AuthRequest, res) => {
   try {
+    const doctorId = await getTargetDoctorId(req)
     const instance = await prisma.whatsAppInstance.findUnique({
       where: {
         doctorId_type: {
-          doctorId: req.user!.userId,
+          doctorId,
           type: 'CHATBOT_LIGHT',
         },
       },
@@ -666,7 +683,7 @@ router.patch('/system-actions/:id/active', async (req: AuthRequest, res) => {
 router.delete('/system-actions/:id', async (req: AuthRequest, res) => {
   try {
     const { id } = req.params
-    const doctorId = req.user!.userId
+    const doctorId = await getTargetDoctorId(req)
 
     // Exclusão segura: verificar se a config está vinculada a algum fluxo ativo
     const fluxos = await prisma.lightFluxo.findMany({
@@ -700,6 +717,7 @@ router.delete('/system-actions/:id', async (req: AuthRequest, res) => {
 router.post('/system-actions/:id/test', async (req: AuthRequest, res) => {
   try {
     const { id } = req.params
+    const doctorId = await getTargetDoctorId(req)
     const config = await prisma.lightSystemActionConfig.findUnique({
       where: { id },
     })
@@ -710,7 +728,7 @@ router.post('/system-actions/:id/test', async (req: AuthRequest, res) => {
 
     // Validações básicas de consistência para "Agendar Consulta"
     const activeRooms = await prisma.room.count({
-      where: { doctorId: req.user!.userId, active: true },
+      where: { doctorId, active: true },
     })
     if (activeRooms === 0) {
       res.status(400).json({ message: 'O médico não possui salas de atendimento ativas.' })
@@ -720,7 +738,7 @@ router.post('/system-actions/:id/test', async (req: AuthRequest, res) => {
     const cfg = config.config as any
     if (cfg?.planSource === 'DOCTOR_SERVICES') {
       const activeServices = await prisma.appointmentType.count({
-        where: { doctorId: req.user!.userId, active: true },
+        where: { doctorId, active: true },
       })
       if (activeServices === 0) {
         res.status(400).json({ message: 'O médico não possui serviços cadastrados.' })
@@ -728,7 +746,7 @@ router.post('/system-actions/:id/test', async (req: AuthRequest, res) => {
       }
     } else if (cfg?.planSource === 'DOCTOR_CONVENIOS') {
       const activeConvenios = await prisma.healthPlan.count({
-        where: { doctorId: req.user!.userId, active: true },
+        where: { doctorId, active: true },
       })
       if (activeConvenios === 0) {
         res.status(400).json({ message: 'O médico não possui convênios cadastrados.' })
@@ -783,7 +801,8 @@ async function resolveOrCreateInstance(userId: string) {
 
 router.get('/instance', async (req: AuthRequest, res: Response) => {
   try {
-    const instance = await resolveInstance(req.user!.userId)
+    const doctorId = await getTargetDoctorId(req)
+    const instance = await resolveInstance(doctorId)
     res.json(instance ?? null)
   } catch {
     res.status(500).json({ message: 'Erro interno do servidor' })
@@ -792,8 +811,8 @@ router.get('/instance', async (req: AuthRequest, res: Response) => {
 
 router.post('/instance/connect', async (req: AuthRequest, res: Response) => {
   try {
-    const userId = req.user!.userId
-    const instance = await resolveOrCreateInstance(userId)
+    const doctorId = await getTargetDoctorId(req)
+    const instance = await resolveOrCreateInstance(doctorId)
 
     await prisma.whatsAppInstance.update({
       where: { id: instance.id },
@@ -813,7 +832,8 @@ router.post('/instance/connect', async (req: AuthRequest, res: Response) => {
 
 router.get('/instance/status', async (req: AuthRequest, res: Response) => {
   try {
-    const instance = await resolveInstance(req.user!.userId)
+    const doctorId = await getTargetDoctorId(req)
+    const instance = await resolveInstance(doctorId)
     if (!instance) {
       res.json({ status: 'NONE' })
       return
@@ -837,7 +857,8 @@ router.get('/instance/status', async (req: AuthRequest, res: Response) => {
 
 router.post('/instance/disconnect', async (req: AuthRequest, res: Response) => {
   try {
-    const instance = await resolveInstance(req.user!.userId)
+    const doctorId = await getTargetDoctorId(req)
+    const instance = await resolveInstance(doctorId)
     if (!instance) {
       res.status(404).json({ message: 'Instância não encontrada' })
       return

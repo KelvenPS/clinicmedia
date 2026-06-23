@@ -5,7 +5,7 @@ import {
   format, startOfWeek, addDays, addWeeks, subWeeks, subDays, isSameDay, parseISO,
 } from 'date-fns'
 import { ptBR } from 'date-fns/locale'
-import { ChevronLeft, ChevronRight, Plus, Calendar, Clock, Lock, Trash2, X, MapPin, User as UserIcon, CalendarDays, LayoutList } from 'lucide-react'
+import { ChevronLeft, ChevronRight, Plus, Calendar, Clock, Lock, Trash2, X, MapPin, User as UserIcon, CalendarDays, LayoutList, AlertTriangle } from 'lucide-react'
 import toast from 'react-hot-toast'
 import api from '../lib/api'
 import { useAuthStore } from '../store/authStore'
@@ -28,6 +28,14 @@ function getApptColor(status: string, isBlocked: boolean) {
     NO_SHOW: 'bg-orange-400 border-orange-600',
   }
   return map[status] || map.SCHEDULED
+}
+
+const rowStyles: Record<string, string> = {
+  SCHEDULED: 'bg-blue-50/50 hover:bg-blue-100/60 text-blue-700 border-blue-100/70',
+  CONFIRMED: 'bg-emerald-50/50 hover:bg-emerald-100/60 text-emerald-700 border-emerald-100/70',
+  COMPLETED: 'bg-slate-100/50 hover:bg-slate-200/60 text-slate-600 border-slate-200/70',
+  CANCELLED: 'bg-red-50/50 hover:bg-red-100/60 text-red-700 border-red-100/70',
+  NO_SHOW: 'bg-orange-50/50 hover:bg-orange-100/60 text-orange-700 border-orange-100/70',
 }
 
 function BlockForm({
@@ -123,6 +131,7 @@ export default function Agenda() {
   const [calendarMode, setCalendarMode] = useState<'week' | 'day'>('week')
   const [filterDoctorId, setFilterDoctorId] = useState('')
   const [viewMode, setViewMode] = useState<'calendar' | 'list'>('calendar')
+  const [overlapWarning, setOverlapWarning] = useState<{ message: string, variables: any } | null>(null)
   const [tooltip, setTooltip] = useState<TooltipState | null>(null)
   const tooltipTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
   const tooltipRef = useRef<HTMLDivElement>(null)
@@ -221,6 +230,12 @@ export default function Agenda() {
     queryFn: () => api.get('/rooms').then(r => r.data),
   })
 
+  const { data: wsStatus } = useQuery({
+    queryKey: ['whatsapp-status'],
+    queryFn: () => api.get('/chatbot-light/instance/status').then(r => r.data).catch(() => null),
+    refetchInterval: 30000,
+  })
+
   // For secretaries: restrict to all assigned rooms schedule bounds
   const roomSchedule = user?.role === 'SECRETARY' && myRooms.length > 0
     ? { 
@@ -243,9 +258,7 @@ export default function Agenda() {
     },
     onError: (error: any, variables) => {
       if (error.response?.data?.code === 'OVERLAP_WARNING') {
-        if (window.confirm(error.response.data.message)) {
-          saveMutation.mutate({ ...variables, forceOverlap: true })
-        }
+        setOverlapWarning({ message: error.response.data.message, variables })
       } else {
         toast.error(error.response?.data?.message || 'Erro ao salvar consulta')
       }
@@ -344,6 +357,16 @@ export default function Agenda() {
         subtitle="Gerencie consultas e agendamentos"
         actions={
         <div className="flex items-center gap-2 flex-wrap">
+          {wsStatus && wsStatus.status && wsStatus.status !== 'NONE' && (
+            <div className={`inline-flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-bold border mr-1 ${
+              wsStatus.status === 'CONNECTED'
+                ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
+                : 'bg-rose-50 text-rose-700 border-rose-200'
+            }`}>
+              <span className={`w-2 h-2 rounded-full ${wsStatus.status === 'CONNECTED' ? 'bg-emerald-500 animate-pulse' : 'bg-rose-500'}`} />
+              <span>WhatsApp {wsStatus.status === 'CONNECTED' ? 'Conectado' : 'Desconectado'}</span>
+            </div>
+          )}
           {(user?.role === 'DOCTOR' || user?.role === 'ADMIN') && (
             <button
               onClick={() => setSettingsModalOpen(true)}
@@ -527,35 +550,35 @@ export default function Agenda() {
                       return (
                         <tr
                           key={activeAppt.id}
-                          className={`border-b border-slate-100 hover:bg-blue-50/40 cursor-pointer transition-colors ${idx % 2 !== 0 ? 'bg-slate-50/30' : ''}`}
+                          className={`border-b transition-colors cursor-pointer ${rowStyles[activeAppt.status] || rowStyles.SCHEDULED}`}
                           onClick={e => handleApptClick(e as React.MouseEvent, activeAppt)}
                         >
-                          <td className="px-4 py-3 text-slate-700 font-medium whitespace-nowrap">
+                          <td className="px-4 py-3 font-medium whitespace-nowrap">
                             {format(parseISO(activeAppt.date), "dd/MM/yyyy", { locale: ptBR })}
                           </td>
-                          <td className="px-4 py-3 text-slate-700 font-semibold tabular-nums whitespace-nowrap">
+                          <td className="px-4 py-3 font-semibold tabular-nums whitespace-nowrap">
                             {format(parseISO(activeAppt.date), 'HH:mm')}
                           </td>
-                          <td className="px-4 py-3 text-slate-900 font-semibold whitespace-nowrap">
+                          <td className="px-4 py-3 font-semibold whitespace-nowrap">
                             {activeAppt.patient.name}
                           </td>
-                          <td className="px-4 py-3 text-slate-600 whitespace-nowrap">
+                          <td className="px-4 py-3 whitespace-nowrap text-inherit opacity-90">
                             {activeAppt.room?.name || '—'}
                           </td>
-                          <td className="px-4 py-3 text-slate-700 font-medium tabular-nums whitespace-nowrap">
+                          <td className="px-4 py-3 font-medium tabular-nums whitespace-nowrap">
                             {activeAppt.value != null
                               ? activeAppt.value.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
                               : '—'}
                           </td>
-                          <td className="px-4 py-3 text-slate-600 whitespace-nowrap">
+                          <td className="px-4 py-3 whitespace-nowrap text-inherit opacity-90">
                             {activeAppt.createdBy
                               ? (activeAppt.createdById === activeAppt.doctorId ? `Dr. ${activeAppt.createdBy.name}` : activeAppt.createdBy.name)
                               : '—'}
                           </td>
-                          <td className="px-4 py-3 text-slate-600 whitespace-nowrap">
+                          <td className="px-4 py-3 whitespace-nowrap text-inherit opacity-90">
                             {activeAppt.doctor.name}
                           </td>
-                          <td className="px-4 py-3 text-slate-600 whitespace-nowrap">
+                          <td className="px-4 py-3 whitespace-nowrap text-inherit opacity-90">
                             {activeAppt.type || 'Consulta'}
                           </td>
                           <td className="px-4 py-3 whitespace-nowrap">
@@ -945,6 +968,41 @@ export default function Agenda() {
         preferences={preferences}
         onUpdate={setPreferences}
       />
+
+      <Modal isOpen={!!overlapWarning} onClose={() => setOverlapWarning(null)} title="Atenção: Choque de Horários">
+        <div className="p-4 space-y-4 text-gray-700">
+          <div className="flex items-center gap-3 text-amber-700 bg-amber-50 p-4 rounded-xl border border-amber-200">
+            <AlertTriangle className="w-6 h-6 flex-shrink-0" />
+            <p className="font-medium text-[15px] leading-snug">
+              {overlapWarning?.message}
+            </p>
+          </div>
+          <p className="text-sm text-gray-600 px-1">
+            Deseja forçar e salvar o agendamento mesmo assim?
+          </p>
+          <div className="flex justify-end gap-3 pt-4 border-t">
+            <button
+              type="button"
+              className="px-4 py-2 text-sm text-gray-600 bg-gray-100 hover:bg-gray-200 rounded-lg transition-colors font-medium"
+              onClick={() => setOverlapWarning(null)}
+            >
+              Cancelar
+            </button>
+            <button
+              type="button"
+              className="px-4 py-2 text-sm text-white bg-amber-500 hover:bg-amber-600 rounded-lg transition-colors font-medium"
+              onClick={() => {
+                if (overlapWarning) {
+                  saveMutation.mutate({ ...overlapWarning.variables, forceOverlap: true })
+                  setOverlapWarning(null)
+                }
+              }}
+            >
+              Sim, Forçar Agendamento
+            </button>
+          </div>
+        </div>
+      </Modal>
     </div>
   )
 }

@@ -415,6 +415,20 @@ export async function handleIncomingLightMessage(params: {
                     dynamicMap[idx] = c.id
                     return `${idx} - ${c.name}`
                   }).join('\n')
+                } else if (planSource === 'CUSTOM') {
+                  const customItems: any[] = cfg.customItems || []
+                  if (customItems.length === 0) {
+                    await sendLightMessage(instance, sessionDeliveryJid, 'Desculpe, nenhum item personalizado configurado para agendamento no momento.', 'fluxo')
+                    await prisma.lightFlowSession.update({ where: { id: activeSession.id }, data: { status: 'FAILED' } })
+                    return
+                  }
+                  menuStr = customItems.map((item: any, i: number) => {
+                    const idx = String(i + 1)
+                    // Use id if available, otherwise use label as identifier
+                    dynamicMap[idx] = item.id || item.label
+                    const display = item.displayValue ? ` (${item.displayValue})` : ''
+                    return `${idx} - ${item.label}${display}`
+                  }).join('\n')
                 } else {
                   const services = await prisma.appointmentType.findMany({
                     where: { doctorId: instance.doctorId, active: true }

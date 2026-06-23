@@ -2004,6 +2004,9 @@ function SystemActionsPanel() {
 
   // Config parameters
   const [planSource, setPlanSource] = useState('DOCTOR_SERVICES')
+  const [customItems, setCustomItems] = useState<Array<{ id: string; label: string; displayValue?: string }>>([])
+  const [batchCapture, setBatchCapture] = useState(false)
+  const [customFields, setCustomFields] = useState<Array<{ key: string; label: string; question?: string; required?: boolean }>>([])
   const [doctorSelect, setDoctorSelect] = useState('INSTANCE_OWNER')
   const [limitSlots, setLimitSlots] = useState(3)
   const [searchWindowDays, setSearchWindowDays] = useState(15)
@@ -2101,6 +2104,9 @@ function SystemActionsPanel() {
     setConfigDesc('')
     setConfigActive(true)
     setPlanSource('DOCTOR_SERVICES')
+    setCustomItems([])
+    setBatchCapture(false)
+    setCustomFields([])
     setDoctorSelect('INSTANCE_OWNER')
     setLimitSlots(3)
     setSearchWindowDays(15)
@@ -2146,6 +2152,9 @@ function SystemActionsPanel() {
 
     const c = cfg.config || {}
     setPlanSource(c.planSource || 'DOCTOR_SERVICES')
+    setCustomItems(Array.isArray(c.customItems) ? c.customItems : [])
+    setBatchCapture(c.batchCapture === true)
+    setCustomFields(Array.isArray(c.customFields) ? c.customFields : [])
     setDoctorSelect(c.doctorSelect || 'INSTANCE_OWNER')
     setLimitSlots(parseInt(c.limitSlots) || 3)
     setSearchWindowDays(parseInt(c.searchWindowDays) || 15)
@@ -2201,6 +2210,9 @@ function SystemActionsPanel() {
       active: configActive,
       config: {
         planSource,
+        customItems: planSource === 'CUSTOM' ? customItems : undefined,
+        batchCapture,
+        customFields: customFields.length > 0 ? customFields : undefined,
         doctorSelect,
         limitSlots,
         searchWindowDays,
@@ -2508,11 +2520,56 @@ function SystemActionsPanel() {
                   >
                     <option value="DOCTOR_SERVICES">Serviços/Procedimentos cadastrados (AppointmentType)</option>
                     <option value="DOCTOR_CONVENIOS">Convênios do médico (HealthPlan)</option>
+                    <option value="CUSTOM">Personalizado (itens customizados)</option>
                   </select>
                   <p className="text-[10px] text-slate-400 mt-1">
                     Indica o que será oferecido para o paciente escolher como a especialidade/tipo de atendimento.
                   </p>
                 </div>
+
+                {planSource === 'CUSTOM' && (
+                  <div className="space-y-3 border border-dashed border-slate-300 rounded-lg p-3">
+                    <div className="flex items-center justify-between">
+                      <p className="text-xs font-semibold text-slate-600">Itens personalizados</p>
+                      <button
+                        type="button"
+                        onClick={() => setCustomItems(prev => [...prev, { id: `item_${Date.now()}`, label: '', displayValue: '' }])}
+                        className="text-xs text-blue-600 hover:text-blue-700 font-medium"
+                      >+ Adicionar item</button>
+                    </div>
+                    {customItems.length === 0 && (
+                      <p className="text-[10px] text-slate-400 italic">Nenhum item. Clique em "Adicionar item" para começar.</p>
+                    )}
+                    {customItems.map((item, idx) => (
+                      <div key={item.id} className="grid grid-cols-[1fr_1fr_auto] gap-2 items-end">
+                        <div>
+                          <label className="label text-[10px]">Nome exibido</label>
+                          <input
+                            value={item.label}
+                            onChange={e => setCustomItems(prev => prev.map((ci, i) => i === idx ? { ...ci, label: e.target.value } : ci))}
+                            placeholder="Ex: Consulta Geral"
+                            className="input-field text-xs"
+                          />
+                        </div>
+                        <div>
+                          <label className="label text-[10px]">Valor / descrição (opcional)</label>
+                          <input
+                            value={item.displayValue || ''}
+                            onChange={e => setCustomItems(prev => prev.map((ci, i) => i === idx ? { ...ci, displayValue: e.target.value } : ci))}
+                            placeholder="Ex: R$ 180,00"
+                            className="input-field text-xs"
+                          />
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => setCustomItems(prev => prev.filter((_, i) => i !== idx))}
+                          className="text-red-400 hover:text-red-600 text-xs pb-1"
+                          title="Remover"
+                        >✕</button>
+                      </div>
+                    ))}
+                  </div>
+                )}
               </div>
             )}
 
@@ -2656,6 +2713,74 @@ function SystemActionsPanel() {
                       rows={2}
                       className="input-field text-xs font-mono"
                     />
+                  </div>
+                </div>
+
+                <div className="border-t border-slate-200 pt-4 space-y-3">
+                  <p className="text-xs font-bold text-slate-500 uppercase tracking-wider">Campos adicionais de captura</p>
+
+                  <label className="flex items-center gap-2 cursor-pointer select-none">
+                    <input
+                      type="checkbox"
+                      checked={batchCapture}
+                      onChange={e => setBatchCapture(e.target.checked)}
+                      className="w-4 h-4 rounded"
+                    />
+                    <span className="text-xs text-slate-700 font-medium">Agrupar captura (enviar todas as perguntas de uma vez)</span>
+                  </label>
+                  <p className="text-[10px] text-slate-400 -mt-1 ml-6">Quando ativado, todas as perguntas de captura são enviadas em sequência numa única mensagem.</p>
+
+                  <div className="space-y-2">
+                    <div className="flex items-center justify-between">
+                      <span className="text-[11px] font-semibold text-slate-600">Campos personalizados extras</span>
+                      <button
+                        type="button"
+                        onClick={() => setCustomFields(prev => [...prev, { key: `campo_${Date.now()}`, label: '', question: '', required: false }])}
+                        className="text-xs text-blue-600 hover:text-blue-700 font-medium"
+                      >+ Adicionar campo</button>
+                    </div>
+                    {customFields.length === 0 && (
+                      <p className="text-[10px] text-slate-400 italic">Nenhum campo extra. Serão coletados antes da data preferida.</p>
+                    )}
+                    {customFields.map((field, idx) => (
+                      <div key={field.key} className="border border-slate-200 rounded p-2 space-y-2">
+                        <div className="grid grid-cols-[1fr_1fr_auto] gap-2 items-end">
+                          <div>
+                            <label className="label text-[10px]">Rótulo (nome do campo)</label>
+                            <input
+                              value={field.label}
+                              onChange={e => setCustomFields(prev => prev.map((f, i) => i === idx ? { ...f, label: e.target.value, key: e.target.value.toLowerCase().replace(/\s+/g, '_').replace(/[^a-z0-9_]/g, '') || f.key } : f))}
+                              placeholder="Ex: Número do convênio"
+                              className="input-field text-xs"
+                            />
+                          </div>
+                          <div>
+                            <label className="label text-[10px]">Pergunta enviada ao paciente</label>
+                            <input
+                              value={field.question || ''}
+                              onChange={e => setCustomFields(prev => prev.map((f, i) => i === idx ? { ...f, question: e.target.value } : f))}
+                              placeholder="Ex: Informe seu número de carteirinha:"
+                              className="input-field text-xs"
+                            />
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => setCustomFields(prev => prev.filter((_, i) => i !== idx))}
+                            className="text-red-400 hover:text-red-600 text-xs pb-1"
+                            title="Remover"
+                          >✕</button>
+                        </div>
+                        <label className="flex items-center gap-2 cursor-pointer select-none">
+                          <input
+                            type="checkbox"
+                            checked={field.required === true}
+                            onChange={e => setCustomFields(prev => prev.map((f, i) => i === idx ? { ...f, required: e.target.checked } : f))}
+                            className="w-3 h-3"
+                          />
+                          <span className="text-[10px] text-slate-600">Campo obrigatório (não pode pular)</span>
+                        </label>
+                      </div>
+                    ))}
                   </div>
                 </div>
               </div>

@@ -88,6 +88,27 @@ router.get('/', async (req: AuthRequest, res) => {
   }
 })
 
+async function checkLunchOverlap(doctorId: string, date: Date, duration: number): Promise<boolean> {
+  const doctor = await prisma.user.findUnique({
+    where: { id: doctorId },
+    select: { lunchStart: true, lunchEnd: true }
+  })
+  if (!doctor || !doctor.lunchStart || !doctor.lunchEnd) {
+    return false
+  }
+  const [lStartH, lStartM] = doctor.lunchStart.split(':').map(Number)
+  const [lEndH, lEndM] = doctor.lunchEnd.split(':').map(Number)
+  
+  const lunchStart = new Date(date)
+  lunchStart.setHours(lStartH, lStartM, 0, 0)
+  
+  const lunchEnd = new Date(date)
+  lunchEnd.setHours(lEndH, lEndM, 0, 0)
+  
+  const occEnd = new Date(date.getTime() + duration * 60000)
+  return date < lunchEnd && occEnd > lunchStart
+}
+
 router.post('/', async (req: AuthRequest, res) => {
   try {
     const data = appointmentSchema.parse(req.body)
@@ -139,6 +160,17 @@ router.post('/', async (req: AuthRequest, res) => {
       const d = new Date(baseDate)
       d.setDate(d.getDate() + i * 7)
       dates.push(d)
+    }
+
+    if (!apptData.isBlocked) {
+      const duration = apptData.duration ?? 30
+      for (const d of dates) {
+        const isOverlap = await checkLunchOverlap(apptData.doctorId, d, duration)
+        if (isOverlap) {
+          res.status(409).json({ message: 'Este horário está reservado para o almoço do profissional.' })
+          return
+        }
+      }
     }
 
     // Secretaries cannot book over time slots the doctor has explicitly blocked.
@@ -322,6 +354,16 @@ router.put('/:id', async (req: AuthRequest, res) => {
       where: { id },
       include: { transaction: true },
     })
+
+    if (!(data.isBlocked ?? current?.isBlocked)) {
+      const newDate = data.date ? (data.date as Date) : (current?.date ?? new Date())
+      const duration = ((data.duration as number | undefined) ?? current?.duration ?? 30)
+      const isOverlap = await checkLunchOverlap(existing.doctorId, newDate, duration)
+      if (isOverlap) {
+        res.status(409).json({ message: 'Este horário está reservado para o almoço do profissional.' })
+        return
+      }
+    }
 
     // Secretaries cannot reschedule into a time slot the doctor has explicitly blocked.
     if (req.user!.role === 'SECRETARY' && data.date && !(data.isBlocked ?? current?.isBlocked)) {

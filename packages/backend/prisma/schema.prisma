@@ -78,6 +78,8 @@ model User {
   phone        String?
   avatarUrl    String?
   bio               String?
+  lunchStart        String?
+  lunchEnd          String?
   resetToken        String?
   resetTokenExpiry  DateTime?
   createdAt    DateTime @default(now())

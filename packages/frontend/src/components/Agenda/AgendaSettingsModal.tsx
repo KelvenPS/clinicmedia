@@ -1,7 +1,10 @@
-import React from 'react'
+import React, { useState, useEffect } from 'react'
 import Modal from '../ui/Modal'
 import { AgendaPreferences } from '../../hooks/useAgendaPreferences'
-import { Clock, Monitor, CalendarDays } from 'lucide-react'
+import { Clock, Monitor, CalendarDays, Coffee } from 'lucide-react'
+import { useAuthStore } from '../../store/authStore'
+import api from '../../lib/api'
+import toast from 'react-hot-toast'
 
 interface AgendaSettingsModalProps {
   isOpen: boolean
@@ -11,11 +14,46 @@ interface AgendaSettingsModalProps {
 }
 
 export default function AgendaSettingsModal({ isOpen, onClose, preferences, onUpdate }: AgendaSettingsModalProps) {
+  const { user, updateUser } = useAuthStore()
+  const [lunchStart, setLunchStart] = useState(user?.lunchStart || '')
+  const [lunchEnd, setLunchEnd] = useState(user?.lunchEnd || '')
+  const [saving, setSaving] = useState(false)
+
+  useEffect(() => {
+    if (isOpen && user) {
+      setLunchStart(user.lunchStart || '')
+      setLunchEnd(user.lunchEnd || '')
+    }
+  }, [isOpen, user])
+
   const handlePresetChange = (preset: 'commercial' | 'extended') => {
     if (preset === 'commercial') {
       onUpdate({ startHour: 6, endHour: 19 })
     } else if (preset === 'extended') {
       onUpdate({ startHour: 1, endHour: 23 })
+    }
+  }
+
+  const handleSave = async () => {
+    try {
+      setSaving(true)
+      if (user) {
+        await api.put(`/users/${user.id}`, {
+          lunchStart: lunchStart || null,
+          lunchEnd: lunchEnd || null,
+        })
+        updateUser({
+          lunchStart: lunchStart || null,
+          lunchEnd: lunchEnd || null,
+        })
+        toast.success('Configurações salvas!')
+      }
+      onClose()
+    } catch (error) {
+      toast.error('Erro ao salvar horário de almoço')
+      console.error(error)
+    } finally {
+      setSaving(false)
     }
   }
 
@@ -80,6 +118,7 @@ export default function AgendaSettingsModal({ isOpen, onClose, preferences, onUp
                 ))}
               </select>
             </div>
+
           </div>
         </div>
 
@@ -94,17 +133,40 @@ export default function AgendaSettingsModal({ isOpen, onClose, preferences, onUp
             <label className="text-sm font-medium text-slate-700 mb-1.5 block">
               Intervalo de horários
             </label>
-            <select
-              value={preferences.interval}
-              onChange={e => onUpdate({ interval: Number(e.target.value) })}
-              className="input-field"
-            >
-              <option value={10}>A cada 10 minutos</option>
-              <option value={15}>A cada 15 minutos</option>
-              <option value={20}>A cada 20 minutos</option>
-              <option value={30}>A cada 30 minutos</option>
-              <option value={60}>A cada 60 minutos</option>
-            </select>
+            <div className="flex gap-3">
+              <div className="flex-1">
+                <label className="text-xs font-medium text-slate-500 mb-1 block">Horas</label>
+                <input
+                  type="number"
+                  min={0}
+                  max={23}
+                  value={Math.floor(preferences.interval / 60)}
+                  onChange={e => {
+                    const h = Math.max(0, Math.min(23, Number(e.target.value)))
+                    const m = preferences.interval % 60
+                    const total = h * 60 + m
+                    onUpdate({ interval: total > 0 ? total : 30 })
+                  }}
+                  className="input-field py-1.5"
+                />
+              </div>
+              <div className="flex-1">
+                <label className="text-xs font-medium text-slate-500 mb-1 block">Minutos</label>
+                <input
+                  type="number"
+                  min={0}
+                  max={59}
+                  value={preferences.interval % 60}
+                  onChange={e => {
+                    const h = Math.floor(preferences.interval / 60)
+                    const m = Math.max(0, Math.min(59, Number(e.target.value)))
+                    const total = h * 60 + m
+                    onUpdate({ interval: total > 0 ? total : 30 })
+                  }}
+                  className="input-field py-1.5"
+                />
+              </div>
+            </div>
           </div>
 
           <div>
@@ -120,6 +182,38 @@ export default function AgendaSettingsModal({ isOpen, onClose, preferences, onUp
               <option value={0}>Domingo</option>
             </select>
           </div>
+        </div>
+
+        {/* Horário de Almoço */}
+        <div className="space-y-3">
+          <div className="flex items-center gap-2 text-slate-800 font-semibold border-b border-slate-100 pb-2">
+            <Coffee className="w-4 h-4 text-blue-600" />
+            <h3>Definir Horário de Almoço</h3>
+          </div>
+          
+          <div className="flex gap-3">
+            <div className="flex-1">
+              <label className="text-xs font-medium text-slate-500 mb-1 block">Início do Almoço</label>
+              <input
+                type="time"
+                value={lunchStart}
+                onChange={e => setLunchStart(e.target.value)}
+                className="input-field py-1.5"
+              />
+            </div>
+            <div className="flex-1">
+              <label className="text-xs font-medium text-slate-500 mb-1 block">Fim do Almoço</label>
+              <input
+                type="time"
+                value={lunchEnd}
+                onChange={e => setLunchEnd(e.target.value)}
+                className="input-field py-1.5"
+              />
+            </div>
+          </div>
+          <p className="text-xs text-slate-500">
+            A agenda será automaticamente bloqueada e sinalizada como período de almoço durante este intervalo.
+          </p>
         </div>
 
         {/* Visualização */}
@@ -167,8 +261,8 @@ export default function AgendaSettingsModal({ isOpen, onClose, preferences, onUp
         </div>
 
         <div className="pt-4 border-t border-slate-100 flex justify-end">
-          <button onClick={onClose} className="btn-primary px-6">
-            Concluir
+          <button onClick={handleSave} disabled={saving} className="btn-primary px-6">
+            {saving ? 'Salvando...' : 'Concluir'}
           </button>
         </div>
       </div>

@@ -5,7 +5,7 @@ import {
   format, startOfWeek, addDays, addWeeks, subWeeks, subDays, isSameDay, parseISO,
 } from 'date-fns'
 import { ptBR } from 'date-fns/locale'
-import { ChevronLeft, ChevronRight, Plus, Calendar, Clock, Lock, Trash2, X, MapPin, User as UserIcon, CalendarDays, LayoutList, AlertTriangle } from 'lucide-react'
+import { ChevronLeft, ChevronRight, Plus, Calendar, Clock, Lock, Trash2, X, MapPin, User as UserIcon, CalendarDays, LayoutList, AlertTriangle, Coffee } from 'lucide-react'
 import toast from 'react-hot-toast'
 import api from '../lib/api'
 import { useAuthStore } from '../store/authStore'
@@ -221,6 +221,14 @@ export default function Agenda() {
     refetchInterval: 30000,
   })
 
+  // Resolve current active doctor's lunch hours
+  const activeDoctor = user?.role === 'DOCTOR'
+    ? user
+    : doctors.find(d => d.id === filterDoctorId)
+
+  const activeLunchStart = activeDoctor?.lunchStart
+  const activeLunchEnd = activeDoctor?.lunchEnd
+
   // 1. Resolve base hours from preferences
   const defaultStartHour = preferences.startHour
   const defaultEndHour = preferences.endHour
@@ -256,6 +264,15 @@ export default function Agenda() {
   // 4. Resolve actual hours occupied by appointments/blocks to dynamically expand visible grid hours
   let apptStartHour = roomSchedule ? roomSchedule.startHour : defaultStartHour
   let apptEndHour = roomSchedule ? roomSchedule.endHour : defaultEndHour
+
+  if (activeLunchStart) {
+    const h = parseInt(activeLunchStart.split(':')[0])
+    if (!isNaN(h) && h < apptStartHour) apptStartHour = h
+  }
+  if (activeLunchEnd) {
+    const h = Math.ceil(parseInt(activeLunchEnd.split(':')[0]))
+    if (!isNaN(h) && h > apptEndHour) apptEndHour = h
+  }
 
   appointments.forEach(appt => {
     if (appt.isBlocked || appt.status === 'CANCELLED') return
@@ -351,6 +368,18 @@ export default function Agenda() {
   const getBlocksByDay = (day: Date) => blocks.filter(b => isSameDay(parseISO(b.date), day))
 
   const handleSlotClick = (day: Date, slot: { h: number; m: number }) => {
+    if (activeLunchStart && activeLunchEnd) {
+      const [lStartH, lStartM] = activeLunchStart.split(':').map(Number)
+      const [lEndH, lEndM] = activeLunchEnd.split(':').map(Number)
+      const slotMinutes = slot.h * 60 + slot.m
+      const startMinutes = lStartH * 60 + lStartM
+      const endMinutes = lEndH * 60 + lEndM
+      if (slotMinutes >= startMinutes && slotMinutes < endMinutes) {
+        toast.error('Este horário está reservado para o almoço do profissional.')
+        return
+      }
+    }
+
     const d = new Date(day)
     d.setHours(slot.h, slot.m, 0, 0)
     setSelectedAppt(null)
@@ -666,6 +695,35 @@ export default function Agenda() {
                       )
                     }
 
+                    let isLunch = false
+                    if (activeLunchStart && activeLunchEnd) {
+                      const [lStartH, lStartM] = activeLunchStart.split(':').map(Number)
+                      const [lEndH, lEndM] = activeLunchEnd.split(':').map(Number)
+                      const slotMinutes = slot.h * 60 + slot.m
+                      const startMinutes = lStartH * 60 + lStartM
+                      const endMinutes = lEndH * 60 + lEndM
+                      isLunch = slotMinutes >= startMinutes && slotMinutes < endMinutes
+                    }
+
+                    if (isLunch) {
+                      return (
+                        <tr key={`lunch-${day.toISOString()}-${slot.h}-${slot.m}`} className="border-b border-slate-100 bg-slate-50/50">
+                          <td className="px-4 py-3 text-slate-400 font-medium whitespace-nowrap">
+                            {format(slotStart, "dd/MM/yyyy", { locale: ptBR })}
+                          </td>
+                          <td className="px-4 py-3 text-slate-400 font-semibold tabular-nums whitespace-nowrap">
+                            {format(slotStart, 'HH:mm')}
+                          </td>
+                          <td colSpan={7} className="px-4 py-3 text-slate-500 font-medium italic">
+                            <span className="flex items-center gap-1.5">
+                              <Coffee className="w-4 h-4 text-slate-400" />
+                              {user?.role === 'DOCTOR' ? 'Horário de Almoço' : 'Médico em Almoço'}
+                            </span>
+                          </td>
+                        </tr>
+                      )
+                    }
+
                     // Otherwise, FREE slot
                     return (
                       <tr 
@@ -809,6 +867,40 @@ export default function Agenda() {
                         </div>
                       )
                     })}
+
+                    {/* Lunch Break Block */}
+                    {(() => {
+                      if (!activeLunchStart || !activeLunchEnd) return null
+                      const [lStartH, lStartM] = activeLunchStart.split(':').map(Number)
+                      const [lEndH, lEndM] = activeLunchEnd.split(':').map(Number)
+
+                      const lunchStartD = new Date(day)
+                      lunchStartD.setHours(lStartH, lStartM, 0, 0)
+                      const lunchEndD = new Date(day)
+                      lunchEndD.setHours(lEndH, lEndM, 0, 0)
+
+                      const top = getBlockPosition(lunchStartD)
+                      const height = getBlockHeight(lunchStartD, lunchEndD)
+                      
+                      return (
+                        <div
+                          style={{ top: top + 1, height: height - 2, left: 2, right: 2 }}
+                          className="absolute rounded-md border-l-4 border-slate-500 bg-slate-100/90 px-1.5 py-0.5 z-20 overflow-hidden flex flex-col justify-center select-none"
+                        >
+                          <div className="flex items-center gap-1">
+                            <Coffee className="w-3 h-3 text-slate-600 flex-shrink-0" />
+                            <p className="text-xs font-bold text-slate-700 truncate">
+                              {user?.role === 'DOCTOR' ? 'Horário de Almoço' : 'Médico em Almoço'}
+                            </p>
+                          </div>
+                          {height > 36 && (
+                            <p className="text-[10px] text-slate-500 truncate leading-tight">
+                              {activeLunchStart} - {activeLunchEnd}
+                            </p>
+                          )}
+                        </div>
+                      )
+                    })()}
 
                     {/* Appointments */}
                     {dayAppts.map(appt => {

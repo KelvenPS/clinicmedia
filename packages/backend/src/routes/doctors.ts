@@ -30,6 +30,8 @@ router.get('/', async (req: AuthRequest, res) => {
         specialty: true,
         crm: true,
         phone: true,
+        lunchStart: true,
+        lunchEnd: true,
       },
       orderBy: { name: 'asc' },
     })

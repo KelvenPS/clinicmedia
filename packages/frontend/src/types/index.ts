@@ -19,6 +19,8 @@ export interface User {
   phone?: string | null
   avatarUrl?: string | null
   bio?: string | null
+  lunchStart?: string | null
+  lunchEnd?: string | null
   createdAt?: string
   _count?: { doctorAppointments: number }
 }
@@ -34,6 +36,8 @@ export interface AuthUser {
   crm?: string | null
   phone?: string | null
   avatarUrl?: string | null
+  lunchStart?: string | null
+  lunchEnd?: string | null
 }
 
 export interface HealthPlan {

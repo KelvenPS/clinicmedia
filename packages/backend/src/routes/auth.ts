@@ -67,6 +67,8 @@ router.post('/login', async (req, res) => {
         crm: user.crm,
         phone: user.phone,
         avatarUrl: user.avatarUrl,
+        lunchStart: user.lunchStart,
+        lunchEnd: user.lunchEnd,
       },
     })
   } catch (error) {
@@ -238,6 +240,8 @@ router.get('/me', authenticate, async (req: AuthRequest, res) => {
         crm: true,
         phone: true,
         avatarUrl: true,
+        lunchStart: true,
+        lunchEnd: true,
         active: true,
         createdAt: true,
       },

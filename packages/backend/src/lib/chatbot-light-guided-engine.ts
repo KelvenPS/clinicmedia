@@ -163,7 +163,12 @@ export async function findAvailableSlots(params: {
   const rooms = await prisma.room.findMany({
     where: { doctorId, active: true }
   })
-  
+
+  if (rooms.length === 0) {
+    console.warn(`[findAvailableSlots] Nenhuma sala ativa encontrada para doctorId=${doctorId}`)
+    return []
+  }
+
   const appointments = await prisma.appointment.findMany({
     where: {
       doctorId,
@@ -174,7 +179,7 @@ export async function findAvailableSlots(params: {
       }
     }
   })
-  
+
   const blocks = await prisma.appointmentBlock.findMany({
     where: {
       doctorId,
@@ -184,43 +189,57 @@ export async function findAvailableSlots(params: {
       }
     }
   })
-  
+
   const slots: { startAt: string; endAt: string; doctorId: string }[] = []
   const currentDay = new Date(parsedStart)
   currentDay.setHours(0, 0, 0, 0)
-  
+
   const nowUtc = new Date()
-  
+
   while (currentDay <= endScanDate && slots.length < limit) {
+    // Convert JS day (0=Sun) to room convention (1=Mon..7=Sun)
     const jsDay = currentDay.getDay()
     const roomDayNum = jsDay === 0 ? 7 : jsDay
-    
+
     const activeRooms = rooms.filter(r => {
       let days: number[] = []
       try {
-        days = typeof r.daysOfWeek === 'string' ? JSON.parse(r.daysOfWeek) : (r.daysOfWeek as number[])
+        const raw = typeof r.daysOfWeek === 'string' ? JSON.parse(r.daysOfWeek) : (r.daysOfWeek as any[])
+        // Coerce to numbers to handle both string ["1","2"] and number [1,2] formats
+        days = Array.isArray(raw) ? raw.map(Number).filter(n => !isNaN(n)) : []
       } catch {
         days = []
       }
       return days.includes(roomDayNum)
     })
-    
+
+    if (activeRooms.length === 0) {
+      console.log(`[findAvailableSlots] Nenhuma sala ativa no dia ${roomDayNum} (${currentDay.toISOString().split('T')[0]})`)
+    }
+
     for (const room of activeRooms) {
-      const [startH, startM] = room.startTime.split(':').map(Number)
-      const [endH, endM] = room.endTime.split(':').map(Number)
-      
+      // Safety: validate room schedule fields
+      const startParts = room.startTime?.split(':').map(Number) ?? []
+      const endParts   = room.endTime?.split(':').map(Number)   ?? []
+      if (startParts.length < 2 || endParts.length < 2 || isNaN(startParts[0]) || isNaN(endParts[0])) {
+        console.warn(`[findAvailableSlots] Sala ${room.id} com horário inválido: start=${room.startTime} end=${room.endTime}`)
+        continue
+      }
+      const [startH, startM] = startParts
+      const [endH, endM]     = endParts
+
       let slotTime = parseLocalDateToUtcDate(currentDay.getFullYear(), currentDay.getMonth() + 1, currentDay.getDate(), startH, startM)
       const roomEndTime = parseLocalDateToUtcDate(currentDay.getFullYear(), currentDay.getMonth() + 1, currentDay.getDate(), endH, endM)
-      
+
       while (slotTime < roomEndTime && slots.length < limit) {
         const slotEnd = new Date(slotTime.getTime() + durationMinutes * 60 * 1000)
-        
+
         if (slotEnd > roomEndTime) break
-        
+
         if (slotTime >= nowUtc) {
-          // Check slot local hour in SP (-03:00)
+          // Derive SP local hour from UTC (SP = UTC-3, no DST since 2019)
           const slotLocalHour = (slotTime.getUTCHours() - 3 + 24) % 24
-          
+
           let matchesPeriod = true
           if (period === 'MANHA') {
             matchesPeriod = slotLocalHour >= 8 && slotLocalHour < 12
@@ -229,20 +248,22 @@ export async function findAvailableSlots(params: {
           } else if (period === 'NOITE') {
             matchesPeriod = slotLocalHour >= 18 && slotLocalHour < 22
           }
-          
+
           if (matchesPeriod) {
             const hasApptConflict = appointments.some(appt => {
               const apptStart = new Date(appt.date)
-              const apptEnd = new Date(apptStart.getTime() + appt.duration * 60 * 1000)
+              // Guard: duration may be null/undefined in legacy records
+              const apptDuration = (typeof appt.duration === 'number' && appt.duration > 0) ? appt.duration : 30
+              const apptEnd = new Date(apptStart.getTime() + apptDuration * 60 * 1000)
               return apptStart < slotEnd && apptEnd > slotTime
             })
-            
+
             const hasBlockConflict = blocks.some(block => {
               const blockStart = new Date(block.date)
               const blockEnd = new Date(block.endDate)
               return blockStart < slotEnd && blockEnd > slotTime
             })
-            
+
             if (!hasApptConflict && !hasBlockConflict) {
               slots.push({
                 startAt: slotTime.toISOString(),
@@ -252,14 +273,15 @@ export async function findAvailableSlots(params: {
             }
           }
         }
-        
+
         slotTime = new Date(slotTime.getTime() + durationMinutes * 60 * 1000)
       }
     }
-    
+
     currentDay.setDate(currentDay.getDate() + 1)
   }
-  
+
+  console.log(`[findAvailableSlots] doctorId=${doctorId} texto="${preferredDateText}" → ${slots.length} slots encontrados (limit=${limit})`)
   return slots
 }
 
@@ -625,6 +647,46 @@ export async function processGuidedStep(
     data: ''
   }
 
+  // Custom fields configuration
+  const customFieldsList: Array<{ key: string; label: string; question?: string; required?: boolean }> = cfg.customFields || []
+
+  // Helper: transition to custom field collection or directly to ASK_DATE
+  const gotoCustomOrDate = async () => {
+    const pendingCustomIdx = customFieldsList.findIndex(
+      f => collected.extras?.[f.key] === undefined || collected.extras?.[f.key] === null
+    )
+    if (pendingCustomIdx >= 0) {
+      step = 'ASK_CUSTOM_FIELD'
+      if (!collected.extras) collected.extras = {}
+      collected._customFieldIndex = pendingCustomIdx
+      await prisma.lightFlowSession.update({
+        where: { id: session.id },
+        data: { currentStepKey: step, collectedData: collected, dynamicOptions: {} }
+      })
+      const field = customFieldsList[pendingCustomIdx]
+      await sendStepMessage(field.question || `${field.label}:`)
+    } else {
+      step = 'ASK_DATE'
+      await prisma.lightFlowSession.update({
+        where: { id: session.id },
+        data: { currentStepKey: step, collectedData: collected, dynamicOptions: {} }
+      })
+      const renderedAskDate = await getMessageWithLog({
+        templateKey: 'askDate',
+        configuredText: messages.askDate,
+        defaultFallback: 'Qual melhor data ou período para você?\n(Ex: amanhã, sexta-feira, próxima semana pela tarde)',
+        data: contextVariables,
+        instanceId: instance.id,
+        actionConfigId,
+        actionKey: actionConfig.actionKey,
+        contactPhone,
+        sessionId: session.id,
+        stepKey: step
+      })
+      await sendStepMessage(renderedAskDate)
+    }
+  }
+
   // Step 1: PLAN CHOOSING
   if (step === 'CHOOSE_PLAN') {
     const selectedId = dynamicMap[incomingText]
@@ -669,6 +731,12 @@ export async function processGuidedStep(
     if (planSource === 'DOCTOR_CONVENIOS') {
       const plan = await prisma.healthPlan.findUnique({ where: { id: selectedId } })
       collected.planoNome = plan?.name || 'Convênio'
+    } else if (planSource === 'CUSTOM') {
+      // For CUSTOM planSource, selectedId is the custom item id; label stored in dynamic map metadata
+      const customItems: any[] = cfg.customItems || []
+      const customItem = customItems.find((ci: any) => (ci.id || ci.label) === selectedId)
+      collected.planoNome = customItem?.label || selectedId
+      collected.customItemId = selectedId
     } else {
       const service = await prisma.appointmentType.findUnique({ where: { id: selectedId } })
       collected.planoNome = service?.name || 'Serviço'
@@ -885,44 +953,10 @@ export async function processGuidedStep(
           })
           await sendStepMessage(`${renderedAskConv}\n\n${menuStr}\n\nSe for particular, digite 0.`)
         } else {
-          step = 'ASK_DATE'
-          await prisma.lightFlowSession.update({
-            where: { id: session.id },
-            data: { currentStepKey: step, collectedData: collected }
-          })
-          const renderedAskDate = await getMessageWithLog({
-            templateKey: 'askDate',
-            configuredText: messages.askDate,
-            defaultFallback: 'Qual melhor data ou período para você?\n(Ex: amanhã, sexta-feira, próxima semana pela tarde)',
-            data: contextVariables,
-            instanceId: instance.id,
-            actionConfigId,
-            actionKey: actionConfig.actionKey,
-            contactPhone,
-            sessionId: session.id,
-            stepKey: step
-          })
-          await sendStepMessage(renderedAskDate)
+          await gotoCustomOrDate()
         }
       } else {
-        step = 'ASK_DATE'
-        await prisma.lightFlowSession.update({
-          where: { id: session.id },
-          data: { currentStepKey: step, collectedData: collected }
-        })
-        const renderedAskDate = await getMessageWithLog({
-          templateKey: 'askDate',
-          configuredText: messages.askDate,
-          defaultFallback: 'Qual melhor data ou período para você?\n(Ex: amanhã, sexta-feira, próxima semana pela tarde)',
-          data: contextVariables,
-          instanceId: instance.id,
-          actionConfigId,
-          actionKey: actionConfig.actionKey,
-          contactPhone,
-          sessionId: session.id,
-          stepKey: step
-        })
-        await sendStepMessage(renderedAskDate)
+        await gotoCustomOrDate()
       }
       return;
     } else if (choice === 'CONFIRM_NO') {
@@ -1045,44 +1079,10 @@ export async function processGuidedStep(
         })
         await sendStepMessage(`${renderedAskConv}\n\n${menuStr}\n\nSe for particular, digite 0.`)
       } else {
-        step = 'ASK_DATE'
-        await prisma.lightFlowSession.update({
-          where: { id: session.id },
-          data: { currentStepKey: step, collectedData: collected }
-        })
-        const renderedAskDate = await getMessageWithLog({
-          templateKey: 'askDate',
-          configuredText: messages.askDate,
-          defaultFallback: 'Qual melhor data ou período para você?\n(Ex: amanhã, sexta-feira, próxima semana pela tarde)',
-          data: contextVariables,
-          instanceId: instance.id,
-          actionConfigId,
-          actionKey: actionConfig.actionKey,
-          contactPhone,
-          sessionId: session.id,
-          stepKey: step
-        })
-        await sendStepMessage(renderedAskDate)
+        await gotoCustomOrDate()
       }
     } else {
-      step = 'ASK_DATE'
-      await prisma.lightFlowSession.update({
-        where: { id: session.id },
-        data: { currentStepKey: step, collectedData: collected }
-      })
-      const renderedAskDate = await getMessageWithLog({
-        templateKey: 'askDate',
-        configuredText: messages.askDate,
-        defaultFallback: 'Qual melhor data ou período para você?\n(Ex: amanhã, sexta-feira, próxima semana pela tarde)',
-        data: contextVariables,
-        instanceId: instance.id,
-        actionConfigId,
-        actionKey: actionConfig.actionKey,
-        contactPhone,
-        sessionId: session.id,
-        stepKey: step
-      })
-      await sendStepMessage(renderedAskDate)
+      await gotoCustomOrDate()
     }
     return
   }
@@ -1168,44 +1168,10 @@ export async function processGuidedStep(
         })
         await sendStepMessage(`${renderedAskConv}\n\n${menuStr}\n\nSe for particular, digite 0.`)
       } else {
-        step = 'ASK_DATE'
-        await prisma.lightFlowSession.update({
-          where: { id: session.id },
-          data: { currentStepKey: step, collectedData: collected }
-        })
-        const renderedAskDate = await getMessageWithLog({
-          templateKey: 'askDate',
-          configuredText: messages.askDate,
-          defaultFallback: 'Qual melhor data ou período para você?\n(Ex: amanhã, sexta-feira, próxima semana pela tarde)',
-          data: contextVariables,
-          instanceId: instance.id,
-          actionConfigId,
-          actionKey: actionConfig.actionKey,
-          contactPhone,
-          sessionId: session.id,
-          stepKey: step
-        })
-        await sendStepMessage(renderedAskDate)
+        await gotoCustomOrDate()
       }
     } else {
-      step = 'ASK_DATE'
-      await prisma.lightFlowSession.update({
-        where: { id: session.id },
-        data: { currentStepKey: step, collectedData: collected }
-      })
-      const renderedAskDate = await getMessageWithLog({
-        templateKey: 'askDate',
-        configuredText: messages.askDate,
-        defaultFallback: 'Qual melhor data ou período para você?\n(Ex: amanhã, sexta-feira, próxima semana pela tarde)',
-        data: contextVariables,
-        instanceId: instance.id,
-        actionConfigId,
-        actionKey: actionConfig.actionKey,
-        contactPhone,
-        sessionId: session.id,
-        stepKey: step
-      })
-      await sendStepMessage(renderedAskDate)
+      await gotoCustomOrDate()
     }
     return
   }
@@ -1250,25 +1216,8 @@ export async function processGuidedStep(
     })
 
     contextVariables.convenioNome = collected.convenioNome;
-    
-    step = 'ASK_DATE'
-    await prisma.lightFlowSession.update({
-      where: { id: session.id },
-      data: { currentStepKey: step, collectedData: collected, dynamicOptions: {} }
-    })
-    const renderedAskDate = await getMessageWithLog({
-      templateKey: 'askDate',
-      configuredText: messages.askDate,
-      defaultFallback: 'Qual melhor data ou período para você?\n(Ex: amanhã, sexta-feira, próxima semana pela tarde)',
-      data: contextVariables,
-      instanceId: instance.id,
-      actionConfigId,
-      actionKey: actionConfig.actionKey,
-      contactPhone,
-      sessionId: session.id,
-      stepKey: step
-    })
-    await sendStepMessage(renderedAskDate)
+
+    await gotoCustomOrDate()
     return
   }
 
@@ -1743,5 +1692,60 @@ export async function processGuidedStep(
       await sendStepMessage(renderedInvalidConfirm)
       return
     }
+  }
+
+  // Step: CUSTOM FIELD COLLECTION (runs between ASK_CONVENIO and ASK_DATE when customFields are configured)
+  if (step === 'ASK_CUSTOM_FIELD') {
+    const idx: number = typeof collected._customFieldIndex === 'number' ? collected._customFieldIndex : 0
+    const field = customFieldsList[idx]
+
+    if (!field) {
+      // All custom fields done, proceed to date
+      collected._customFieldIndex = undefined
+      await gotoCustomOrDate()
+      return
+    }
+
+    if (!collected.extras) collected.extras = {}
+
+    const isSkip = incomingText.trim().toLowerCase() === 'pular'
+    if (isSkip && !field.required) {
+      collected.extras[field.key] = null
+    } else {
+      collected.extras[field.key] = incomingText.trim()
+    }
+
+    await auditLogAction({
+      instanceId: instance.id,
+      actionConfigId,
+      actionKey: actionConfig.actionKey,
+      contactPhone,
+      sessionId: session.id,
+      status: 'INPUT_COLLECTED',
+      stepKey: step,
+      message: `Campo "${field.label}" preenchido`
+    })
+
+    const nextIdx = idx + 1
+    collected._customFieldIndex = nextIdx
+    await prisma.lightFlowSession.update({
+      where: { id: session.id },
+      data: { collectedData: collected }
+    })
+
+    const nextField = customFieldsList[nextIdx]
+    if (nextField) {
+      step = 'ASK_CUSTOM_FIELD'
+      await prisma.lightFlowSession.update({
+        where: { id: session.id },
+        data: { currentStepKey: step }
+      })
+      const optionalHint = (!nextField.required) ? '\n\n_(Campo opcional — responda "pular" para ignorar)_' : ''
+      await sendStepMessage((nextField.question || `${nextField.label}:`) + optionalHint)
+    } else {
+      collected._customFieldIndex = undefined
+      await gotoCustomOrDate()
+    }
+    return
   }
 }

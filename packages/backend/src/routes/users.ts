@@ -18,6 +18,8 @@ const createUserSchema = z.object({
   crm: z.string().optional(),
   phone: z.string().optional(),
   avatarUrl: z.string().optional(),
+  lunchStart: z.string().nullable().optional(),
+  lunchEnd: z.string().nullable().optional(),
 })
 
 const updateUserSchema = createUserSchema.partial().omit({ password: true }).extend({
@@ -39,6 +41,8 @@ router.get('/', requireRole('ADMIN'), async (_req, res) => {
         crm: true,
         phone: true,
         avatarUrl: true,
+        lunchStart: true,
+        lunchEnd: true,
         createdAt: true,
         _count: {
           select: { doctorAppointments: true },
@@ -82,6 +86,8 @@ router.post('/', requireRole('ADMIN'), async (req, res) => {
         crm: true,
         phone: true,
         avatarUrl: true,
+        lunchStart: true,
+        lunchEnd: true,
         createdAt: true,
       },
     })
@@ -136,6 +142,8 @@ router.put('/:id', async (req: AuthRequest, res) => {
         crm: true,
         phone: true,
         avatarUrl: true,
+        lunchStart: true,
+        lunchEnd: true,
       },
     })
 

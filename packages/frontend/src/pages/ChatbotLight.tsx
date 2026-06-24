@@ -3217,7 +3217,12 @@ function ConexaoTab() {
     const interval = setInterval(async () => {
       try {
         const res = await api.get('/chatbot-light/instance/status').then(r => r.data)
-        if (res.qrCode) setQrCode(res.qrCode)
+        if (res.qrCode) {
+          setQrCode(res.qrCode)
+        } else if (res.qrCodeExpired || res.status === 'CONNECTING') {
+          // QR expirou ou ainda aguardando geração — limpa imagem antiga para mostrar spinner
+          setQrCode(null)
+        }
         if (res.status === 'CONNECTED') {
           setPolling(false)
           setShowQrModal(false)
@@ -3231,7 +3236,7 @@ function ConexaoTab() {
 
   const connectMutation = useMutation({
     mutationFn: () => api.post('/chatbot-light/instance/connect').then(r => r.data),
-    onSuccess:  () => { setPolling(true); setShowQrModal(true) },
+    onSuccess:  () => { setQrCode(null); setPolling(true); setShowQrModal(true) },
     onError:    () => toast.error('Erro ao iniciar conexão'),
   })
 

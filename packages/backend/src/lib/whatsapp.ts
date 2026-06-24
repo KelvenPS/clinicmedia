@@ -1082,6 +1082,21 @@ export async function startSession(instanceKey: string, instanceId: string): Pro
   })
 }
 
+// ─── Reset de sessão para reconexão manual (sem logout/deleção de arquivos) ───
+
+export function resetSessionForConnect(instanceKey: string): void {
+  const timer = reconnectTimers.get(instanceKey)
+  if (timer) {
+    clearTimeout(timer)
+    reconnectTimers.delete(instanceKey)
+  }
+  closeSocket(instanceKey)
+  reconnectAttempts.delete(instanceKey)
+  sessionErrorStreak.delete(instanceKey)
+  stoppingKeys.delete(instanceKey)
+  logWA('info', instanceKey, 'session.reset_for_connect')
+}
+
 // ─── Encerra sessão ───────────────────────────────────────────────────────────
 
 export async function stopSession(instanceKey: string): Promise<void> {

@@ -2,7 +2,7 @@ import { Router, Response, NextFunction } from 'express'
 import { z } from 'zod'
 import { prisma } from '../lib/prisma'
 import { authenticate, requireFeature, AuthRequest } from '../middleware/auth'
-import { sendWhatsAppMessage, isSessionActive, startSession, stopSession, resolveDeliveryJid } from '../lib/whatsapp'
+import { sendWhatsAppMessage, isSessionActive, startSession, stopSession, resolveDeliveryJid, resetSessionForConnect } from '../lib/whatsapp'
 import { requireSecretaryPermission, getEffectiveDoctorId } from '../lib/secretaryAccess'
 import { simulateLightMessage, resetSimulation } from '../lib/chatbot-light-simulator'
 
@@ -815,9 +815,19 @@ router.post('/instance/connect', async (req: AuthRequest, res: Response) => {
     const doctorId = await getTargetDoctorId(req)
     const instance = await resolveOrCreateInstance(doctorId)
 
+    // Fecha socket existente e reseta contadores antes de iniciar nova sessão.
+    // Sem isso, startSession retorna sem fazer nada se o socket já existir,
+    // e o delay de 60s entre ciclos de QR persiste entre tentativas manuais.
+    resetSessionForConnect(instance.instanceKey)
+
     await prisma.whatsAppInstance.update({
       where: { id: instance.id },
-      data: { status: 'CONNECTING', qrCode: null, qrCodeExpiresAt: null },
+      data: {
+        status: 'CONNECTING',
+        qrCode: null,
+        qrCodeExpiresAt: null,
+        reconnectAttempts: 0,
+      },
     })
 
     startSession(instance.instanceKey, instance.id).catch(err =>

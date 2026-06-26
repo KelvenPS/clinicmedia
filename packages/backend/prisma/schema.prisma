@@ -112,6 +112,8 @@ model User {
   lightSettings       LightSettings?      @relation("DoctorLightSettings")
   lightFluxos         LightFluxo[]        @relation("DoctorLightFluxos")
   lightQuickReplies   LightQuickReply[]   @relation("DoctorLightQuickReplies")
+  roomWAConnections   RoomWhatsAppConnection[] @relation("DoctorRoomConnections")
+  roomWAConnectedBy   RoomWhatsAppConnection[] @relation("RoomWAConnectedBy")
 
   @@map("TBLUSUARIO")
 }
@@ -346,10 +348,11 @@ model Room {
   createdAt  DateTime @default(now())
   updatedAt  DateTime @updatedAt
 
-  doctor      User            @relation("DoctorRooms", fields: [doctorId], references: [id])
-  secretaries RoomSecretary[]
-  healthPlans HealthPlan[]    @relation("RoomHealthPlans")
-  appointments Appointment[]  @relation("RoomAppointments")
+  doctor          User            @relation("DoctorRooms", fields: [doctorId], references: [id])
+  secretaries     RoomSecretary[]
+  healthPlans     HealthPlan[]    @relation("RoomHealthPlans")
+  appointments    Appointment[]   @relation("RoomAppointments")
+  whatsappConnection RoomWhatsAppConnection?
 
   @@map("TBLSALA")
 }
@@ -358,13 +361,73 @@ model RoomSecretary {
   id          String   @id @default(uuid())
   roomId      String
   secretaryId String
+  active      Boolean  @default(true)
+  // Granular room-level permissions
+  canViewSchedule         Boolean @default(true)
+  canManageWhatsapp       Boolean @default(false)
+  canConnectWhatsapp      Boolean @default(false)
+  canReconnectWhatsapp    Boolean @default(false)
+  canDisconnectWhatsapp   Boolean @default(false)
+  canSendMessages         Boolean @default(false)
+  canUseTemplates         Boolean @default(false)
+  canUseAutomaticMessages Boolean @default(false)
+  canViewHistory          Boolean @default(false)
   createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
 
   room      Room @relation(fields: [roomId], references: [id], onDelete: Cascade)
   secretary User @relation("SecretaryRooms", fields: [secretaryId], references: [id])
 
   @@unique([roomId, secretaryId])
+  @@index([secretaryId])
   @@map("TBLSALASECRETARIA")
+}
+
+// ─── Room WhatsApp Connection ─────────────────────────────────────────────────
+
+model RoomWhatsAppConnection {
+  id                  String         @id @default(uuid())
+  roomId              String         @unique
+  doctorId            String
+  instanceKey         String         @unique @default(uuid())
+  status              InstanceStatus @default(DISCONNECTED)
+  qrCode              String?        @db.Text
+  qrCodeExpiresAt     DateTime?
+  phoneNumber         String?
+  displayName         String?
+  connectedByUserId   String?
+  connectedAt         DateTime?
+  disconnectedAt      DateTime?
+  lastSyncAt          DateTime?
+  reconnectAttempts   Int            @default(0)
+  createdAt           DateTime       @default(now())
+  updatedAt           DateTime       @updatedAt
+
+  room        Room  @relation(fields: [roomId], references: [id], onDelete: Cascade)
+  doctor      User  @relation("DoctorRoomConnections", fields: [doctorId], references: [id])
+  connectedBy User? @relation("RoomWAConnectedBy", fields: [connectedByUserId], references: [id])
+
+  @@index([doctorId])
+  @@map("TBLSALAWHATSAPP")
+}
+
+// ─── Audit Log ────────────────────────────────────────────────────────────────
+
+model AuditLog {
+  id          String   @id @default(uuid())
+  clinicId    String?
+  roomId      String?
+  userId      String
+  action      String
+  description String?
+  metadata    Json?
+  createdAt   DateTime @default(now())
+
+  @@index([clinicId])
+  @@index([roomId])
+  @@index([userId])
+  @@index([createdAt])
+  @@map("TBLAUDITLOG")
 }
 
 model DocumentTemplate {

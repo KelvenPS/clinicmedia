@@ -23,6 +23,7 @@ import {
   PanelLeft,
   ShieldCheck,
   CreditCard,
+  Building2,
 } from 'lucide-react'
 import { useAuthStore } from '../store/authStore'
 import { useSecretaryPermissions } from '../hooks/useSecretaryPermissions'
@@ -238,6 +239,16 @@ export default function Sidebar({ collapsed = false, onToggleCollapse }: Sidebar
             </div>
           )}
         </div>
+        )}
+
+        {/* ── Minhas Salas (secretária) ── */}
+        {user?.role === 'SECRETARY' && (
+          <div className={`${collapsed ? 'mt-3 pt-3' : 'mt-4 pt-4'} border-t border-white/8`}>
+            {!collapsed && (
+              <p className="section-label mb-2">Atendimento</p>
+            )}
+            <NavItem to="/minhas-salas" icon={Building2} label="Minhas Salas" collapsed={collapsed} />
+          </div>
         )}
 
         {/* ── NFS-e ── */}

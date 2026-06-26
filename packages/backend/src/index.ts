@@ -21,7 +21,9 @@ import subscriptionRoutes from './routes/subscriptions'
 import integrationRoutes from './routes/integrations'
 import chatbotRoutes from './routes/chatbot'
 import chatbotLightRoutes from './routes/chatbot-light'
+import myRoomsRoutes from './routes/my-rooms'
 import { restoreSessions, startHealthWatchdog, runStartupDatabaseCleanup } from './lib/whatsapp'
+import { restoreRoomSessions } from './lib/room-whatsapp'
 import { startLightScheduler } from './lib/chatbot-light-engine'
 import adminRoutes from './routes/admin'
 import adminSqlRoutes from './routes/admin-sql'
@@ -63,6 +65,7 @@ app.use('/api/subscriptions', subscriptionRoutes)
 app.use('/api/integrations', integrationRoutes)
 app.use('/api/chatbot', chatbotRoutes)
 app.use('/api/chatbot-light', chatbotLightRoutes)
+app.use('/api/my/rooms', myRoomsRoutes)
 app.use('/api/admin/sql', adminSqlRoutes)
 app.use('/api/admin', adminRoutes)
 
@@ -104,6 +107,8 @@ app.listen(PORT, () => {
     .then(() => {
       // Restaura sessões WhatsApp ativas após restart do servidor
       restoreSessions().catch(err => console.error('[WA] Erro ao restaurar sessões:', err))
+      // Restaura conexões WhatsApp por sala
+      restoreRoomSessions().catch(err => console.error('[ROOM_WA] Erro ao restaurar sessões de sala:', err))
     })
     .catch(err => console.error('[WA] Erro na limpeza inicial:', err))
 

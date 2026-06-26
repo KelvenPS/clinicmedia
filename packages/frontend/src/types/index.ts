@@ -221,6 +221,53 @@ export interface AppointmentStats {
   totalPatients: number
 }
 
+export type RoomWhatsAppStatus = 'CONNECTED' | 'CONNECTING' | 'DISCONNECTED' | 'QUARANTINED'
+
+export interface RoomWhatsAppConnection {
+  id: string
+  roomId: string
+  status: RoomWhatsAppStatus
+  phoneNumber?: string | null
+  displayName?: string | null
+  connectedAt?: string | null
+  disconnectedAt?: string | null
+  lastSyncAt?: string | null
+  qrCode?: string | null
+  qrCodeExpiresAt?: string | null
+  connected: boolean
+  connectedByUserId?: string | null
+}
+
+export interface RoomPermissions {
+  canViewSchedule: boolean
+  canManageWhatsapp: boolean
+  canConnectWhatsapp: boolean
+  canReconnectWhatsapp: boolean
+  canDisconnectWhatsapp: boolean
+  canSendMessages: boolean
+  canUseTemplates: boolean
+  canUseAutomaticMessages: boolean
+  canViewHistory: boolean
+}
+
+export interface RoomSecretary {
+  id: string
+  roomId: string
+  secretaryId: string
+  active: boolean
+  canViewSchedule: boolean
+  canManageWhatsapp: boolean
+  canConnectWhatsapp: boolean
+  canReconnectWhatsapp: boolean
+  canDisconnectWhatsapp: boolean
+  canSendMessages: boolean
+  canUseTemplates: boolean
+  canUseAutomaticMessages: boolean
+  canViewHistory: boolean
+  createdAt: string
+  secretary: { id: string; name: string; email: string; phone?: string | null; active: boolean }
+}
+
 export interface Room {
   id: string
   doctorId: string
@@ -236,7 +283,9 @@ export interface Room {
   active: boolean
   createdAt: string
   doctor?: { id: string; name: string; specialty?: string | null }
-  secretaries?: { id: string; secretaryId: string; secretary: { id: string; name: string; email: string } }[]
+  secretaries?: { id: string; secretaryId: string; active: boolean; secretary: { id: string; name: string; email: string } }[]
+  whatsappConnection?: Pick<RoomWhatsAppConnection, 'id' | 'status' | 'phoneNumber' | 'displayName' | 'connectedAt'> | null
+  myPermissions?: RoomPermissions | null
 }
 
 export interface DocumentTemplate {

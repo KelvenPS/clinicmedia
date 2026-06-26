@@ -17,6 +17,18 @@ export const SECRETARY_PERMISSION_KEYS = [
 export type SecretaryPermissionKey = typeof SECRETARY_PERMISSION_KEYS[number]
 export type SecretaryPermissions = Partial<Record<SecretaryPermissionKey, boolean>>
 
+// Permissões granulares dentro de uma sala específica
+export type RoomPermissionKey =
+  | 'canViewSchedule'
+  | 'canManageWhatsapp'
+  | 'canConnectWhatsapp'
+  | 'canReconnectWhatsapp'
+  | 'canDisconnectWhatsapp'
+  | 'canSendMessages'
+  | 'canUseTemplates'
+  | 'canUseAutomaticMessages'
+  | 'canViewHistory'
+
 export function normalizeSecretaryPermissions(input: unknown): SecretaryPermissions {
   const result: SecretaryPermissions = {}
   if (!input || typeof input !== 'object') return result
@@ -79,5 +91,90 @@ export function requireSecretaryPermission(key: SecretaryPermissionKey) {
     } catch {
       res.status(403).json({ message: 'Acesso não liberado pelo médico para esta funcionalidade' })
     }
+  }
+}
+
+/**
+ * Verifica se a secretária tem permissão específica em uma sala.
+ * Retorna o registro RoomSecretary ou null se não tiver acesso.
+ */
+export async function getRoomSecretaryAccess(secretaryId: string, roomId: string) {
+  return prisma.roomSecretary.findFirst({
+    where: { roomId, secretaryId, active: true },
+  })
+}
+
+/**
+ * Middleware: verifica permissão granular de sala para secretária.
+ * O roomId deve estar em req.params.roomId ou req.params.id.
+ * DOCTOR e ADMIN passam direto.
+ */
+export function requireRoomPermission(permissionKey: RoomPermissionKey) {
+  return async (req: AuthRequest, res: Response, next: NextFunction): Promise<void> => {
+    if (req.user?.role !== 'SECRETARY') {
+      next()
+      return
+    }
+
+    const roomId = req.params.roomId || req.params.id
+    if (!roomId) {
+      res.status(400).json({ message: 'ID da sala não informado' })
+      return
+    }
+
+    try {
+      const roomAccess = await getRoomSecretaryAccess(req.user.userId, roomId)
+
+      if (!roomAccess) {
+        res.status(403).json({
+          message: 'Você não tem acesso a esta sala',
+          code: 'ROOM_ACCESS_DENIED',
+        })
+        return
+      }
+
+      const hasPermission = roomAccess[permissionKey as keyof typeof roomAccess] as boolean
+      if (!hasPermission) {
+        res.status(403).json({
+          message: 'Você não tem permissão para esta ação nesta sala',
+          code: 'ROOM_PERMISSION_DENIED',
+          requiredPermission: permissionKey,
+        })
+        return
+      }
+
+      next()
+    } catch {
+      res.status(403).json({ message: 'Erro ao verificar permissão da sala' })
+    }
+  }
+}
+
+/**
+ * Registra uma ação de auditoria no banco.
+ */
+export async function logAudit(params: {
+  clinicId?: string | null
+  roomId?: string | null
+  userId: string
+  action: string
+  description?: string
+  metadata?: Record<string, unknown>
+}) {
+  try {
+    await prisma.auditLog.create({
+      data: {
+        clinicId: params.clinicId,
+        roomId: params.roomId,
+        userId: params.userId,
+        action: params.action,
+        description: params.description,
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    metadata: params.metadata as any,
+      },
+    })
+  } catch (err) {
+    // Audit log failure must never block the main request
+    console.error('[AUDIT] Failed to write audit log:', err)
   }
 }

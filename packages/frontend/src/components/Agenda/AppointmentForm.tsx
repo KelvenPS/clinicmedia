@@ -3,7 +3,9 @@ import { useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { z } from 'zod'
 import { format } from 'date-fns'
-import { Trash2, ArrowRight, Info, RefreshCw, Check, X, MapPin } from 'lucide-react'
+import { Trash2, ArrowRight, Info, RefreshCw, Check, X, MapPin, Search, UserPlus, AlertTriangle } from 'lucide-react'
+import toast from 'react-hot-toast'
+import api from '../../lib/api'
 import type { Appointment, User, Patient, AuthUser, AppointmentType, Room } from '../../types'
 
 const DURATIONS = [
@@ -43,7 +45,146 @@ interface Props {
   currentUser: AuthUser | null
   onSubmit: (data: FormData) => void
   onDelete?: () => void
+  onPatientCreated?: (patient: Patient) => void
   loading: boolean
+}
+
+// ─── Inline pre-registration form ────────────────────────────────────────────
+
+function PreRegisterInlineForm({
+  onCreated,
+  onCancel,
+}: {
+  onCreated: (patient: Patient) => void
+  onCancel: () => void
+}) {
+  const [saving, setSaving] = useState(false)
+  const [form, setForm] = useState({ name: '', phone: '', cpf: '', birthDate: '', notes: '' })
+  const [duplicate, setDuplicate] = useState<{ id: string; name: string; phone: string; status: string } | null>(null)
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault()
+    if (!form.name.trim() || form.phone.replace(/\D/g, '').length < 10) {
+      toast.error('Nome e telefone são obrigatórios')
+      return
+    }
+    setSaving(true)
+    try {
+      const { data } = await api.post<Patient>('/patients/pre-register', {
+        name: form.name.trim(),
+        phone: form.phone,
+        cpf: form.cpf || undefined,
+        birthDate: form.birthDate || undefined,
+        notes: form.notes || undefined,
+        origin: 'AGENDA',
+      })
+      toast.success('Pré-cadastro criado!')
+      onCreated(data)
+    } catch (err: unknown) {
+      const error = err as { response?: { data?: { message?: string; existingPatient?: { id: string; name: string; phone: string; status: string } } } }
+      if (error.response?.data?.existingPatient) {
+        setDuplicate(error.response.data.existingPatient)
+      } else {
+        toast.error(error.response?.data?.message || 'Erro ao criar pré-cadastro')
+      }
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  if (duplicate) {
+    return (
+      <div className="mt-2 p-4 bg-amber-50 border border-amber-200 rounded-xl space-y-3">
+        <div className="flex items-start gap-2">
+          <AlertTriangle className="w-5 h-5 text-amber-600 flex-shrink-0 mt-0.5" />
+          <div>
+            <p className="text-sm font-semibold text-amber-800">Paciente já cadastrado</p>
+            <p className="text-xs text-amber-700 mt-0.5">{duplicate.name} · {duplicate.phone}</p>
+          </div>
+        </div>
+        <div className="flex gap-2">
+          <button type="button" onClick={() => {
+            const patient: Patient = { id: duplicate.id, name: duplicate.name, phone: duplicate.phone, active: true, status: duplicate.status as Patient['status'], origin: 'MANUAL', createdAt: '' }
+            onCreated(patient)
+          }} className="btn-primary text-xs px-3 py-1.5 flex-1">
+            Usar paciente existente
+          </button>
+          <button type="button" onClick={() => setDuplicate(null)} className="btn-secondary text-xs px-3 py-1.5">
+            Tentar outro
+          </button>
+        </div>
+      </div>
+    )
+  }
+
+  return (
+    <form onSubmit={handleSubmit} className="mt-2 p-4 bg-cyan-50 border border-cyan-200 rounded-xl space-y-3">
+      <div className="flex items-center gap-2 mb-1">
+        <UserPlus className="w-4 h-4 text-cyan-600" />
+        <p className="text-sm font-semibold text-cyan-800">Pré-cadastro rápido</p>
+      </div>
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+        <div>
+          <label className="label text-xs">Nome *</label>
+          <input
+            className="input-field text-sm"
+            placeholder="Nome completo"
+            value={form.name}
+            onChange={e => setForm(f => ({ ...f, name: e.target.value }))}
+            required
+          />
+        </div>
+        <div>
+          <label className="label text-xs">Telefone *</label>
+          <input
+            className="input-field text-sm"
+            placeholder="(11) 99999-9999"
+            value={form.phone}
+            onChange={e => setForm(f => ({ ...f, phone: e.target.value }))}
+            required
+          />
+        </div>
+        <div>
+          <label className="label text-xs">CPF</label>
+          <input
+            className="input-field text-sm"
+            placeholder="000.000.000-00"
+            value={form.cpf}
+            onChange={e => setForm(f => ({ ...f, cpf: e.target.value }))}
+          />
+        </div>
+        <div>
+          <label className="label text-xs">Nascimento</label>
+          <input
+            type="date"
+            className="input-field text-sm"
+            value={form.birthDate}
+            onChange={e => setForm(f => ({ ...f, birthDate: e.target.value }))}
+          />
+        </div>
+      </div>
+      <div>
+        <label className="label text-xs">Observações</label>
+        <input
+          className="input-field text-sm"
+          placeholder="Anotação rápida..."
+          value={form.notes}
+          onChange={e => setForm(f => ({ ...f, notes: e.target.value }))}
+        />
+      </div>
+      <p className="text-xs text-cyan-600 bg-cyan-100 rounded-lg px-3 py-2">
+        O cadastro completo poderá ser finalizado depois na tela de Pacientes.
+      </p>
+      <div className="flex gap-2">
+        <button type="submit" disabled={saving} className="btn-primary text-xs px-4 py-2 flex-1">
+          {saving ? 'Criando...' : 'Criar pré-cadastro e selecionar'}
+        </button>
+        <button type="button" onClick={onCancel} className="btn-secondary text-xs px-3 py-2">
+          Cancelar
+        </button>
+      </div>
+    </form>
+  )
 }
 
 export default function AppointmentForm({
@@ -56,6 +197,7 @@ export default function AppointmentForm({
   currentUser,
   onSubmit,
   onDelete,
+  onPatientCreated,
   loading,
 }: Props) {
   const { register, handleSubmit, formState: { errors }, setValue, watch } = useForm<FormData>({
@@ -73,6 +215,43 @@ export default function AppointmentForm({
   // Returns flow state
   const [wantsReturns, setWantsReturns] = useState<boolean | null>(null)
   const [returnsCount, setReturnsCount] = useState<number>(5)
+
+  // Patient search + pre-registration state
+  const [patientSearch, setPatientSearch] = useState('')
+  const [showPreRegForm, setShowPreRegForm] = useState(false)
+  const [selectedPatient, setSelectedPatient] = useState<Patient | null>(null)
+  const [showDropdown, setShowDropdown] = useState(false)
+  const [extraPatients, setExtraPatients] = useState<Patient[]>([])
+
+  const allPatients = [...patients, ...extraPatients]
+
+  const filteredPatients = patientSearch.length >= 2
+    ? allPatients.filter(p =>
+        p.name.toLowerCase().includes(patientSearch.toLowerCase()) ||
+        p.phone.includes(patientSearch) ||
+        (p.cpf && p.cpf.includes(patientSearch))
+      ).slice(0, 8)
+    : []
+
+  const handleSelectPatient = (p: Patient) => {
+    setSelectedPatient(p)
+    setValue('patientId', p.id)
+    setPatientSearch('')
+    setShowDropdown(false)
+    setShowPreRegForm(false)
+  }
+
+  const handleClearPatient = () => {
+    setSelectedPatient(null)
+    setValue('patientId', '')
+    setPatientSearch('')
+  }
+
+  const handlePatientCreated = (p: Patient) => {
+    setExtraPatients(prev => [...prev.filter(ep => ep.id !== p.id), p])
+    handleSelectPatient(p)
+    onPatientCreated?.(p)
+  }
 
   const watchPatient = watch('patientId')
   const watchType = watch('type')
@@ -105,6 +284,9 @@ export default function AppointmentForm({
       setValue('notes', appointment.notes || '')
       setValue('isBlocked', appointment.isBlocked ?? false)
       setValue('roomId', appointment.roomId || '')
+      // Pre-select patient display for edit mode
+      const p = allPatients.find(pt => pt.id === appointment.patientId)
+      if (p) setSelectedPatient(p)
     } else if (defaultDate) {
       setValue('date', format(defaultDate, "yyyy-MM-dd'T'HH:mm"))
     } else {
@@ -112,7 +294,7 @@ export default function AppointmentForm({
       now.setMinutes(0, 0, 0)
       setValue('date', format(now, "yyyy-MM-dd'T'HH:mm"))
     }
-  }, [appointment, defaultDate, setValue])
+  }, [appointment, defaultDate, setValue]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // Auto-fill doctorId for SECRETARY
   useEffect(() => {
@@ -121,14 +303,14 @@ export default function AppointmentForm({
     }
   }, [doctors, currentUser, appointment, setValue])
 
-  const selectedPatient = patients.find(p => p.id === watchPatient)
-  const primaryPlan = selectedPatient?.patientPlans?.[0]
+  const selectedPatientFull = allPatients.find(p => p.id === watchPatient)
+  const primaryPlan = selectedPatientFull?.patientPlans?.[0]
 
   useEffect(() => {
-    if (selectedPatient && !appointment) {
-      setValue('title', `Consulta - ${selectedPatient.name}`)
+    if (selectedPatientFull && !appointment) {
+      setValue('title', `Consulta - ${selectedPatientFull.name}`)
     }
-  }, [selectedPatient, appointment, setValue])
+  }, [selectedPatientFull, appointment, setValue])
 
   // Auto-populate room from the patient's primary health plan
   useEffect(() => {
@@ -155,7 +337,6 @@ export default function AppointmentForm({
     }
   }, [wantsReturns, returnsCount, setValue])
 
-  // Repasse calculation info
   const repasseInfo = (() => {
     if (!selectedAppType?.baseValue) return null
     const discount = primaryPlan?.healthPlan?.discountPercent ?? 0
@@ -170,12 +351,12 @@ export default function AppointmentForm({
 
   return (
     <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
-      {patients.length === 0 && (
-        <div className="p-3 bg-red-50 border border-red-200 rounded-xl text-red-800 text-sm flex gap-2 items-start">
+      {patients.length === 0 && !showPreRegForm && !selectedPatient && (
+        <div className="p-3 bg-cyan-50 border border-cyan-200 rounded-xl text-cyan-800 text-sm flex gap-2 items-start">
           <Info className="w-5 h-5 flex-shrink-0" />
           <div>
             <p className="font-semibold">Nenhum paciente cadastrado</p>
-            <p>Você precisa cadastrar pelo menos um paciente no menu "Pacientes" antes de agendar uma consulta.</p>
+            <p>Use a opção "Criar pré-cadastro rápido" abaixo para agendar sem cadastro completo.</p>
           </div>
         </div>
       )}
@@ -217,16 +398,76 @@ export default function AppointmentForm({
         </div>
       )}
 
+      {/* Hidden patientId field for form validation */}
+      <input {...register('patientId')} type="hidden" />
+
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
         <div>
           <label className="label">Paciente *</label>
-          <select {...register('patientId')} className="input-field">
-            <option value="">Selecione o paciente</option>
-            {patients.map(p => (
-              <option key={p.id} value={p.id}>{p.name}</option>
-            ))}
-          </select>
+          {selectedPatient ? (
+            <div className="flex items-center gap-2 p-2.5 bg-blue-50 border border-blue-200 rounded-xl">
+              <div className="flex-1 min-w-0">
+                <p className="text-sm font-semibold text-blue-900 truncate">{selectedPatient.name}</p>
+                <p className="text-xs text-blue-600">{selectedPatient.phone}</p>
+              </div>
+              {selectedPatient.status === 'PRE_CADASTRO' && (
+                <span className="text-xs bg-amber-100 text-amber-700 border border-amber-200 px-2 py-0.5 rounded-full font-medium flex-shrink-0">
+                  Pré-cadastro
+                </span>
+              )}
+              {!appointment && (
+                <button type="button" onClick={handleClearPatient} className="text-slate-400 hover:text-slate-600 flex-shrink-0">
+                  <X className="w-4 h-4" />
+                </button>
+              )}
+            </div>
+          ) : (
+            <div className="relative">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400 pointer-events-none" />
+              <input
+                className="input-field pl-9"
+                placeholder="Pesquisar paciente..."
+                value={patientSearch}
+                onChange={e => { setPatientSearch(e.target.value); setShowDropdown(true) }}
+                onFocus={() => setShowDropdown(true)}
+                onBlur={() => setTimeout(() => setShowDropdown(false), 150)}
+              />
+              {showDropdown && filteredPatients.length > 0 && (
+                <div className="absolute z-20 mt-1 w-full bg-white border border-slate-200 rounded-xl shadow-lg overflow-hidden max-h-48 overflow-y-auto">
+                  {filteredPatients.map(p => (
+                    <button
+                      key={p.id}
+                      type="button"
+                      onMouseDown={() => handleSelectPatient(p)}
+                      className="w-full text-left px-3 py-2.5 hover:bg-slate-50 text-sm flex items-center justify-between gap-2 border-b border-slate-50 last:border-0"
+                    >
+                      <span className="font-medium text-slate-800 truncate">{p.name}</span>
+                      <span className="text-xs text-slate-400 flex-shrink-0">{p.phone}</span>
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
           {errors.patientId && <p className="text-xs text-red-500 mt-1">{errors.patientId.message}</p>}
+          {!selectedPatient && !showPreRegForm && (
+            <p className="text-xs text-slate-400 mt-1.5">
+              Não encontrou?{' '}
+              <button
+                type="button"
+                onClick={() => setShowPreRegForm(true)}
+                className="text-cyan-600 hover:text-cyan-700 underline font-medium"
+              >
+                Criar pré-cadastro rápido
+              </button>
+            </p>
+          )}
+          {showPreRegForm && (
+            <PreRegisterInlineForm
+              onCreated={handlePatientCreated}
+              onCancel={() => setShowPreRegForm(false)}
+            />
+          )}
         </div>
 
         <div>

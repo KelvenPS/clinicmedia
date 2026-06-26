@@ -3,6 +3,7 @@ import { z } from 'zod'
 import { prisma } from '../lib/prisma'
 import { authenticate, AuthRequest } from '../middleware/auth'
 import { fireWebhooks } from '../lib/webhook'
+import { logAudit } from '../lib/secretaryAccess'
 
 import { triggerLightAutomatedMessage } from '../lib/chatbot-light-engine'
 
@@ -56,7 +57,7 @@ async function resolvePrimaryDoctorId(req: AuthRequest): Promise<string | null> 
 
 router.get('/', async (req: AuthRequest, res) => {
   try {
-    const { search } = req.query
+    const { search, status } = req.query
     const { doctorIds } = await resolveScope(req)
 
     if (doctorIds !== null && doctorIds.length === 0) {
@@ -68,6 +69,11 @@ router.get('/', async (req: AuthRequest, res) => {
 
     if (doctorIds !== null) {
       where.doctorId = doctorIds.length === 1 ? doctorIds[0] : { in: doctorIds }
+    }
+
+    // Filter by status — default excludes no status (shows all active)
+    if (status && status !== 'TODOS') {
+      where.status = status
     }
 
     if (search) {
@@ -275,6 +281,336 @@ router.put('/:id', async (req: AuthRequest, res) => {
     res.json(patient)
   } catch (error) {
     console.error('[patients] PUT /:id', error)
+    res.status(500).json({ message: 'Erro interno do servidor' })
+  }
+})
+
+// ─── Schemas de validação ────────────────────────────────────────────────────
+
+const preRegisterSchema = z.object({
+  name: z.string().min(2, 'Nome muito curto'),
+  phone: z.string().min(10, 'Telefone inválido'),
+  cpf: z.string().optional(),
+  birthDate: z.string().optional(),
+  notes: z.string().optional(),
+  roomId: z.string().optional(),
+  origin: z.enum(['AGENDA', 'CHATBOT', 'MANUAL', 'IMPORTACAO']).default('AGENDA'),
+})
+
+const completeRegistrationSchema = z.object({
+  name: z.string().min(2).optional(),
+  email: z.string().email().optional().or(z.literal('')),
+  phone: z.string().min(10).optional(),
+  birthDate: z.string().optional(),
+  cpf: z.string().optional(),
+  rg: z.string().optional(),
+  address: z.string().optional(),
+  notes: z.string().optional(),
+  responsibleName: z.string().optional(),
+  responsiblePhone: z.string().optional(),
+  plans: z.array(z.object({
+    healthPlanId: z.string(),
+    value: z.number().optional(),
+    walletNumber: z.string().optional(),
+    validUntil: z.string().optional(),
+  })).optional(),
+})
+
+// ─── Helper: detectar paciente duplicado ────────────────────────────────────
+
+async function findDuplicatePatient(params: {
+  phone: string
+  cpf?: string
+  name?: string
+  doctorId: string | null
+}) {
+  const { phone, cpf, doctorId } = params
+  const where: Record<string, unknown> = {}
+  if (doctorId) where.doctorId = doctorId
+
+  if (cpf) {
+    const byCpf = await prisma.patient.findFirst({ where: { ...where, cpf } })
+    if (byCpf) return { patient: byCpf, reason: 'cpf' as const }
+  }
+
+  const byPhone = await prisma.patient.findFirst({ where: { ...where, phone } })
+  if (byPhone) return { patient: byPhone, reason: 'phone' as const }
+
+  return null
+}
+
+// ─── POST /patients/pre-register ─────────────────────────────────────────────
+
+router.post('/pre-register', async (req: AuthRequest, res) => {
+  try {
+    const data = preRegisterSchema.parse(req.body)
+    const doctorId = await resolvePrimaryDoctorId(req)
+
+    // Permissão: SECRETARY precisa de canCreatePreRegistration
+    if (req.user!.role === 'SECRETARY') {
+      const link = await prisma.doctorSecretary.findFirst({
+        where: { secretaryId: req.user!.userId, active: true },
+        select: { permissions: true },
+      })
+      const perms = (link?.permissions as Record<string, boolean> | null) ?? {}
+      if (!perms.canCreatePreRegistration) {
+        return res.status(403).json({
+          message: 'Você não tem permissão para criar pré-cadastros',
+          code: 'SECRETARY_PERMISSION_DENIED',
+        })
+      }
+    }
+
+    // Detectar duplicidade
+    const duplicate = await findDuplicatePatient({
+      phone: data.phone,
+      cpf: data.cpf,
+      doctorId,
+    })
+
+    if (duplicate) {
+      await logAudit({
+        clinicId: doctorId,
+        userId: req.user!.userId,
+        action: 'PATIENT_DUPLICATE_FOUND',
+        description: `Duplicata detectada por ${duplicate.reason} ao pré-cadastrar ${data.name}`,
+        metadata: { existingPatientId: duplicate.patient.id, reason: duplicate.reason },
+      })
+      return res.status(409).json({
+        message: 'Já existe um paciente cadastrado com este ' + (duplicate.reason === 'cpf' ? 'CPF' : 'telefone'),
+        code: 'PATIENT_DUPLICATE',
+        existingPatient: {
+          id: duplicate.patient.id,
+          name: duplicate.patient.name,
+          phone: duplicate.patient.phone,
+          cpf: duplicate.patient.cpf,
+          status: duplicate.patient.status,
+        },
+      })
+    }
+
+    const patient = await prisma.patient.create({
+      data: {
+        name: data.name,
+        phone: data.phone,
+        cpf: data.cpf || null,
+        birthDate: data.birthDate ? new Date(data.birthDate) : null,
+        notes: data.notes || null,
+        doctorId,
+        roomId: data.roomId || null,
+        status: 'PRE_CADASTRO',
+        origin: data.origin,
+        createdByUserId: req.user!.userId,
+      },
+    })
+
+    await logAudit({
+      clinicId: doctorId,
+      roomId: data.roomId,
+      userId: req.user!.userId,
+      action: 'PATIENT_PRE_REGISTER',
+      description: `Pré-cadastro criado para ${patient.name}`,
+      metadata: { patientId: patient.id, origin: data.origin },
+    })
+
+    return res.status(201).json(patient)
+  } catch (error) {
+    if (error instanceof z.ZodError) {
+      return res.status(400).json({ message: 'Dados inválidos', errors: error.errors })
+    }
+    console.error('[patients] POST /pre-register', error)
+    res.status(500).json({ message: 'Erro interno do servidor' })
+  }
+})
+
+// ─── GET /patients/pre-registrations ─────────────────────────────────────────
+
+router.get('/pre-registrations', async (req: AuthRequest, res) => {
+  try {
+    // Permissão: SECRETARY precisa de canViewPendingPatients
+    if (req.user!.role === 'SECRETARY') {
+      const link = await prisma.doctorSecretary.findFirst({
+        where: { secretaryId: req.user!.userId, active: true },
+        select: { permissions: true },
+      })
+      const perms = (link?.permissions as Record<string, boolean> | null) ?? {}
+      if (!perms.canViewPendingPatients) {
+        return res.status(403).json({ message: 'Acesso negado', code: 'SECRETARY_PERMISSION_DENIED' })
+      }
+    }
+
+    const { doctorIds } = await resolveScope(req)
+    if (doctorIds !== null && doctorIds.length === 0) return res.json([])
+
+    const where: Record<string, unknown> = {
+      status: { in: ['PRE_CADASTRO', 'INCOMPLETO'] },
+    }
+    if (doctorIds !== null) {
+      where.doctorId = doctorIds.length === 1 ? doctorIds[0] : { in: doctorIds }
+    }
+
+    const patients = await prisma.patient.findMany({
+      where,
+      include: {
+        appointments: {
+          where: { date: { gte: new Date() } },
+          orderBy: { date: 'asc' },
+          take: 1,
+          select: { id: true, date: true, title: true, status: true },
+        },
+        createdByUser: { select: { id: true, name: true } },
+        room: { select: { id: true, name: true } },
+      },
+      orderBy: { createdAt: 'desc' },
+    })
+
+    return res.json(patients)
+  } catch {
+    res.status(500).json({ message: 'Erro interno do servidor' })
+  }
+})
+
+// ─── POST /patients/:id/complete-registration ────────────────────────────────
+
+router.post('/:id/complete-registration', async (req: AuthRequest, res) => {
+  try {
+    const { id } = req.params
+    const { doctorIds } = await resolveScope(req)
+
+    // Permissão: SECRETARY precisa de canCompleteRegistration
+    if (req.user!.role === 'SECRETARY') {
+      const link = await prisma.doctorSecretary.findFirst({
+        where: { secretaryId: req.user!.userId, active: true },
+        select: { permissions: true },
+      })
+      const perms = (link?.permissions as Record<string, boolean> | null) ?? {}
+      if (!perms.canCompleteRegistration) {
+        return res.status(403).json({
+          message: 'Você não tem permissão para finalizar cadastros',
+          code: 'SECRETARY_PERMISSION_DENIED',
+        })
+      }
+    }
+
+    const existing = await prisma.patient.findUnique({ where: { id } })
+    if (!existing) return res.status(404).json({ message: 'Paciente não encontrado' })
+    if (doctorIds !== null && (!existing.doctorId || !doctorIds.includes(existing.doctorId))) {
+      return res.status(403).json({ message: 'Acesso negado' })
+    }
+
+    const { plans, ...rest } = completeRegistrationSchema.parse(req.body)
+
+    const updateData: Record<string, unknown> = { ...rest }
+    if (rest.birthDate) updateData.birthDate = new Date(rest.birthDate)
+    if (rest.email !== undefined) updateData.email = rest.email || null
+    if (rest.cpf !== undefined) updateData.cpf = rest.cpf || null
+
+    updateData.status = 'ATIVO'
+    updateData.completedAt = new Date()
+    updateData.completedByUserId = req.user!.userId
+
+    if (plans !== undefined) {
+      await prisma.patientPlan.deleteMany({ where: { patientId: id } })
+      if (plans.length > 0) {
+        await prisma.patientPlan.createMany({
+          data: plans.map(p => ({
+            patientId: id,
+            healthPlanId: p.healthPlanId,
+            value: p.value,
+            walletNumber: p.walletNumber || null,
+            validUntil: p.validUntil ? new Date(p.validUntil) : null,
+          })),
+        })
+      }
+    }
+
+    const patient = await prisma.patient.update({
+      where: { id },
+      data: updateData,
+      include: { patientPlans: { include: { healthPlan: true } } },
+    })
+
+    await logAudit({
+      clinicId: existing.doctorId,
+      userId: req.user!.userId,
+      action: 'PATIENT_COMPLETED',
+      description: `Cadastro finalizado para ${patient.name}`,
+      metadata: { patientId: id, previousStatus: existing.status },
+    })
+
+    return res.json(patient)
+  } catch (error) {
+    if (error instanceof z.ZodError) {
+      return res.status(400).json({ message: 'Dados inválidos', errors: error.errors })
+    }
+    console.error('[patients] POST /:id/complete-registration', error)
+    res.status(500).json({ message: 'Erro interno do servidor' })
+  }
+})
+
+// ─── PATCH /patients/:id/status ───────────────────────────────────────────────
+
+router.patch('/:id/status', async (req: AuthRequest, res) => {
+  try {
+    const { id } = req.params
+    const { status } = z.object({
+      status: z.enum(['PRE_CADASTRO', 'ATIVO', 'INCOMPLETO', 'INATIVO']),
+    }).parse(req.body)
+
+    const { doctorIds } = await resolveScope(req)
+    const existing = await prisma.patient.findUnique({ where: { id } })
+    if (!existing) return res.status(404).json({ message: 'Paciente não encontrado' })
+    if (doctorIds !== null && (!existing.doctorId || !doctorIds.includes(existing.doctorId))) {
+      return res.status(403).json({ message: 'Acesso negado' })
+    }
+
+    const patient = await prisma.patient.update({
+      where: { id },
+      data: { status },
+    })
+
+    await logAudit({
+      clinicId: existing.doctorId,
+      userId: req.user!.userId,
+      action: 'PATIENT_STATUS_CHANGED',
+      description: `Status do paciente ${existing.name} alterado de ${existing.status} para ${status}`,
+      metadata: { patientId: id, from: existing.status, to: status },
+    })
+
+    return res.json(patient)
+  } catch (error) {
+    if (error instanceof z.ZodError) {
+      return res.status(400).json({ message: 'Dados inválidos', errors: error.errors })
+    }
+    res.status(500).json({ message: 'Erro interno do servidor' })
+  }
+})
+
+// ─── GET /patients/check-duplicate ───────────────────────────────────────────
+
+router.get('/check-duplicate', async (req: AuthRequest, res) => {
+  try {
+    const { phone, cpf } = req.query as { phone?: string; cpf?: string }
+    if (!phone && !cpf) {
+      return res.status(400).json({ message: 'Informe phone ou cpf' })
+    }
+    const doctorId = await resolvePrimaryDoctorId(req)
+    const duplicate = await findDuplicatePatient({ phone: phone ?? '', cpf, doctorId })
+    if (duplicate) {
+      return res.json({
+        found: true,
+        reason: duplicate.reason,
+        patient: {
+          id: duplicate.patient.id,
+          name: duplicate.patient.name,
+          phone: duplicate.patient.phone,
+          cpf: duplicate.patient.cpf,
+          status: duplicate.patient.status,
+        },
+      })
+    }
+    return res.json({ found: false })
+  } catch {
     res.status(500).json({ message: 'Erro interno do servidor' })
   }
 })

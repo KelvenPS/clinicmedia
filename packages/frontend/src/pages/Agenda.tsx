@@ -1012,7 +1012,12 @@ export default function Agenda() {
                                 Bloqueado
                               </span>
                             ) : (
-                              <>{format(apptDate, 'HH:mm')} {appt.patient.name}</>
+                              <span className="flex items-center gap-1">
+                                {appt.patient.status === 'PRE_CADASTRO' && (
+                                  <AlertTriangle className="w-3 h-3 text-amber-500 flex-shrink-0" />
+                                )}
+                                {format(apptDate, 'HH:mm')} {appt.patient.name}
+                              </span>
                             )}
                           </p>
                           {height > 36 && !isSecretaryBlocked && (
@@ -1062,7 +1067,14 @@ export default function Agenda() {
                   </div>
                   <div className="w-px h-10 bg-slate-200 flex-shrink-0" />
                   <div className="flex-1 min-w-0">
-                    <p className="font-semibold text-sm text-slate-900 truncate">{appt.patient.name}</p>
+                    <div className="flex items-center gap-1.5">
+                      <p className="font-semibold text-sm text-slate-900 truncate">{appt.patient.name}</p>
+                      {appt.patient.status === 'PRE_CADASTRO' && (
+                        <span className="flex-shrink-0 text-xs bg-amber-100 text-amber-700 border border-amber-200 px-1.5 py-0.5 rounded-full font-medium">
+                          Pré-cad.
+                        </span>
+                      )}
+                    </div>
                     <p className="text-xs text-slate-400 flex items-center gap-1 mt-0.5">
                       <Clock className="w-3 h-3" />
                       <span className="tabular-nums">{appt.duration}min</span>

@@ -1,5 +1,7 @@
 export type Role = 'ADMIN' | 'DOCTOR' | 'SECRETARY'
 export type AppointmentStatus = 'SCHEDULED' | 'CONFIRMED' | 'COMPLETED' | 'CANCELLED' | 'NO_SHOW'
+export type PatientStatus = 'PRE_CADASTRO' | 'ATIVO' | 'INCOMPLETO' | 'INATIVO'
+export type PatientOrigin = 'AGENDA' | 'CHATBOT' | 'MANUAL' | 'IMPORTACAO'
 export type TransactionType = 'INCOME' | 'EXPENSE'
 export type TransactionStatus = 'PENDING' | 'PAID' | 'CANCELLED'
 export type PlanType = 'PARTICULAR' | 'CONVENIO' | 'OUTROS'
@@ -79,9 +81,19 @@ export interface Patient {
   responsibleName?: string | null
   responsiblePhone?: string | null
   active: boolean
+  status: PatientStatus
+  origin: PatientOrigin
+  roomId?: string | null
+  createdByUserId?: string | null
+  completedByUserId?: string | null
+  completedAt?: string | null
   createdAt: string
   _count?: { appointments: number }
   patientPlans?: PatientPlan[]
+  createdByUser?: { id: string; name: string } | null
+  completedByUser?: { id: string; name: string } | null
+  room?: { id: string; name: string } | null
+  appointments?: Array<{ id: string; date: string; title: string; status: string }>
 }
 
 export interface AppointmentBlock {
@@ -109,7 +121,7 @@ export interface Appointment {
   type?: string | null
   value?: number | null
   createdAt: string
-  patient: { id: string; name: string; phone: string }
+  patient: { id: string; name: string; phone: string; status?: PatientStatus }
   doctor: { id: string; name: string; specialty?: string | null; crm?: string | null }
   createdBy?: { id: string; name: string }
   room?: { id: string; name: string; logradouro?: string | null; cidade?: string | null } | null

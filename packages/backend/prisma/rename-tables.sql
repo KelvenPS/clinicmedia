@@ -221,6 +221,23 @@ BEGIN
 END $$;
 
 -- ─── Migração de colunas: TBLSALASECRETARIA ────────────────────────────────────
--- @updatedAt do Prisma não gera DEFAULT SQL — precisa ser adicionado manualmente
--- antes do prisma db push para não falhar em linhas existentes.
 ALTER TABLE "TBLSALASECRETARIA" ADD COLUMN IF NOT EXISTS "updatedAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP;
+
+-- ─── Migração de enums: PatientStatus e PatientOrigin ───────────────────────────
+DO $$ BEGIN
+  CREATE TYPE "PatientStatus" AS ENUM ('PRE_CADASTRO', 'ATIVO', 'INCOMPLETO', 'INATIVO');
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
+
+DO $$ BEGIN
+  CREATE TYPE "PatientOrigin" AS ENUM ('AGENDA', 'CHATBOT', 'MANUAL', 'IMPORTACAO');
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
+
+-- ─── Migração de colunas: TBLPACIENTE ──────────────────────────────────────────
+ALTER TABLE "TBLPACIENTE" ADD COLUMN IF NOT EXISTS "status" "PatientStatus" NOT NULL DEFAULT 'ATIVO';
+ALTER TABLE "TBLPACIENTE" ADD COLUMN IF NOT EXISTS "origin" "PatientOrigin" NOT NULL DEFAULT 'MANUAL';
+ALTER TABLE "TBLPACIENTE" ADD COLUMN IF NOT EXISTS "roomId" TEXT;
+ALTER TABLE "TBLPACIENTE" ADD COLUMN IF NOT EXISTS "createdByUserId" TEXT;
+ALTER TABLE "TBLPACIENTE" ADD COLUMN IF NOT EXISTS "completedByUserId" TEXT;
+ALTER TABLE "TBLPACIENTE" ADD COLUMN IF NOT EXISTS "completedAt" TIMESTAMP(3);

@@ -15,6 +15,7 @@ import {
   Stethoscope,
   Trash2,
   ChevronDown,
+  AlertTriangle,
 } from 'lucide-react'
 import toast from 'react-hot-toast'
 import api from '../lib/api'
@@ -342,6 +343,19 @@ export default function Prontuario() {
               </div>
               <p className="text-slate-500 font-semibold">Selecione um paciente</p>
               <p className="text-slate-400 text-sm mt-1">para visualizar seu prontuário</p>
+            </div>
+          ) : selectedPatient.status === 'PRE_CADASTRO' ? (
+            <div className="empty-state flex-1">
+              <div className="w-16 h-16 bg-amber-50 rounded-2xl flex items-center justify-center mb-4">
+                <AlertTriangle className="w-8 h-8 text-amber-400" />
+              </div>
+              <p className="text-slate-700 font-semibold">Cadastro pendente</p>
+              <p className="text-slate-400 text-sm mt-1 text-center max-w-xs">
+                O prontuário de <strong>{selectedPatient.name}</strong> não está disponível enquanto o cadastro não for finalizado.
+              </p>
+              <p className="text-xs text-amber-600 mt-3 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
+                Finalize o cadastro em Pacientes → Finalizar Cadastro
+              </p>
             </div>
           ) : (
             <>

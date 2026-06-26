@@ -12,6 +12,9 @@ export const SECRETARY_PERMISSION_KEYS = [
   'documentos',
   'salas',
   'integracoes',
+  'canCreatePreRegistration',
+  'canCompleteRegistration',
+  'canViewPendingPatients',
 ] as const
 
 export type SecretaryPermissionKey = typeof SECRETARY_PERMISSION_KEYS[number]

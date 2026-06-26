@@ -74,7 +74,7 @@ router.get('/', async (req: AuthRequest, res) => {
     const appointments = await prisma.appointment.findMany({
       where,
       include: {
-        patient: { select: { id: true, name: true, phone: true } },
+        patient: { select: { id: true, name: true, phone: true, status: true } },
         doctor: { select: { id: true, name: true, specialty: true, crm: true } },
         createdBy: { select: { id: true, name: true } },
         room: { select: { id: true, name: true, logradouro: true, cidade: true } },
@@ -248,7 +248,7 @@ router.post('/', async (req: AuthRequest, res) => {
             createdById: req.user!.userId,
           },
           include: {
-            patient: { select: { id: true, name: true, phone: true } },
+            patient: { select: { id: true, name: true, phone: true, status: true } },
             doctor: { select: { id: true, name: true, specialty: true } },
             createdBy: { select: { id: true, name: true } },
             room: { select: { id: true, name: true, logradouro: true, cidade: true } },
@@ -590,7 +590,7 @@ router.get('/today', async (req: AuthRequest, res) => {
     const appointments = await prisma.appointment.findMany({
       where,
       include: {
-        patient: { select: { id: true, name: true, phone: true } },
+        patient: { select: { id: true, name: true, phone: true, status: true } },
         doctor: { select: { id: true, name: true, specialty: true } },
         room: { select: { id: true, name: true, logradouro: true, cidade: true } },
       },

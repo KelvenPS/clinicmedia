@@ -680,6 +680,19 @@ export default function Avaliacoes() {
               <p className="text-slate-500 font-medium text-lg">Selecione um paciente</p>
               <p className="text-slate-400 text-sm">para iniciar ou visualizar uma avaliação</p>
             </div>
+          ) : selectedPatient.status === 'PRE_CADASTRO' ? (
+            <div className="card flex flex-col items-center justify-center text-center py-20">
+              <div className="w-16 h-16 bg-amber-50 rounded-2xl flex items-center justify-center mb-4">
+                <AlertTriangle className="w-8 h-8 text-amber-400" />
+              </div>
+              <p className="text-slate-700 font-semibold text-lg">Cadastro pendente</p>
+              <p className="text-slate-400 text-sm mt-1 max-w-xs">
+                As avaliações de <strong>{selectedPatient.name}</strong> não estão disponíveis enquanto o cadastro não for finalizado.
+              </p>
+              <p className="text-xs text-amber-600 mt-3 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
+                Finalize o cadastro em Pacientes → Finalizar Cadastro
+              </p>
+            </div>
           ) : !creating ? (
             <div className="card flex flex-col items-center justify-center text-center py-16">
               <User className="w-12 h-12 text-blue-200 mb-3" />

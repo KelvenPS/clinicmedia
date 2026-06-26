@@ -271,7 +271,9 @@ export default function Agenda() {
   // Resolve current active doctor's lunch hours
   const activeDoctor = user?.role === 'DOCTOR'
     ? user
-    : doctors.find(d => d.id === filterDoctorId)
+    : filterDoctorId
+      ? doctors.find(d => d.id === filterDoctorId)
+      : (user?.role === 'SECRETARY' && doctors.length === 1 ? doctors[0] : undefined)
 
   const activeLunchStart = activeDoctor?.lunchStart
   const activeLunchEnd = activeDoctor?.lunchEnd
@@ -529,7 +531,7 @@ export default function Agenda() {
               <span>WhatsApp {wsStatus.status === 'CONNECTED' ? 'Conectado' : 'Desconectado'}</span>
             </div>
           )}
-          {(user?.role === 'DOCTOR' || user?.role === 'ADMIN') && (
+          {(user?.role === 'DOCTOR' || user?.role === 'ADMIN' || user?.role === 'SECRETARY') && (
             <button
               onClick={() => setSettingsModalOpen(true)}
               className="inline-flex items-center gap-2 px-4 py-2.5 bg-slate-100 hover:bg-slate-200 active:scale-95 text-slate-700 rounded-xl font-medium text-sm transition-all duration-150 shadow-sm"

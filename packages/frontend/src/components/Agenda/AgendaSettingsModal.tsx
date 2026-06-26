@@ -37,7 +37,7 @@ export default function AgendaSettingsModal({ isOpen, onClose, preferences, onUp
   const handleSave = async () => {
     try {
       setSaving(true)
-      if (user) {
+      if (user && user.role !== 'SECRETARY') {
         await api.put(`/users/${user.id}`, {
           lunchStart: lunchStart || null,
           lunchEnd: lunchEnd || null,
@@ -46,11 +46,11 @@ export default function AgendaSettingsModal({ isOpen, onClose, preferences, onUp
           lunchStart: lunchStart || null,
           lunchEnd: lunchEnd || null,
         })
-        toast.success('Configurações salvas!')
       }
+      toast.success('Configurações salvas!')
       onClose()
     } catch (error) {
-      toast.error('Erro ao salvar horário de almoço')
+      toast.error('Erro ao salvar configurações')
       console.error(error)
     } finally {
       setSaving(false)
@@ -184,37 +184,39 @@ export default function AgendaSettingsModal({ isOpen, onClose, preferences, onUp
           </div>
         </div>
 
-        {/* Horário de Almoço */}
-        <div className="space-y-3">
-          <div className="flex items-center gap-2 text-slate-800 font-semibold border-b border-slate-100 pb-2">
-            <Coffee className="w-4 h-4 text-blue-600" />
-            <h3>Definir Horário de Almoço</h3>
-          </div>
-          
-          <div className="flex gap-3">
-            <div className="flex-1">
-              <label className="text-xs font-medium text-slate-500 mb-1 block">Início do Almoço</label>
-              <input
-                type="time"
-                value={lunchStart}
-                onChange={e => setLunchStart(e.target.value)}
-                className="input-field py-1.5"
-              />
+        {/* Horário de Almoço — apenas para médico/admin */}
+        {user?.role !== 'SECRETARY' && (
+          <div className="space-y-3">
+            <div className="flex items-center gap-2 text-slate-800 font-semibold border-b border-slate-100 pb-2">
+              <Coffee className="w-4 h-4 text-blue-600" />
+              <h3>Definir Horário de Almoço</h3>
             </div>
-            <div className="flex-1">
-              <label className="text-xs font-medium text-slate-500 mb-1 block">Fim do Almoço</label>
-              <input
-                type="time"
-                value={lunchEnd}
-                onChange={e => setLunchEnd(e.target.value)}
-                className="input-field py-1.5"
-              />
+
+            <div className="flex gap-3">
+              <div className="flex-1">
+                <label className="text-xs font-medium text-slate-500 mb-1 block">Início do Almoço</label>
+                <input
+                  type="time"
+                  value={lunchStart}
+                  onChange={e => setLunchStart(e.target.value)}
+                  className="input-field py-1.5"
+                />
+              </div>
+              <div className="flex-1">
+                <label className="text-xs font-medium text-slate-500 mb-1 block">Fim do Almoço</label>
+                <input
+                  type="time"
+                  value={lunchEnd}
+                  onChange={e => setLunchEnd(e.target.value)}
+                  className="input-field py-1.5"
+                />
+              </div>
             </div>
+            <p className="text-xs text-slate-500">
+              A agenda será automaticamente bloqueada e sinalizada como período de almoço durante este intervalo.
+            </p>
           </div>
-          <p className="text-xs text-slate-500">
-            A agenda será automaticamente bloqueada e sinalizada como período de almoço durante este intervalo.
-          </p>
-        </div>
+        )}
 
         {/* Visualização */}
         <div className="space-y-3">

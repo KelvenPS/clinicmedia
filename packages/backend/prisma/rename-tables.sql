@@ -219,3 +219,8 @@ BEGIN
     RAISE NOTICE 'Renomeada: ChatbotSettings -> TBLCHATBOTCONFIG';
   END IF;
 END $$;
+
+-- ─── Migração de colunas: TBLSALASECRETARIA ────────────────────────────────────
+-- @updatedAt do Prisma não gera DEFAULT SQL — precisa ser adicionado manualmente
+-- antes do prisma db push para não falhar em linhas existentes.
+ALTER TABLE "TBLSALASECRETARIA" ADD COLUMN IF NOT EXISTS "updatedAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP;

@@ -391,8 +391,8 @@ router.post('/:roomId/whatsapp/connect', requireRole('DOCTOR', 'ADMIN'), async (
       connection = await prisma.roomWhatsAppConnection.create({
         data: { roomId, doctorId: room.doctorId, connectedByUserId: req.user!.userId },
       })
-    } else if (connection.status === 'CONNECTED') {
-      return res.status(409).json({ message: 'WhatsApp já está conectado nesta sala' })
+    } else if (connection.status === 'CONNECTED' || connection.status === 'CONNECTING') {
+      return res.status(409).json({ message: 'WhatsApp já está conectado ou em processo de conexão nesta sala' })
     }
 
     resetRoomSessionFiles(connection.instanceKey)

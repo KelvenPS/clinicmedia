@@ -22,14 +22,27 @@ router.use(requireRole('SECRETARY', 'DOCTOR', 'ADMIN'))
 // ─── Helper: validar acesso da secretária à sala ──────────────────────────────
 
 async function assertRoomAccess(req: AuthRequest, res: { status: (n: number) => { json: (d: unknown) => void } }, roomId: string) {
-  if (req.user!.role !== 'SECRETARY') return true // DOCTOR/ADMIN passam direto
-
-  const access = await getRoomSecretaryAccess(req.user!.userId, roomId)
-  if (!access) {
-    res.status(403).json({ message: 'Você não tem acesso a esta sala', code: 'ROOM_ACCESS_DENIED' })
-    return false
+  if (req.user!.role === 'SECRETARY') {
+    const access = await getRoomSecretaryAccess(req.user!.userId, roomId)
+    if (!access) {
+      res.status(403).json({ message: 'Você não tem acesso a esta sala', code: 'ROOM_ACCESS_DENIED' })
+      return false
+    }
+    return access
   }
-  return access
+
+  if (req.user!.role === 'DOCTOR') {
+    const effectiveDoctorId = await getEffectiveDoctorId(req)
+    if (effectiveDoctorId) {
+      const room = await prisma.room.findUnique({ where: { id: roomId }, select: { doctorId: true } })
+      if (!room || room.doctorId !== effectiveDoctorId) {
+        res.status(403).json({ message: 'Acesso negado. Esta sala pertence a outro médico.', code: 'ROOM_ACCESS_DENIED' })
+        return false
+      }
+    }
+  }
+
+  return true // ADMIN passa direto
 }
 
 // ─── GET /my/rooms — lista salas vinculadas ───────────────────────────────────
@@ -38,7 +51,7 @@ router.get('/', async (req: AuthRequest, res) => {
   try {
     if (req.user!.role === 'SECRETARY') {
       const assignments = await prisma.roomSecretary.findMany({
-        where: { secretaryId: req.user!.userId, active: true },
+        where: { secretaryId: req.user!.userId, active: true, room: { active: true } },
         include: {
           room: {
             include: {
@@ -200,8 +213,8 @@ router.post('/:roomId/whatsapp/connect', async (req: AuthRequest, res) => {
           connectedByUserId: req.user!.userId,
         },
       })
-    } else if (connection.status === 'CONNECTED') {
-      return res.status(409).json({ message: 'WhatsApp já está conectado nesta sala' })
+    } else if (connection.status === 'CONNECTED' || connection.status === 'CONNECTING') {
+      return res.status(409).json({ message: 'WhatsApp já está conectado ou em processo de conexão nesta sala' })
     } else {
       // Atualizar quem está conectando
       await prisma.roomWhatsAppConnection.update({

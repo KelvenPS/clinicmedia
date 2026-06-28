@@ -2,6 +2,7 @@ import NodeCache from 'node-cache'
 import { prisma } from './prisma'
 import { sendWhatsAppMessage, isSessionActive, resolveWhatsAppContactIdentity, resolveDeliveryJid } from './whatsapp'
 import { processGuidedStep, interpolateTemplate, startLeadCaptureFlow, processLeadCaptureStep } from './chatbot-light-guided-engine'
+import { resolveTemplateVariables, TemplateContext } from './chatbot-light-variables'
 
 
 const lightFlowStateCache = new NodeCache({
@@ -638,16 +639,7 @@ export async function handleIncomingLightMessage(params: {
 export async function triggerLightAutomatedMessage(
   doctorId: string,
   event: string,
-  contextData: {
-    patientName: string
-    patientPhone: string
-    appointmentDate?: string
-    appointmentTime?: string
-    doctorName?: string
-    paymentValue?: string
-    link?: string
-    [key: string]: any
-  }
+  contextData: TemplateContext & { patientPhone: string }
 ): Promise<void> {
   try {
     const config = await prisma.lightIntegrationConfig.findFirst({
@@ -678,15 +670,7 @@ export async function triggerLightAutomatedMessage(
       return
     }
 
-    let interpolatedText = config.template.content
-    interpolatedText = interpolatedText
-      .replace(/\{nome\}/g, contextData.patientName ?? '')
-      .replace(/\{data\}/g, contextData.appointmentDate ?? '')
-      .replace(/\{hora\}/g, contextData.appointmentTime ?? '')
-      .replace(/\{medico\}/g, contextData.doctorName ?? '')
-      .replace(/\{valor\}/g, contextData.paymentValue ?? '')
-      .replace(/\{link\}/g, contextData.link ?? '')
-      .replace(/\{documento\}/g, contextData.documentName ?? '')
+    const interpolatedText = resolveTemplateVariables(config.template.content, contextData)
 
     const sendFn = async () => {
       const sessionAlive = isSessionActive(instance.instanceKey)
@@ -743,6 +727,30 @@ export function startLightScheduler() {
   console.log('[startLightScheduler] Scheduler de lembretes automáticos iniciado')
 }
 
+// Mapeamento de status de consulta (EN → PT-BR) para o scheduler
+const SCHEDULER_STATUS_MAP: Record<string, string> = {
+  CONFIRMED:   'Confirmada',
+  SCHEDULED:   'Agendada',
+  CANCELLED:   'Cancelada',
+  COMPLETED:   'Concluída',
+  NO_SHOW:     'Não compareceu',
+  WAITING:     'Aguardando',
+  IN_PROGRESS: 'Em atendimento',
+}
+
+function schedulerFormatDate(date: Date): string {
+  const d = String(date.getDate()).padStart(2, '0')
+  const m = String(date.getMonth() + 1).padStart(2, '0')
+  const y = date.getFullYear()
+  return `${d}/${m}/${y}`
+}
+
+function schedulerFormatTime(date: Date): string {
+  const h = String(date.getHours()).padStart(2, '0')
+  const min = String(date.getMinutes()).padStart(2, '0')
+  return `${h}:${min}`
+}
+
 export async function checkScheduledReminders() {
   const now = Date.now()
 
@@ -758,18 +766,30 @@ export async function checkScheduledReminders() {
       date: { gte: range24hStart, lte: range24hEnd },
     },
     include: {
-      patient: true,
+      patient: {
+        include: {
+          patientPlans: { include: { healthPlan: true }, take: 1 },
+        },
+      },
       doctor: true,
+      room: true,
     },
   })
 
   for (const appt of appts24h) {
     await triggerLightAutomatedMessage(appt.doctorId, 'APPOINTMENT_REMINDER_24H', {
-      patientName: appt.patient.name,
-      patientPhone: appt.patient.phone,
-      appointmentDate: appt.date.toLocaleDateString('pt-BR'),
-      appointmentTime: appt.date.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }),
-      doctorName: appt.doctor.name,
+      patientName:       appt.patient.name,
+      patientPhone:      appt.patient.phone,
+      patientCpf:        appt.patient.cpf ?? undefined,
+      patientPlan:       (appt.patient as any).patientPlans?.[0]?.healthPlan?.name,
+      appointmentDate:   schedulerFormatDate(appt.date),
+      appointmentTime:   schedulerFormatTime(appt.date),
+      appointmentType:   appt.type ?? 'Consulta',
+      appointmentStatus: SCHEDULER_STATUS_MAP[appt.status] ?? appt.status,
+      doctorName:        appt.doctor.name,
+      doctorSpecialty:   (appt.doctor as any).specialty ?? undefined,
+      clinicAddress:     (appt.room as any)?.address,
+      teleconsultaLink:  (appt.room as any)?.teleconsultaLink,
     })
     await prisma.appointment.update({
       where: { id: appt.id },
@@ -789,18 +809,30 @@ export async function checkScheduledReminders() {
       date: { gte: range2hStart, lte: range2hEnd },
     },
     include: {
-      patient: true,
+      patient: {
+        include: {
+          patientPlans: { include: { healthPlan: true }, take: 1 },
+        },
+      },
       doctor: true,
+      room: true,
     },
   })
 
   for (const appt of appts2h) {
     await triggerLightAutomatedMessage(appt.doctorId, 'APPOINTMENT_REMINDER_2H', {
-      patientName: appt.patient.name,
-      patientPhone: appt.patient.phone,
-      appointmentDate: appt.date.toLocaleDateString('pt-BR'),
-      appointmentTime: appt.date.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }),
-      doctorName: appt.doctor.name,
+      patientName:       appt.patient.name,
+      patientPhone:      appt.patient.phone,
+      patientCpf:        appt.patient.cpf ?? undefined,
+      patientPlan:       (appt.patient as any).patientPlans?.[0]?.healthPlan?.name,
+      appointmentDate:   schedulerFormatDate(appt.date),
+      appointmentTime:   schedulerFormatTime(appt.date),
+      appointmentType:   appt.type ?? 'Consulta',
+      appointmentStatus: SCHEDULER_STATUS_MAP[appt.status] ?? appt.status,
+      doctorName:        appt.doctor.name,
+      doctorSpecialty:   (appt.doctor as any).specialty ?? undefined,
+      clinicAddress:     (appt.room as any)?.address,
+      teleconsultaLink:  (appt.room as any)?.teleconsultaLink,
     })
     await prisma.appointment.update({
       where: { id: appt.id },

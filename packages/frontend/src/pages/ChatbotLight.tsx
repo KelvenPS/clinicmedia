@@ -203,7 +203,59 @@ const MODULES = [
 const MODULE_LABELS: Record<string, string> = Object.fromEntries(MODULES.map(m => [m.key, m.label]))
 const MODULE_COLORS: Record<string, string> = Object.fromEntries(MODULES.map(m => [m.key, m.color]))
 
-const VARIABLES = ['{nome}', '{data}', '{hora}', '{medico}', '{valor}', '{link}', '{documento}']
+const TEMPLATE_VARS: { category: string; label: string; vars: { key: string; desc: string }[] }[] = [
+  {
+    category: 'paciente',
+    label: 'Paciente',
+    vars: [
+      { key: '{nome}',    desc: 'Nome completo do paciente' },
+      { key: '{telefone}',desc: 'Telefone do paciente' },
+      { key: '{cpf}',     desc: 'CPF do paciente' },
+      { key: '{plano}',   desc: 'Plano de saúde / convênio' },
+    ],
+  },
+  {
+    category: 'consulta',
+    label: 'Consulta',
+    vars: [
+      { key: '{data}',             desc: 'Data da consulta (dd/mm/aaaa)' },
+      { key: '{hora}',             desc: 'Hora da consulta (HH:MM)' },
+      { key: '{tipo_atendimento}', desc: 'Tipo: Consulta, Retorno, Avaliação…' },
+      { key: '{status}',           desc: 'Status: Confirmada, Agendada…' },
+    ],
+  },
+  {
+    category: 'clinica',
+    label: 'Médico / Clínica',
+    vars: [
+      { key: '{medico}',       desc: 'Nome do profissional' },
+      { key: '{especialidade}',desc: 'Especialidade do profissional' },
+      { key: '{endereco}',     desc: 'Endereço da sala / clínica' },
+    ],
+  },
+  {
+    category: 'financeiro',
+    label: 'Financeiro',
+    vars: [
+      { key: '{valor}',           desc: 'Valor da consulta (R$)' },
+      { key: '{forma_pagamento}', desc: 'Forma de pagamento' },
+      { key: '{nf}',              desc: 'Link ou número da nota fiscal' },
+    ],
+  },
+  {
+    category: 'digital',
+    label: 'Digital / Links',
+    vars: [
+      { key: '{link}',         desc: 'Link personalizado genérico' },
+      { key: '{teleconsulta}', desc: 'Link para a teleconsulta' },
+      { key: '{prontuario}',   desc: 'Link para o prontuário do paciente' },
+      { key: '{documento}',    desc: 'Nome de documento enviado' },
+    ],
+  },
+]
+
+// Lista plana mantida para compatibilidade com validações existentes
+const VARIABLES = TEMPLATE_VARS.flatMap(g => g.vars.map(v => v.key))
 
 const FLUXO_ACTIONS: { value: FluxoActionType; label: string; description?: string }[] = [
   { value: 'SEND_MESSAGE',        label: 'Enviar apenas mensagem' },
@@ -278,18 +330,37 @@ function Toggle({ enabled, onToggle, disabled }: { enabled: boolean; onToggle: (
 }
 
 function VariableButtons({ onInsert }: { onInsert: (v: string) => void }) {
+  const [expanded, setExpanded] = useState<string | null>(null)
   return (
-    <div className="flex flex-wrap gap-1.5 mt-1.5">
-      {VARIABLES.map(v => (
-        <button
-          key={v}
-          type="button"
-          onClick={() => onInsert(v)}
-          className="text-xs bg-white border border-slate-200 hover:border-cyan-400 hover:text-cyan-700 text-slate-600 px-2 py-1 rounded-lg font-mono transition-colors"
-          title={`Inserir ${v}`}
-        >
-          {v}
-        </button>
+    <div className="mt-2 space-y-1.5">
+      {TEMPLATE_VARS.map(group => (
+        <div key={group.category}>
+          <button
+            type="button"
+            onClick={() => setExpanded(e => e === group.category ? null : group.category)}
+            className="flex items-center gap-1.5 text-[10px] font-semibold text-slate-400 uppercase tracking-wide hover:text-slate-600 transition-colors"
+          >
+            <span className="w-3 h-3 flex items-center justify-center text-[8px]">
+              {expanded === group.category ? '▾' : '▸'}
+            </span>
+            {group.label}
+          </button>
+          {expanded === group.category && (
+            <div className="flex flex-wrap gap-1.5 mt-1 pl-4">
+              {group.vars.map(({ key, desc }) => (
+                <button
+                  key={key}
+                  type="button"
+                  onClick={() => onInsert(key)}
+                  title={desc}
+                  className="text-xs bg-white border border-slate-200 hover:border-cyan-400 hover:bg-cyan-50 hover:text-cyan-700 text-slate-600 px-2 py-1 rounded-lg font-mono transition-colors"
+                >
+                  {key}
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
       ))}
     </div>
   )

@@ -5,6 +5,8 @@ import { authenticate, requireFeature, AuthRequest } from '../middleware/auth'
 import { sendWhatsAppMessage, isSessionActive, startSession, stopSession, resolveDeliveryJid, resetSessionForConnect } from '../lib/whatsapp'
 import { requireSecretaryPermission, getEffectiveDoctorId } from '../lib/secretaryAccess'
 import { simulateLightMessage, resetSimulation } from '../lib/chatbot-light-simulator'
+import { TEMPLATE_VARIABLE_REGISTRY, resolveContextFromAppointment, TemplateContext } from '../lib/chatbot-light-variables'
+import { triggerLightAutomatedMessage } from '../lib/chatbot-light-engine'
 
 const router = Router()
 router.use(authenticate)
@@ -941,6 +943,85 @@ router.post('/instance/disconnect', async (req: AuthRequest, res: Response) => {
   } catch (err) {
     console.error('[/chatbot-light/instance/disconnect]', err)
     res.status(500).json({ message: 'Erro ao desconectar WhatsApp' })
+  }
+})
+
+// ─── Variable Registry (para o frontend construir UI dinâmica) ────────────────
+
+router.get('/variable-registry', (_req, res) => {
+  res.json(TEMPLATE_VARIABLE_REGISTRY)
+})
+
+// ─── Trigger manual de template para uma consulta específica ─────────────────
+
+const VALID_TRIGGER_EVENTS = [
+  'APPOINTMENT_REMINDER_24H',
+  'APPOINTMENT_REMINDER_2H',
+  'APPOINTMENT_CONFIRMED',
+  'APPOINTMENT_CANCELLED',
+  'NEW_APPOINTMENT',
+  'NF_AVAILABLE',
+  'PAYMENT_OVERDUE',
+] as const
+
+const triggerAppointmentSchema = z.object({
+  appointmentId: z.string().min(1, 'appointmentId obrigatório'),
+  event: z.enum(VALID_TRIGGER_EVENTS),
+  extras: z.record(z.any()).optional(),
+})
+
+router.post('/trigger-appointment', async (req: AuthRequest, res) => {
+  try {
+    const doctorId = await getTargetDoctorId(req)
+    const parsed = triggerAppointmentSchema.safeParse(req.body)
+    if (!parsed.success) {
+      res.status(400).json({ message: 'Dados inválidos', errors: parsed.error.errors })
+      return
+    }
+
+    const { appointmentId, event, extras } = parsed.data
+
+    // Verificar que a consulta pertence ao médico
+    const appt = await prisma.appointment.findFirst({
+      where: { id: appointmentId, doctorId },
+      select: { id: true },
+    })
+    if (!appt) {
+      res.status(404).json({ message: 'Consulta não encontrada' })
+      return
+    }
+
+    // Verificar config de integração ativa para o evento
+    const config = await prisma.lightIntegrationConfig.findFirst({
+      where: { doctorId, triggerEvent: event, enabled: true },
+      include: { template: { select: { id: true, active: true } } },
+    })
+    if (!config || !config.template?.active) {
+      res.status(404).json({ message: `Nenhuma integração ativa para o evento ${event}` })
+      return
+    }
+
+    // Resolver contexto completo
+    const context = await resolveContextFromAppointment(
+      appointmentId,
+      prisma,
+      (extras as Partial<TemplateContext>) ?? {}
+    )
+
+    if (!context.patientPhone) {
+      res.status(400).json({ message: 'Paciente sem telefone cadastrado' })
+      return
+    }
+
+    await triggerLightAutomatedMessage(doctorId, event, {
+      ...context,
+      patientPhone: context.patientPhone,
+    })
+
+    res.json({ sent: true, to: context.patientPhone })
+  } catch (err) {
+    console.error('[/chatbot-light/trigger-appointment]', err)
+    res.status(500).json({ message: 'Erro interno do servidor' })
   }
 })
 

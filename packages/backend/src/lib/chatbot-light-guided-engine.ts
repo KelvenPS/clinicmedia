@@ -1,6 +1,7 @@
 import { PrismaClient } from '@prisma/client'
 import { prisma } from './prisma'
 import { sendLightMessage } from './chatbot-light-engine'
+import { resolveTemplateVariables } from './chatbot-light-variables'
 
 // Timezone Helper: America/Sao_Paulo (UTC-3 constantly since DST ended in 2019)
 export function getLocalDateInTz(): Date {
@@ -2019,7 +2020,11 @@ export async function processLeadCaptureStep(
       console.error('[processLeadCaptureStep] Erro ao criar paciente lead:', err)
     }
 
-    await send('✅ Obrigado! Seu interesse foi registrado e a equipe do(a) médico(a) entrará em contato em breve para confirmar seu agendamento. 😊')
+    const confirmMsg = resolveTemplateVariables(
+      '✅ Olá, {nome}! Seu interesse foi registrado. A equipe do(a) médico(a) entrará em contato pelo telefone {telefone} em breve.',
+      { patientName: collected.leadName, patientPhone: collected.leadPhone }
+    )
+    await send(confirmMsg)
     return
   }
 }

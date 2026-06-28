@@ -351,6 +351,7 @@ model Transaction {
   date          DateTime
   status        TransactionStatus @default(PENDING)
   category      String?
+  paymentMethod String?           @map("payment_method") // Forma de pagamento para variável {forma_pagamento} (ex: PIX, Cartão, Dinheiro, Convênio)
   reminderSent        Boolean           @default(false)
   overdueReminderSent Boolean           @default(false)
   createdAt     DateTime          @default(now())
@@ -363,20 +364,22 @@ model Transaction {
 }
 
 model Room {
-  id         String   @id @default(uuid())
-  doctorId   String
-  name       String
-  logradouro String?
-  cep        String?
-  numero     String?
-  cidade     String?
-  daysOfWeek Json     @default("[]")
-  startTime  String
-  endTime    String
-  color      String?
-  active     Boolean  @default(true)
-  createdAt  DateTime @default(now())
-  updatedAt  DateTime @updatedAt
+  id                String   @id @default(uuid())
+  doctorId          String
+  name              String
+  logradouro        String?
+  cep               String?
+  numero            String?
+  cidade            String?
+  address           String?  @map("address")           // Endereço completo formatado para variável {endereco}
+  teleconsultaLink  String?  @map("teleconsulta_link") // Link de teleconsulta para variável {teleconsulta}
+  daysOfWeek        Json     @default("[]")
+  startTime         String
+  endTime           String
+  color             String?
+  active            Boolean  @default(true)
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
 
   doctor          User            @relation("DoctorRooms", fields: [doctorId], references: [id])
   secretaries     RoomSecretary[]

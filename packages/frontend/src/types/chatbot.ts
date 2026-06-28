@@ -237,3 +237,19 @@ export const templateIcons: Record<string, string> = {
   REMINDER: '⏰',
   WELCOME: '👋',
 }
+
+// ─── Pré-Agendamento via Chatbot ────────────────────────────────────────────────
+
+export interface PreSchedulingLead {
+  id: string
+  name: string
+  phone: string
+  notes?: string | null
+  status: 'PRE_CADASTRO' | 'ATIVO' | 'INCOMPLETO'
+  createdAt: string
+  chatbotSession?: {
+    id: string
+    completedAt: string | null
+    contactPhone: string
+  } | null
+}

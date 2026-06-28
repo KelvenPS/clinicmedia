@@ -6,6 +6,8 @@ import {
   interpolateTemplate,
   maskCpf,
   formatSlotDateTime,
+  startLeadCaptureFlow,
+  processLeadCaptureStep,
 } from './chatbot-light-guided-engine'
 
 const SIM_PREFIX = 'SIM_'
@@ -248,6 +250,22 @@ async function processMenuOption(params: {
     return makeResult(botMessages, null, 'COMPLETED', fluxo.name, session.id)
   }
 
+  // Lead capture como action type direto
+  if (actionType === 'START_LEAD_CAPTURE') {
+    if (response) innerCollect(response)
+    const updatedLeadSession = await prisma.lightFlowSession.update({
+      where: { id: session.id },
+      data: {
+        currentStepKey: 'ASK_FIRST_TIME',
+        collectedData: session.collectedData || { _contactIdentity: { normalizedPhone: '11999999999' } },
+        dynamicOptions: {},
+      },
+    })
+    // No simulador: envia a mensagem de abertura do lead capture diretamente
+    innerCollect('Você vai agendar uma consulta pela primeira vez ou já fez algum procedimento conosco?\n\n1️⃣ Primeira vez\n2️⃣ Já fiz consulta')
+    return makeResult(botMessages, 'ASK_FIRST_TIME', 'ACTIVE', fluxo.name, session.id)
+  }
+
   if (actionType === 'OPEN_MENU' && nextFlowId) {
     const nextFlow = await prisma.lightFluxo.findUnique({ where: { id: nextFlowId } })
     if (nextFlow?.active) {
@@ -259,6 +277,33 @@ async function processMenuOption(params: {
       innerCollect(nextFlow.welcomeMessage)
       return makeResult(botMessages, 'WAITING_MENU_OPTION', 'ACTIVE', nextFlow.name, session.id)
     }
+  }
+
+  if (actionType === 'SYSTEM_ACTION' && systemActionKey === 'LEAD_CAPTURE') {
+    const actionConfig = systemActionConfigId
+      ? await prisma.lightSystemActionConfig.findUnique({ where: { id: systemActionConfigId } })
+      : null
+
+    if (!actionConfig?.active) {
+      innerCollect('Não consegui iniciar essa ação. Configuração inativa ou não encontrada.')
+      await prisma.lightFlowSession.update({ where: { id: session.id }, data: { status: 'FAILED' } })
+      return makeResult(botMessages, null, 'FAILED', fluxo.name, session.id)
+    }
+
+    if (transitionMessage || response) innerCollect(transitionMessage || response)
+
+    await prisma.lightFlowSession.update({
+      where: { id: session.id },
+      data: {
+        actionConfigId: systemActionConfigId,
+        currentStepKey: 'ASK_FIRST_TIME',
+        collectedData: { _contactIdentity: { normalizedPhone: '11999999999' } },
+        dynamicOptions: {},
+      },
+    })
+
+    innerCollect('Você vai agendar uma consulta pela primeira vez ou já fez algum procedimento conosco?\n\n1️⃣ Primeira vez\n2️⃣ Já fiz consulta')
+    return makeResult(botMessages, 'ASK_FIRST_TIME', 'ACTIVE', fluxo.name, session.id)
   }
 
   if (actionType === 'SYSTEM_ACTION' && systemActionKey === 'SCHEDULE_APPOINTMENT') {
@@ -661,8 +706,171 @@ async function processGuidedSimStep(params: {
     }
   }
 
+  // ── LEAD CAPTURE STEPS ────────────────────────────────────────────────────
+  if (step === 'ASK_FIRST_TIME' || step === 'ASK_LEAD_NAME' || step === 'ASK_LEAD_PHONE') {
+    return await processLeadCaptureSimStep({ instance, session, incomingText, messageText, innerCollect, botMessages })
+  }
+
   innerCollect('Estado de sessão desconhecido. Reinicie a simulação.')
   await prisma.lightFlowSession.update({ where: { id: session.id }, data: { status: 'FAILED' } })
+  return makeResult(botMessages, null, 'FAILED', null, session.id)
+}
+
+// ─── Process lead capture steps in simulation ─────────────────────────────────
+async function processLeadCaptureSimStep(params: {
+  instance: any
+  session: any
+  incomingText: string
+  messageText: string
+  innerCollect: (m: string) => void
+  botMessages: string[]
+}): Promise<SimulateResult> {
+  const { instance, session, incomingText, messageText, innerCollect, botMessages } = params
+
+  const collected = session.collectedData
+    ? (typeof session.collectedData === 'string' ? JSON.parse(session.collectedData) : session.collectedData) as any
+    : {}
+
+  let step = session.currentStepKey
+
+  const updateStep = async (newStep: string, extra?: Record<string, any>) => {
+    await prisma.lightFlowSession.update({
+      where: { id: session.id },
+      data: { currentStepKey: newStep, collectedData: collected, ...extra },
+    })
+    session.currentStepKey = newStep
+    step = newStep
+  }
+
+  // ── ASK_FIRST_TIME ─────────────────────────────────────────────────────────
+  if (step === 'ASK_FIRST_TIME') {
+    const clean = incomingText.trim()
+    if (clean !== '1' && clean !== '2') {
+      const attempts = (session.invalidAttempts || 0) + 1
+      if (attempts >= 3) {
+        innerCollect('Limite de tentativas excedido. Atendimento encerrado. Caso precise, envie "oi" para reiniciar.')
+        await prisma.lightFlowSession.update({ where: { id: session.id }, data: { status: 'FAILED', failedReason: 'Limite excedido' } })
+        return makeResult(botMessages, null, 'FAILED', null, session.id)
+      }
+      await prisma.lightFlowSession.update({ where: { id: session.id }, data: { invalidAttempts: attempts } })
+      innerCollect('Opção inválida. Por favor, digite 1️⃣ para primeira vez ou 2️⃣ se já fez consulta conosco.')
+      return makeResult(botMessages, step, 'ACTIVE', null, session.id)
+    }
+
+    collected.isFirstTime = clean === '1'
+    await updateStep('ASK_LEAD_NAME', { invalidAttempts: 0 })
+    innerCollect('Ótimo! Por favor, informe seu nome completo:')
+    return makeResult(botMessages, 'ASK_LEAD_NAME', 'ACTIVE', null, session.id)
+  }
+
+  // ── ASK_LEAD_NAME ──────────────────────────────────────────────────────────
+  if (step === 'ASK_LEAD_NAME') {
+    const name = messageText.trim() // preservar capitalização
+    if (name.length < 2) {
+      const attempts = (session.invalidAttempts || 0) + 1
+      if (attempts >= 3) {
+        innerCollect('Limite de tentativas excedido. Atendimento encerrado. Caso precise, envie "oi" para reiniciar.')
+        await prisma.lightFlowSession.update({ where: { id: session.id }, data: { status: 'FAILED', failedReason: 'Limite excedido' } })
+        return makeResult(botMessages, null, 'FAILED', null, session.id)
+      }
+      await prisma.lightFlowSession.update({ where: { id: session.id }, data: { invalidAttempts: attempts } })
+      innerCollect('Por favor, informe seu nome completo (mínimo 2 caracteres).')
+      return makeResult(botMessages, step, 'ACTIVE', null, session.id)
+    }
+
+    collected.leadName = name
+    await updateStep('ASK_LEAD_PHONE', { invalidAttempts: 0 })
+    const firstName = name.split(' ')[0]
+    innerCollect(`Perfeito, ${firstName}! Agora informe seu telefone de contato:`)
+    return makeResult(botMessages, 'ASK_LEAD_PHONE', 'ACTIVE', null, session.id)
+  }
+
+  // ── ASK_LEAD_PHONE ─────────────────────────────────────────────────────────
+  if (step === 'ASK_LEAD_PHONE') {
+    const cleaned = incomingText.replace(/\D/g, '')
+    if (cleaned.length < 10) {
+      const attempts = (session.invalidAttempts || 0) + 1
+      if (attempts >= 3) {
+        innerCollect('Limite de tentativas excedido. Atendimento encerrado. Caso precise, envie "oi" para reiniciar.')
+        await prisma.lightFlowSession.update({ where: { id: session.id }, data: { status: 'FAILED', failedReason: 'Limite excedido' } })
+        return makeResult(botMessages, null, 'FAILED', null, session.id)
+      }
+      await prisma.lightFlowSession.update({ where: { id: session.id }, data: { invalidAttempts: attempts } })
+      innerCollect('Telefone inválido. Por favor, informe o número com DDD (mínimo 10 dígitos).')
+      return makeResult(botMessages, step, 'ACTIVE', null, session.id)
+    }
+
+    collected.leadPhone = cleaned
+    await updateStep('LEAD_COMPLETE', { invalidAttempts: 0 })
+
+    // No simulador: criar Patient REAL com flag de simulação nas notas
+    const doctorId = instance.doctorId
+    try {
+      const existing = await prisma.patient.findFirst({
+        where: { doctorId, phone: cleaned }
+      })
+
+      if (existing) {
+        innerCollect('✅ Obrigado! Seu interesse foi registrado e a equipe do(a) médico(a) entrará em contato em breve para confirmar seu agendamento. 😊')
+        innerCollect(`\n🧪 *Modo Simulação*: Paciente já existia no sistema (id: ${existing.id}). Nenhum duplicado criado.`)
+      } else {
+        const isFirstTime: boolean = collected.isFirstTime !== false
+        const firstTimeNote = isFirstTime ? 'Primeira consulta.' : 'Já tem histórico.'
+        const leadName: string = collected.leadName || 'Não informado'
+
+        let patientId: string | null = null
+        try {
+          const newPatient = await prisma.patient.create({
+            data: {
+              doctorId,
+              name: leadName,
+              phone: cleaned,
+              notes: `Interesse via WhatsApp. ${firstTimeNote} [SIMULAÇÃO]`,
+              status: 'PRE_CADASTRO',
+              origin: 'CHATBOT',
+              active: true,
+              chatbotSessionId: session.id
+            }
+          })
+          patientId = newPatient.id
+        } catch (e: any) {
+          // Fallback sem chatbotSessionId se a coluna ainda não existir
+          if (e?.message?.includes('chatbotSessionId') || e?.code === 'P2009') {
+            const newPatient = await prisma.patient.create({
+              data: {
+                doctorId,
+                name: leadName,
+                phone: cleaned,
+                notes: `Interesse via WhatsApp. ${firstTimeNote} [SIMULAÇÃO]`,
+                status: 'PRE_CADASTRO',
+                origin: 'CHATBOT',
+                active: true
+              }
+            })
+            patientId = newPatient.id
+          } else {
+            throw e
+          }
+        }
+
+        innerCollect('✅ Obrigado! Seu interesse foi registrado e a equipe do(a) médico(a) entrará em contato em breve para confirmar seu agendamento. 😊')
+        innerCollect(`\n🧪 *Modo Simulação*: Paciente PRE_CADASTRO criado no sistema.\nNome: ${leadName} | Tel: ${cleaned} | ID: ${patientId || 'N/A'}`)
+      }
+    } catch (err) {
+      console.error('[processLeadCaptureSimStep] Erro ao criar paciente:', err)
+      innerCollect('✅ Obrigado! Seu interesse foi registrado.')
+      innerCollect('\n🧪 *Modo Simulação*: Erro ao criar paciente no banco. Verifique os logs.')
+    }
+
+    await prisma.lightFlowSession.update({
+      where: { id: session.id },
+      data: { status: 'COMPLETED', completedAt: new Date() }
+    })
+
+    return makeResult(botMessages, null, 'COMPLETED', null, session.id)
+  }
+
+  innerCollect('Estado de lead capture desconhecido. Reinicie a simulação.')
   return makeResult(botMessages, null, 'FAILED', null, session.id)
 }
 

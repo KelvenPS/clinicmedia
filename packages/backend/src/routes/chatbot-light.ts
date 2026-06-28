@@ -335,7 +335,7 @@ const fluxoSchema = z.object({
     label:        z.string().min(1),
     triggers:     z.string().min(1),
     response:     z.string().min(1),
-    actionType:   z.enum(['SEND_MESSAGE', 'TRANSFER_QUEUE', 'OPEN_MENU', 'SYSTEM_ACTION', 'END_CHAT', 'START_PLAN_SCHEDULING']),
+    actionType:   z.enum(['SEND_MESSAGE', 'TRANSFER_QUEUE', 'OPEN_MENU', 'SYSTEM_ACTION', 'END_CHAT', 'START_PLAN_SCHEDULING', 'START_LEAD_CAPTURE']),
     queueId:      z.string().nullable().optional(),
     nextFlowId:   z.string().nullable().optional(),
     systemAction: z.string().nullable().optional(),
@@ -545,6 +545,14 @@ const SYSTEM_ACTION_CATALOG = [
     label: 'Agendar consulta',
     implemented: true,
     description: 'Coleta dados do paciente, consulta agenda real e cria o agendamento.',
+  },
+  {
+    key: 'LEAD_CAPTURE',
+    name: 'Capturar Interesse (Pré-Agendamento)',
+    label: 'Capturar Interesse (Pré-Agendamento)',
+    implemented: true,
+    description: 'Coleta nome e telefone do paciente e registra interesse para contato posterior',
+    configurable: false,
   },
   { key: 'CONFIRM_APPOINTMENT', label: 'Confirmar consulta', implemented: false },
   { key: 'CANCEL_APPOINTMENT', label: 'Cancelar consulta', implemented: false },
@@ -761,6 +769,46 @@ router.post('/system-actions/:id/test', async (req: AuthRequest, res) => {
   }
 })
 
+
+// ─── Pre-schedulings (Lead Capture results) ───────────────────────────────────
+
+router.get('/pre-schedulings', async (req: AuthRequest, res) => {
+  try {
+    const doctorId = await getTargetDoctorId(req)
+    const patients = await prisma.patient.findMany({
+      where: {
+        doctorId,
+        origin: 'CHATBOT',
+        status: { in: ['PRE_CADASTRO', 'ATIVO'] }
+      },
+      include: {
+        chatbotSession: {
+          select: {
+            id: true,
+            completedAt: true,
+            contactPhone: true,
+          }
+        }
+      },
+      orderBy: { createdAt: 'desc' }
+    })
+
+    const result = patients.map(p => ({
+      id: p.id,
+      name: p.name,
+      phone: p.phone,
+      notes: p.notes,
+      status: p.status,
+      createdAt: p.createdAt,
+      chatbotSession: p.chatbotSession ?? null,
+    }))
+
+    res.json(result)
+  } catch (err) {
+    console.error('[/chatbot-light/pre-schedulings]', err)
+    res.status(500).json({ message: 'Erro interno do servidor' })
+  }
+})
 
 // ─── WhatsApp Instance Management (Chatbot Light) ──────────────────────────
 

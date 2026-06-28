@@ -24,7 +24,9 @@
       "Read(//c/Users/kelven.pereira/.claude/projects/c--clinicmedia/memory/**)",
       "Bash(ssh -o ConnectTimeout=10 -o StrictHostKeyChecking=accept-new root@2.25.185.223 \"docker compose -f /root/clinicmedia/docker-compose.yml logs --tail=150 backend 2>&1 | grep -i 'WA\\\\]\\\\|whatsapp\\\\|baileys'\")",
       "WebSearch",
-      "Bash(npm install *)"
+      "Bash(npm install *)",
+      "Bash(grep -v \"^$\")",
+      "Bash(npx vite *)"
     ],
     "additionalDirectories": [
       "c:\\clinicmedia\\packages\\backend\\prisma\\migrations"

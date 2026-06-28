@@ -169,13 +169,15 @@ model Patient {
   createdByUserId    String?
   completedByUserId  String?
   completedAt        DateTime?
+  chatbotSessionId   String?  @unique
   createdAt DateTime  @default(now())
   updatedAt DateTime  @updatedAt
 
-  doctor         User?           @relation("DoctorPatients", fields: [doctorId], references: [id])
-  createdByUser  User?           @relation("PatientCreatedBy", fields: [createdByUserId], references: [id])
-  completedByUser User?          @relation("PatientCompletedBy", fields: [completedByUserId], references: [id])
-  room           Room?           @relation("RoomPatients", fields: [roomId], references: [id])
+  doctor         User?             @relation("DoctorPatients", fields: [doctorId], references: [id])
+  createdByUser  User?             @relation("PatientCreatedBy", fields: [createdByUserId], references: [id])
+  completedByUser User?            @relation("PatientCompletedBy", fields: [completedByUserId], references: [id])
+  room           Room?             @relation("RoomPatients", fields: [roomId], references: [id])
+  chatbotSession LightFlowSession? @relation("ChatbotSessionPatient", fields: [chatbotSessionId], references: [id])
   appointments   Appointment[]
   patientPlans   PatientPlan[]
   medicalRecords MedicalRecord[]
@@ -184,6 +186,7 @@ model Patient {
   @@index([doctorId])
   @@index([status])
   @@index([origin])
+  @@index([chatbotSessionId])
   @@map("TBLPACIENTE")
 }
 
@@ -920,6 +923,8 @@ model LightFlowSession {
   failedReason    String?
   createdAt       DateTime  @default(now())
   updatedAt       DateTime  @updatedAt
+
+  patient         Patient?  @relation("ChatbotSessionPatient")
 
   @@index([instanceId, contactPhone, status])
   @@index([actionConfigId])

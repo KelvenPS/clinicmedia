@@ -1,7 +1,7 @@
 import NodeCache from 'node-cache'
 import { prisma } from './prisma'
 import { sendWhatsAppMessage, isSessionActive, resolveWhatsAppContactIdentity, resolveDeliveryJid } from './whatsapp'
-import { processGuidedStep, interpolateTemplate } from './chatbot-light-guided-engine'
+import { processGuidedStep, interpolateTemplate, startLeadCaptureFlow, processLeadCaptureStep } from './chatbot-light-guided-engine'
 
 
 const lightFlowStateCache = new NodeCache({
@@ -348,7 +348,22 @@ export async function handleIncomingLightMessage(params: {
             const actionType = matchedOption.actionType
             const response = matchedOption.response ?? ''
 
-            if (actionType === 'OPEN_MENU') {
+            if (actionType === 'START_LEAD_CAPTURE') {
+              // Lead capture direto (sem LightSystemActionConfig vinculado)
+              if (response) {
+                await sendLightMessage(instance, sessionDeliveryJid, response, 'fluxo', fluxo.name)
+              }
+              const updatedLeadSession = await prisma.lightFlowSession.update({
+                where: { id: activeSession.id },
+                data: {
+                  currentStepKey: 'ASK_FIRST_TIME',
+                  collectedData: collected,
+                  dynamicOptions: {}
+                }
+              })
+              await startLeadCaptureFlow(instance, updatedLeadSession, prisma)
+              chatbotLightLog('info', socketInstanceKey, 'chatbot_light.lead_capture_started', { sessionId: activeSession.id })
+            } else if (actionType === 'OPEN_MENU') {
               await sendLightMessage(instance, sessionDeliveryJid, response || fluxo.welcomeMessage, 'fluxo', fluxo.name)
               // Mantém WAITING_MENU_OPTION
             } else if (actionType === 'SYSTEM_ACTION') {
@@ -379,7 +394,29 @@ export async function handleIncomingLightMessage(params: {
                 sessionId: activeSession.id
               })
 
-              if (actionKey === 'SCHEDULE_APPOINTMENT') {
+              if (actionKey === 'LEAD_CAPTURE') {
+                if (transMsg) {
+                  await sendLightMessage(instance, sessionDeliveryJid, transMsg, 'fluxo', fluxo.name)
+                }
+
+                // Transicionar sessão para o fluxo de lead capture
+                const updatedLeadSession = await prisma.lightFlowSession.update({
+                  where: { id: activeSession.id },
+                  data: {
+                    actionConfigId: configId,
+                    currentStepKey: 'ASK_FIRST_TIME',
+                    collectedData: collected,
+                    dynamicOptions: {}
+                  }
+                })
+
+                await startLeadCaptureFlow(instance, updatedLeadSession, prisma)
+
+                chatbotLightLog('info', socketInstanceKey, 'chatbot_light.lead_capture_started', {
+                  sessionId: activeSession.id
+                })
+                return
+              } else if (actionKey === 'SCHEDULE_APPOINTMENT') {
                 if (transMsg) {
                   await sendLightMessage(instance, sessionDeliveryJid, transMsg, 'fluxo', fluxo.name)
                 }

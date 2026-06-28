@@ -11,7 +11,7 @@ import {
   CheckCircle2, XCircle, Clock, Loader2, AlertCircle,
   ToggleLeft, ToggleRight, Eye, EyeOff, QrCode,
   Zap, GitBranch, Reply, X, FileText, Play, RotateCcw,
-  Smartphone, Info,
+  Smartphone, Info, CalendarClock, PhoneCall, UserCheck,
 } from 'lucide-react'
 import toast from 'react-hot-toast'
 import api from '../lib/api'
@@ -30,9 +30,9 @@ const generateUUID = () => {
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
-type Panel = 'relatorio' | 'fluxos' | 'system_actions' | 'mensagens' | 'templates' | 'respostas' | 'historico' | 'configuracoes'
-type ConfigTab = 'conexao' | 'teste' | 'telas'
-type FluxoActionType = 'SEND_MESSAGE' | 'TRANSFER_QUEUE' | 'OPEN_MENU' | 'SYSTEM_ACTION' | 'END_CHAT' | 'START_PLAN_SCHEDULING'
+type Panel = 'relatorio' | 'fluxos' | 'system_actions' | 'mensagens' | 'templates' | 'respostas' | 'historico' | 'configuracoes' | 'pre_agendamentos'
+type ConfigTab = 'conexao' | 'teste' | 'telas' | 'simulador'
+type FluxoActionType = 'SEND_MESSAGE' | 'TRANSFER_QUEUE' | 'OPEN_MENU' | 'SYSTEM_ACTION' | 'END_CHAT' | 'START_PLAN_SCHEDULING' | 'START_LEAD_CAPTURE'
 
 interface LightTemplate {
   id: string
@@ -205,13 +205,14 @@ const MODULE_COLORS: Record<string, string> = Object.fromEntries(MODULES.map(m =
 
 const VARIABLES = ['{nome}', '{data}', '{hora}', '{medico}', '{valor}', '{link}', '{documento}']
 
-const FLUXO_ACTIONS: { value: FluxoActionType; label: string }[] = [
-  { value: 'SEND_MESSAGE',   label: 'Enviar apenas mensagem' },
-  { value: 'TRANSFER_QUEUE', label: 'Transferir para atendimento' },
-  { value: 'OPEN_MENU',      label: 'Abrir outro menu' },
-  { value: 'SYSTEM_ACTION',  label: 'Executar ação do sistema' },
-  { value: 'END_CHAT',       label: 'Encerrar atendimento' },
+const FLUXO_ACTIONS: { value: FluxoActionType; label: string; description?: string }[] = [
+  { value: 'SEND_MESSAGE',        label: 'Enviar apenas mensagem' },
+  { value: 'TRANSFER_QUEUE',      label: 'Transferir para atendimento' },
+  { value: 'OPEN_MENU',           label: 'Abrir outro menu' },
+  { value: 'SYSTEM_ACTION',       label: 'Executar ação do sistema' },
+  { value: 'END_CHAT',            label: 'Encerrar atendimento' },
   { value: 'START_PLAN_SCHEDULING', label: 'Iniciar agendamento por plano/serviço' },
+  { value: 'START_LEAD_CAPTURE',  label: 'Capturar Interesse (Pré-Agendamento)', description: 'Coleta nome e telefone do paciente para contato posterior da secretaria' },
 ]
 
 const FLUXO_QUEUES = [
@@ -1190,6 +1191,21 @@ function FluxosPanel() {
                               placeholder="Ex: Perfeito! Vamos iniciar seu agendamento..."
                             />
                             <p className="text-[10px] text-slate-400">Mensagem enviada logo antes de iniciar as perguntas da ação do sistema.</p>
+                          </div>
+                        </div>
+                      )}
+
+                      {opt.actionType === 'START_LEAD_CAPTURE' && (
+                        <div className="col-span-1 md:col-span-2 mt-2">
+                          <div className="flex items-start gap-3 bg-emerald-50 border border-emerald-200 rounded-xl p-3">
+                            <CalendarClock className="w-4 h-4 text-emerald-600 flex-shrink-0 mt-0.5" />
+                            <div>
+                              <p className="text-xs font-bold text-emerald-800 mb-0.5">Pré-Agendamento ativo</p>
+                              <p className="text-[11px] text-emerald-700">
+                                O chatbot coletará o nome e telefone do paciente e registrará o interesse.
+                                A secretaria será notificada na seção <strong>Pré-Agendamentos</strong> para entrar em contato.
+                              </p>
+                            </div>
                           </div>
                         </div>
                       )}
@@ -3558,13 +3574,485 @@ function TelasTab() {
   )
 }
 
+// ─── Pré-Agendamentos panel ───────────────────────────────────────────────────
+
+interface PreSchedulingLead {
+  id: string
+  name: string
+  phone: string
+  notes?: string | null
+  status: 'PRE_CADASTRO' | 'ATIVO' | 'INCOMPLETO'
+  createdAt: string
+  chatbotSession?: {
+    id: string
+    completedAt: string | null
+    contactPhone: string
+  } | null
+}
+
+function LeadStatusBadge({ status }: { status: PreSchedulingLead['status'] }) {
+  const map: Record<PreSchedulingLead['status'], { label: string; cls: string }> = {
+    PRE_CADASTRO: { label: 'Aguardando Contato', cls: 'bg-amber-50 text-amber-700 border-amber-200' },
+    ATIVO:        { label: 'Contatado',           cls: 'bg-blue-50 text-blue-700 border-blue-200' },
+    INCOMPLETO:   { label: 'Agendado',            cls: 'bg-emerald-50 text-emerald-700 border-emerald-200' },
+  }
+  const { label, cls } = map[status] ?? map.PRE_CADASTRO
+  return (
+    <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-semibold border ${cls}`}>
+      {label}
+    </span>
+  )
+}
+
+function PreAgendamentosPanel() {
+  const qc = useQueryClient()
+
+  const { data: leads = [], isLoading } = useQuery<PreSchedulingLead[]>({
+    queryKey: ['chatbot-light-pre-schedulings'],
+    queryFn: () => api.get('/chatbot-light/pre-schedulings').then(r => r.data),
+    staleTime: 30_000,
+  })
+
+  const markContactedMutation = useMutation({
+    mutationFn: (id: string) =>
+      api.patch(`/patients/${id}/status`, { status: 'INCOMPLETO' }).then(r => r.data),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['chatbot-light-pre-schedulings'] })
+      toast.success('Marcado como contatado')
+    },
+    onError: () => toast.error('Erro ao atualizar status'),
+  })
+
+  const pendingCount = leads.filter(l => l.status === 'PRE_CADASTRO').length
+
+  return (
+    <div className="p-6 space-y-5">
+      <div className="flex items-center justify-between">
+        <div>
+          <div className="flex items-center gap-2">
+            <h2 className="text-xl font-bold text-slate-900">Pré-Agendamentos</h2>
+            {pendingCount > 0 && (
+              <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-bold bg-amber-100 text-amber-700 border border-amber-200">
+                {pendingCount} pendente{pendingCount !== 1 ? 's' : ''}
+              </span>
+            )}
+          </div>
+          <p className="text-sm text-slate-500 mt-0.5">
+            Pacientes que demonstraram interesse em consulta via chatbot e aguardam contato da secretaria
+          </p>
+        </div>
+        <button
+          onClick={() => qc.invalidateQueries({ queryKey: ['chatbot-light-pre-schedulings'] })}
+          className="p-2 rounded-xl text-slate-400 hover:text-slate-600 hover:bg-slate-100 border border-slate-200 transition-colors"
+          title="Atualizar lista"
+        >
+          <RotateCcw className="w-4 h-4" />
+        </button>
+      </div>
+
+      {/* Info banner */}
+      <div className="flex items-start gap-3 bg-blue-50 border border-blue-200 rounded-xl px-4 py-3 text-xs text-blue-700">
+        <Info className="w-4 h-4 flex-shrink-0 mt-0.5" />
+        <span>
+          Estes leads foram gerados pelo fluxo de chatbot com a ação <strong>Capturar Interesse (Pré-Agendamento)</strong>.
+          Entre em contato com cada paciente e agende a consulta diretamente no sistema.
+        </span>
+      </div>
+
+      {isLoading ? (
+        <div className="flex justify-center py-16">
+          <Loader2 className="w-6 h-6 animate-spin text-cyan-500" />
+        </div>
+      ) : leads.length === 0 ? (
+        <div className="bg-white rounded-2xl border border-slate-200 py-20 text-center">
+          <CalendarClock className="w-12 h-12 text-slate-200 mx-auto mb-4" />
+          <p className="text-slate-500 font-medium text-sm mb-1">Nenhum pré-agendamento via WhatsApp ainda</p>
+          <p className="text-slate-400 text-xs max-w-sm mx-auto">
+            Configure e ative um fluxo de pré-agendamento usando a ação <strong>Capturar Interesse</strong> na seção Fluxos.
+          </p>
+        </div>
+      ) : (
+        <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b border-slate-100 bg-slate-50">
+                  {['Data/Hora', 'Paciente', 'Telefone', 'Observação', 'Status', 'Ação'].map(h => (
+                    <th key={h} className="text-left text-xs font-semibold text-slate-500 uppercase tracking-wide px-4 py-3 whitespace-nowrap">
+                      {h}
+                    </th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-100">
+                {leads.map(lead => (
+                  <tr key={lead.id} className="hover:bg-slate-50/60 transition-colors">
+                    <td className="px-4 py-3 text-xs text-slate-500 whitespace-nowrap">
+                      {format(new Date(lead.createdAt), "dd/MM/yy HH:mm", { locale: ptBR })}
+                    </td>
+                    <td className="px-4 py-3">
+                      <div className="flex items-center gap-2">
+                        <div className="w-7 h-7 rounded-full bg-gradient-to-br from-cyan-400 to-blue-500 flex items-center justify-center flex-shrink-0">
+                          <span className="text-white text-[10px] font-bold">
+                            {lead.name.split(' ').slice(0, 2).map(n => n[0]).join('').toUpperCase()}
+                          </span>
+                        </div>
+                        <span className="font-medium text-slate-800 text-xs">{lead.name}</span>
+                      </div>
+                    </td>
+                    <td className="px-4 py-3">
+                      <a
+                        href={`https://wa.me/55${lead.phone.replace(/\D/g, '')}`}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="flex items-center gap-1.5 text-xs text-emerald-600 hover:text-emerald-700 font-medium hover:underline"
+                      >
+                        <PhoneCall className="w-3 h-3" />
+                        {lead.phone}
+                      </a>
+                    </td>
+                    <td className="px-4 py-3">
+                      <p className="text-xs text-slate-500 max-w-[180px] truncate" title={lead.notes ?? ''}>
+                        {lead.notes ?? <span className="text-slate-300 italic">—</span>}
+                      </p>
+                    </td>
+                    <td className="px-4 py-3">
+                      <LeadStatusBadge status={lead.status} />
+                    </td>
+                    <td className="px-4 py-3">
+                      {lead.status === 'PRE_CADASTRO' && (
+                        <button
+                          onClick={() => markContactedMutation.mutate(lead.id)}
+                          disabled={markContactedMutation.isPending}
+                          className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-lg bg-blue-50 text-blue-700 border border-blue-200 hover:bg-blue-100 transition-colors disabled:opacity-50"
+                        >
+                          <UserCheck className="w-3.5 h-3.5" />
+                          Marcar como Contatado
+                        </button>
+                      )}
+                      {lead.status !== 'PRE_CADASTRO' && (
+                        <span className="text-xs text-slate-400 italic">—</span>
+                      )}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+
+          <div className="px-4 py-3 border-t border-slate-100 bg-slate-50/50 flex items-center justify-between">
+            <p className="text-xs text-slate-500">
+              {leads.length} registro{leads.length !== 1 ? 's' : ''} · {pendingCount} aguardando contato
+            </p>
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
+// ─── Simulador embutido (para aba Configuracoes) ──────────────────────────────
+
+function SimuladorTab() {
+  const { data: fluxos = [] } = useQuery<LightFluxo[]>({
+    queryKey: ['light-fluxos'],
+    queryFn: () => api.get('/chatbot-light/fluxos').then(r => r.data),
+    staleTime: 60_000,
+  })
+
+  const { data: instance } = useQuery({
+    queryKey: ['chatbot-light-instance'],
+    queryFn: () => api.get('/chatbot-light/instance').then(r => r.data).catch(() => null),
+    staleTime: 30_000,
+  })
+
+  const isConnected = instance?.status === 'CONNECTED'
+  const activeFluxos = fluxos.filter(f => f.active)
+
+  return (
+    <div className="space-y-5">
+      <div>
+        <h3 className="font-semibold text-slate-900">Simulador de WhatsApp</h3>
+        <p className="text-sm text-slate-500 mt-0.5">Teste seus fluxos sem precisar de WhatsApp conectado</p>
+      </div>
+
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 items-start">
+        {/* Coluna esquerda: instruções */}
+        <div className="space-y-4">
+          {/* Status da conexão */}
+          <div className={`flex items-center gap-3 px-4 py-3 rounded-xl border text-sm ${
+            isConnected
+              ? 'bg-emerald-50 border-emerald-200 text-emerald-800'
+              : 'bg-slate-50 border-slate-200 text-slate-600'
+          }`}>
+            {isConnected
+              ? <Wifi className="w-4 h-4 flex-shrink-0 text-emerald-600" />
+              : <WifiOff className="w-4 h-4 flex-shrink-0 text-slate-400" />
+            }
+            <span className="font-medium text-sm">
+              {isConnected
+                ? `WhatsApp conectado${instance?.phoneNumber ? ' · ' + instance.phoneNumber : ''}`
+                : 'WhatsApp desconectado — o simulador funciona mesmo assim'
+              }
+            </span>
+            {isConnected && <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse flex-shrink-0 ml-auto" />}
+          </div>
+
+          {/* Dica de uso */}
+          <div className="bg-blue-50 border border-blue-200 rounded-xl px-4 py-3 text-xs text-blue-700 space-y-1">
+            <p className="font-semibold">Como usar:</p>
+            <p>1. Digite qualquer palavra-chave no simulador ao lado</p>
+            <p>2. O bot responderá simulando o fluxo cadastrado</p>
+            <p>3. Para o pré-agendamento, envie: <code className="bg-blue-100 px-1 rounded font-mono">agendar</code> ou <code className="bg-blue-100 px-1 rounded font-mono">consulta</code></p>
+          </div>
+
+          {/* Fluxos ativos */}
+          <div className="bg-white border border-slate-200 rounded-xl overflow-hidden">
+            <div className="px-4 py-3 border-b border-slate-100 bg-slate-50/60">
+              <p className="text-xs font-semibold text-slate-600 uppercase tracking-wide">
+                Fluxos ativos — palavras-chave
+              </p>
+            </div>
+            {activeFluxos.length === 0 ? (
+              <div className="px-4 py-6 text-center text-xs text-slate-400">
+                Nenhum fluxo ativo. Crie e ative um fluxo na seção <strong>Fluxos</strong>.
+              </div>
+            ) : (
+              <div className="divide-y divide-slate-100">
+                {activeFluxos.map(f => (
+                  <div key={f.id} className="px-4 py-3 flex items-start gap-3">
+                    <GitBranch className="w-3.5 h-3.5 text-slate-400 mt-0.5 flex-shrink-0" />
+                    <div className="flex-1 min-w-0">
+                      <p className="text-xs font-semibold text-slate-700 truncate">{f.name}</p>
+                      <div className="flex flex-wrap gap-1 mt-1">
+                        {f.keywords.split(',').map(k => k.trim()).filter(Boolean).map(k => (
+                          <span key={k} className="text-[10px] bg-cyan-50 text-cyan-700 border border-cyan-200 px-1.5 py-0.5 rounded font-mono">
+                            {k}
+                          </span>
+                        ))}
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+
+          {/* Fluxo de pré-agendamento */}
+          <div className="bg-emerald-50 border border-emerald-200 rounded-xl px-4 py-3 space-y-2">
+            <p className="text-xs font-semibold text-emerald-800 flex items-center gap-1.5">
+              <CalendarClock className="w-3.5 h-3.5" />
+              Fluxo de pré-agendamento
+            </p>
+            <p className="text-[11px] text-emerald-700">
+              Exemplo de conversa para captura de interesse:
+            </p>
+            <div className="space-y-1 text-[11px] text-emerald-800 font-mono bg-white/60 rounded-lg p-2">
+              <p>Paciente: "agendar"</p>
+              <p>Bot: Mostra menu</p>
+              <p>Paciente: "1" (Agendar Consulta)</p>
+              <p>Bot: Coleta nome</p>
+              <p>Bot: Coleta telefone</p>
+              <p>Bot: "Interesse registrado!"</p>
+            </div>
+          </div>
+        </div>
+
+        {/* Coluna direita: simulador visual */}
+        <div className="flex justify-center">
+          <EmbeddedSimulator />
+        </div>
+      </div>
+    </div>
+  )
+}
+
+function EmbeddedSimulator() {
+  const [sessionToken] = useState(() => generateUUID().replace(/-/g, '').substring(0, 16) + '_emb')
+  const [messages, setMessages] = useState<SimMessage[]>([{
+    id: generateUUID(),
+    fromMe: false,
+    text: '👋 Bem-vindo ao simulador! Digite qualquer palavra (ex: "olá", "agendar") para iniciar um fluxo.',
+    ts: new Date(),
+  }])
+  const [inputText, setInputText] = useState('')
+  const [currentStep, setCurrentStep] = useState<string | null>(null)
+  const [sessionStatus, setSessionStatus] = useState<string>('idle')
+  const [flowName, setFlowName] = useState<string | null>(null)
+  const [sending, setSending] = useState(false)
+  const endRef = useRef<HTMLDivElement>(null)
+  const inputRef = useRef<HTMLInputElement>(null)
+
+  const addBotMessages = (texts: string[]) => {
+    const now = new Date()
+    setMessages(prev => [
+      ...prev,
+      ...texts.map(t => ({ id: generateUUID(), fromMe: false, text: t, ts: now })),
+    ])
+  }
+
+  const scrollToBottom = () => {
+    setTimeout(() => endRef.current?.scrollIntoView({ behavior: 'smooth' }), 80)
+  }
+
+  useEffect(() => { if (messages.length) scrollToBottom() }, [messages])
+
+  const handleReset = async () => {
+    try { await api.delete(`/chatbot-light/simulate/${sessionToken}`) } catch { /* ignore */ }
+    setMessages([{
+      id: generateUUID(),
+      fromMe: false,
+      text: '🔄 Sessão reiniciada. Digite qualquer palavra para começar.',
+      ts: new Date(),
+    }])
+    setCurrentStep(null)
+    setSessionStatus('idle')
+    setFlowName(null)
+    setInputText('')
+  }
+
+  const handleSend = async () => {
+    const text = inputText.trim()
+    if (!text || sending) return
+    const userMsg: SimMessage = { id: generateUUID(), fromMe: true, text, ts: new Date() }
+    setMessages(prev => [...prev, userMsg])
+    setInputText('')
+    setSending(true)
+    try {
+      const { data } = await api.post('/chatbot-light/simulate', { sessionToken, message: text })
+      const { botMessages, currentStep: step, sessionStatus: status, flowName: fn } = data
+      setCurrentStep(step)
+      setSessionStatus(status)
+      if (fn) setFlowName(fn)
+      if (botMessages?.length) addBotMessages(botMessages)
+    } catch (err: any) {
+      addBotMessages([`Erro: ${err?.response?.data?.message || 'Falha na simulação'}`])
+    } finally {
+      setSending(false)
+      setTimeout(() => inputRef.current?.focus(), 100)
+      scrollToBottom()
+    }
+  }
+
+  const handleKey = (e: React.KeyboardEvent) => {
+    if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSend() }
+  }
+
+  const isFinished = ['COMPLETED', 'CANCELLED', 'FAILED', 'TRANSFER'].includes(sessionStatus)
+
+  return (
+    <div
+      className="w-full max-w-sm rounded-3xl overflow-hidden shadow-2xl flex flex-col border border-slate-200"
+      style={{ height: '580px' }}
+    >
+      {/* Header WhatsApp-like */}
+      <div className="flex items-center gap-3 px-4 py-3 flex-shrink-0" style={{ background: 'linear-gradient(135deg, #075E54, #128C7E)' }}>
+        <div className="w-9 h-9 rounded-full bg-white/20 flex items-center justify-center flex-shrink-0">
+          <Smartphone className="w-4 h-4 text-white" />
+        </div>
+        <div className="flex-1 min-w-0">
+          <p className="text-white font-semibold text-sm leading-tight truncate">
+            {flowName ? `Fluxo: ${flowName}` : 'Bot da Clínica'}
+          </p>
+          <p className="text-white/70 text-xs">
+            {sessionStatus === 'idle' ? 'online' : STATUS_LABELS[sessionStatus] ?? sessionStatus}
+          </p>
+        </div>
+        <button
+          onClick={handleReset}
+          title="Reiniciar simulação"
+          className="p-1.5 rounded-full hover:bg-white/10 text-white/80 hover:text-white transition-colors"
+        >
+          <RotateCcw className="w-3.5 h-3.5" />
+        </button>
+      </div>
+
+      {/* Debug step badge */}
+      {currentStep && (
+        <div className="flex items-center gap-2 px-3 py-1.5 bg-amber-50 border-b border-amber-200 flex-shrink-0">
+          <Info className="w-3 h-3 text-amber-600 flex-shrink-0" />
+          <p className="text-[10px] text-amber-700 font-medium truncate">
+            Step: {STEP_LABELS[currentStep] ?? currentStep}
+          </p>
+        </div>
+      )}
+
+      {/* Chat area */}
+      <div
+        className="flex-1 overflow-y-auto px-3 py-3 space-y-2"
+        style={{ background: '#ECE5DD url("data:image/svg+xml,%3Csvg width=\'60\' height=\'60\' viewBox=\'0 0 60 60\' xmlns=\'http://www.w3.org/2000/svg\'%3E%3Cg fill=\'none\' fill-rule=\'evenodd\'%3E%3Cg fill=\'%23d4c9bd\' fill-opacity=\'0.35\'%3E%3Cpath d=\'M36 34v-4h-2v4h-4v2h4v4h2v-4h4v-2h-4zm0-30V0h-2v4h-4v2h4v4h2V6h4V4h-4zM6 34v-4H4v4H0v2h4v4h2v-4h4v-2H6zM6 4V0H4v4H0v2h4v4h2V6h4V4H6z\'/%3E%3C/g%3E%3C/g%3E%3C/svg%3E")' }}
+      >
+        {messages.map(m => (
+          <div key={m.id} className={`flex ${m.fromMe ? 'justify-end' : 'justify-start'}`}>
+            <div className={`max-w-[82%] rounded-2xl px-3 py-2 shadow-sm ${
+              m.fromMe
+                ? 'rounded-tr-sm bg-[#DCF8C6] text-slate-800'
+                : 'rounded-tl-sm bg-white text-slate-800'
+            }`}>
+              <p className="text-xs whitespace-pre-wrap leading-relaxed">{m.text}</p>
+              <p className="text-[9px] text-slate-400 mt-0.5 text-right">
+                {m.ts.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}
+              </p>
+            </div>
+          </div>
+        ))}
+        {sending && (
+          <div className="flex justify-start">
+            <div className="bg-white rounded-2xl rounded-tl-sm px-4 py-3 shadow-sm flex gap-1 items-center">
+              <span className="w-1.5 h-1.5 rounded-full bg-slate-400 animate-bounce" style={{ animationDelay: '0ms' }} />
+              <span className="w-1.5 h-1.5 rounded-full bg-slate-400 animate-bounce" style={{ animationDelay: '150ms' }} />
+              <span className="w-1.5 h-1.5 rounded-full bg-slate-400 animate-bounce" style={{ animationDelay: '300ms' }} />
+            </div>
+          </div>
+        )}
+        <div ref={endRef} />
+      </div>
+
+      {/* Finished banner */}
+      {isFinished && (
+        <div className="px-3 py-2 bg-slate-50 border-t border-slate-200 text-center flex-shrink-0">
+          <p className="text-xs text-slate-500">Conversa encerrada.</p>
+          <button onClick={handleReset} className="text-xs text-cyan-600 font-medium hover:underline mt-0.5">
+            Reiniciar
+          </button>
+        </div>
+      )}
+
+      {/* Input */}
+      {!isFinished && (
+        <div className="flex items-center gap-2 px-3 py-2.5 bg-[#F0F0F0] border-t border-slate-200 flex-shrink-0">
+          <input
+            ref={inputRef}
+            type="text"
+            value={inputText}
+            onChange={e => setInputText(e.target.value)}
+            onKeyDown={handleKey}
+            placeholder="Digite uma mensagem..."
+            disabled={sending}
+            className="flex-1 bg-white rounded-full px-3 py-1.5 text-xs text-slate-800 border border-slate-200 focus:outline-none focus:border-cyan-400 disabled:opacity-50"
+          />
+          <button
+            onClick={handleSend}
+            disabled={!inputText.trim() || sending}
+            className="w-8 h-8 rounded-full flex items-center justify-center disabled:opacity-40 transition-opacity flex-shrink-0"
+            style={{ background: '#128C7E' }}
+          >
+            <Send className="w-3.5 h-3.5 text-white" />
+          </button>
+        </div>
+      )}
+    </div>
+  )
+}
+
 // ─── Configurações panel ──────────────────────────────────────────────────────
 
 function ConfigPanel({ configTab, setConfigTab }: { configTab: ConfigTab; setConfigTab: (t: ConfigTab) => void }) {
   const tabs: { key: ConfigTab; label: string }[] = [
-    { key: 'conexao', label: 'Conexão' },
-    { key: 'teste',   label: 'Teste de Envio' },
-    { key: 'telas',   label: 'Módulos habilitados' },
+    { key: 'conexao',    label: 'Conexão' },
+    { key: 'simulador',  label: 'Simulador' },
+    { key: 'teste',      label: 'Teste de Envio' },
+    { key: 'telas',      label: 'Módulos habilitados' },
   ]
 
   return (
@@ -3590,9 +4078,10 @@ function ConfigPanel({ configTab, setConfigTab }: { configTab: ConfigTab; setCon
       </div>
 
       <div>
-        {configTab === 'conexao' && <ConexaoTab />}
-        {configTab === 'teste'   && <TesteTab />}
-        {configTab === 'telas'   && <TelasTab />}
+        {configTab === 'conexao'   && <ConexaoTab />}
+        {configTab === 'simulador' && <SimuladorTab />}
+        {configTab === 'teste'     && <TesteTab />}
+        {configTab === 'telas'     && <TelasTab />}
       </div>
     </div>
   )
@@ -3655,16 +4144,14 @@ export default function ChatbotLight() {
   const [panel, setPanel]         = useState<Panel>('relatorio')
   const [configTab, setConfigTab] = useState<ConfigTab>('conexao')
 
-  const navItems: { panel: Panel; label: string; icon: React.ElementType }[] = [
-    { panel: 'relatorio',      label: 'Relatório',           icon: BarChart3 },
-    { panel: 'fluxos',         label: 'Fluxos',              icon: GitBranch },
-    { panel: 'system_actions', label: 'Ações do Sistema',    icon: Zap },
-    { panel: 'mensagens',      label: 'Mensagens Automáticas', icon: MessageSquare },
-    { panel: 'templates',      label: 'Templates',           icon: FileText },
-    { panel: 'respostas',      label: 'Respostas Rápidas',   icon: Reply },
-    { panel: 'historico',      label: 'Histórico',           icon: History },
-    { panel: 'configuracoes',  label: 'Configurações',        icon: Settings },
-  ]
+  // Badge de pendentes nos pré-agendamentos
+  const { data: preLeads = [] } = useQuery<PreSchedulingLead[]>({
+    queryKey: ['chatbot-light-pre-schedulings'],
+    queryFn: () => api.get('/chatbot-light/pre-schedulings').then(r => r.data).catch(() => []),
+    staleTime: 60_000,
+    refetchInterval: 120_000,
+  })
+  const pendingLeadsCount = preLeads.filter(l => l.status === 'PRE_CADASTRO').length
 
   const goTo = (p: Panel) => {
     setPanel(p)
@@ -3698,17 +4185,27 @@ export default function ChatbotLight() {
         {/* Navigation */}
         <nav className="flex-1 px-3 py-4 space-y-1 overflow-y-auto scrollbar-none">
           <p className="text-xs font-semibold text-slate-500 uppercase tracking-widest px-3 mb-2">Menu</p>
-          {navItems.map(item => (
-            <SideNavBtn
-              key={item.panel}
-              panel={item.panel}
-              current={panel}
-              onClick={goTo}
-              icon={item.icon}
-              label={item.label}
-            />
-          ))}
 
+          <SideNavBtn panel="relatorio"       current={panel} onClick={goTo} icon={BarChart3}    label="Relatório" />
+          <SideNavBtn panel="fluxos"          current={panel} onClick={goTo} icon={GitBranch}    label="Fluxos" />
+          <SideNavBtn panel="system_actions"  current={panel} onClick={goTo} icon={Zap}          label="Ações do Sistema" />
+          <SideNavBtn panel="mensagens"       current={panel} onClick={goTo} icon={MessageSquare} label="Mensagens Automáticas" />
+          <SideNavBtn panel="templates"       current={panel} onClick={goTo} icon={FileText}     label="Templates" />
+          <SideNavBtn panel="respostas"       current={panel} onClick={goTo} icon={Reply}        label="Respostas Rápidas" />
+          <SideNavBtn panel="historico"       current={panel} onClick={goTo} icon={History}      label="Histórico" />
+          <SideNavBtn
+            panel="pre_agendamentos"
+            current={panel}
+            onClick={goTo}
+            icon={CalendarClock}
+            label="Pré-Agendamentos"
+            badge={pendingLeadsCount > 0 ? (
+              <span className="ml-auto flex-shrink-0 inline-flex items-center justify-center w-5 h-5 rounded-full bg-amber-500 text-white text-[10px] font-bold leading-none">
+                {pendingLeadsCount > 9 ? '9+' : pendingLeadsCount}
+              </span>
+            ) : undefined}
+          />
+          <SideNavBtn panel="configuracoes"   current={panel} onClick={goTo} icon={Settings}     label="Configurações" />
         </nav>
 
         {/* WhatsApp connection status */}
@@ -3730,14 +4227,15 @@ export default function ChatbotLight() {
 
       {/* ── Main content ── */}
       <main className="flex-1 overflow-y-auto bg-slate-50">
-        {panel === 'relatorio'      && <RelatorioPanel onGoTo={goTo} />}
-        {panel === 'fluxos'         && <FluxosPanel />}
-        {panel === 'system_actions' && <SystemActionsPanel />}
-        {panel === 'mensagens'      && <MensagensPanel />}
-        {panel === 'templates'      && <TemplatesPanel />}
-        {panel === 'respostas'      && <RespostasPanel />}
-        {panel === 'historico'      && <HistoricoPanel />}
-        {panel === 'configuracoes'  && <ConfigPanel configTab={configTab} setConfigTab={setConfigTab} />}
+        {panel === 'relatorio'         && <RelatorioPanel onGoTo={goTo} />}
+        {panel === 'fluxos'            && <FluxosPanel />}
+        {panel === 'system_actions'    && <SystemActionsPanel />}
+        {panel === 'mensagens'         && <MensagensPanel />}
+        {panel === 'templates'         && <TemplatesPanel />}
+        {panel === 'respostas'         && <RespostasPanel />}
+        {panel === 'historico'         && <HistoricoPanel />}
+        {panel === 'pre_agendamentos'  && <PreAgendamentosPanel />}
+        {panel === 'configuracoes'     && <ConfigPanel configTab={configTab} setConfigTab={setConfigTab} />}
       </main>
     </div>
   )

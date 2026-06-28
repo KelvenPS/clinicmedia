@@ -1,3 +1,4 @@
+import { PrismaClient } from '@prisma/client'
 import { prisma } from './prisma'
 import { sendLightMessage } from './chatbot-light-engine'
 
@@ -1694,6 +1695,13 @@ export async function processGuidedStep(
     }
   }
 
+  // Step: LEAD CAPTURE steps — handled externally via processLeadCaptureStep
+  // If session reaches one of these steps via processGuidedStep, delegate to lead capture engine
+  if (step === 'ASK_FIRST_TIME' || step === 'ASK_LEAD_NAME' || step === 'ASK_LEAD_PHONE') {
+    await processLeadCaptureStep(instance, session, incomingText, prisma)
+    return
+  }
+
   // Step: CUSTOM FIELD COLLECTION (runs between ASK_CONVENIO and ASK_DATE when customFields are configured)
   if (step === 'ASK_CUSTOM_FIELD') {
     const idx: number = typeof collected._customFieldIndex === 'number' ? collected._customFieldIndex : 0
@@ -1746,6 +1754,272 @@ export async function processGuidedStep(
       collected._customFieldIndex = undefined
       await gotoCustomOrDate()
     }
+    return
+  }
+}
+
+// ─── Lead Capture Flow ─────────────────────────────────────────────────────────
+
+/**
+ * Cria um Patient com status PRE_CADASTRO e origin CHATBOT a partir dos dados
+ * coletados na sessão de lead capture.
+ * Verifica duplicata por phone+doctorId antes de criar.
+ */
+async function createLeadPatient(
+  session: any,
+  doctorId: string,
+  db: PrismaClient,
+  extraNotes?: string
+): Promise<void> {
+  const collected = session.collectedData
+    ? (typeof session.collectedData === 'string' ? JSON.parse(session.collectedData) : session.collectedData) as any
+    : {}
+
+  const leadName: string = collected.leadName || 'Não informado'
+  const leadPhone: string = (collected.leadPhone || '').replace(/\D/g, '')
+  const isFirstTime: boolean = collected.isFirstTime !== false // default true
+
+  const firstTimeNote = isFirstTime ? 'Primeira consulta.' : 'Já tem histórico.'
+  const simNote = extraNotes ? ` ${extraNotes}` : ''
+  const notes = `Interesse via WhatsApp. ${firstTimeNote}${simNote}`
+
+  // Verificar se já existe paciente com esse telefone para esse médico
+  const existing = await db.patient.findFirst({
+    where: { doctorId, phone: leadPhone }
+  })
+
+  if (existing) {
+    // Paciente já cadastrado: apenas finaliza a sessão com nota
+    await db.lightFlowSession.update({
+      where: { id: session.id },
+      data: {
+        status: 'COMPLETED',
+        completedAt: new Date(),
+        collectedData: {
+          ...collected,
+          _leadResult: 'EXISTING_PATIENT',
+          _existingPatientId: existing.id
+        }
+      }
+    })
+    console.log(`[createLeadPatient] Paciente já cadastrado id=${existing.id}, sessão concluída sem duplicar`)
+    return
+  }
+
+  // Criar novo paciente PRE_CADASTRO
+  try {
+    await db.patient.create({
+      data: {
+        doctorId,
+        name: leadName,
+        phone: leadPhone,
+        notes,
+        status: 'PRE_CADASTRO',
+        origin: 'CHATBOT',
+        active: true,
+        chatbotSessionId: session.id
+      }
+    })
+  } catch (err: any) {
+    // Se a coluna chatbotSessionId ainda não existir no banco (migração pendente),
+    // tenta novamente sem ela
+    if (err?.message?.includes('chatbotSessionId') || err?.code === 'P2009') {
+      console.warn('[createLeadPatient] chatbotSessionId não disponível, criando sem ela:', err.message)
+      await db.patient.create({
+        data: {
+          doctorId,
+          name: leadName,
+          phone: leadPhone,
+          notes,
+          status: 'PRE_CADASTRO',
+          origin: 'CHATBOT',
+          active: true
+        }
+      })
+    } else {
+      throw err
+    }
+  }
+
+  // Atualizar sessão como COMPLETED
+  await db.lightFlowSession.update({
+    where: { id: session.id },
+    data: {
+      status: 'COMPLETED',
+      completedAt: new Date(),
+      collectedData: {
+        ...collected,
+        _leadResult: 'CREATED'
+      }
+    }
+  })
+
+  console.log(`[createLeadPatient] Novo paciente PRE_CADASTRO criado para doctorId=${doctorId} phone=${leadPhone}`)
+}
+
+/**
+ * Inicia o fluxo de lead capture: define o step inicial e envia a primeira mensagem.
+ */
+export async function startLeadCaptureFlow(
+  instance: any,
+  session: any,
+  db: PrismaClient
+): Promise<void> {
+  await db.lightFlowSession.update({
+    where: { id: session.id },
+    data: {
+      currentStepKey: 'ASK_FIRST_TIME',
+      collectedData: session.collectedData || {},
+      dynamicOptions: {}
+    }
+  })
+
+  const contactPhone = session.contactPhone
+  const collected = session.collectedData
+    ? (typeof session.collectedData === 'string' ? JSON.parse(session.collectedData) : session.collectedData) as any
+    : {}
+  const deliveryJid = collected?._contactIdentity?.deliveryJid || contactPhone
+
+  await sendLightMessage(
+    instance,
+    deliveryJid,
+    'Você vai agendar uma consulta pela primeira vez ou já fez algum procedimento conosco?\n\n1️⃣ Primeira vez\n2️⃣ Já fiz consulta',
+    'lead_capture'
+  )
+}
+
+/**
+ * Máquina de estado para os steps de lead capture:
+ * ASK_FIRST_TIME → ASK_LEAD_NAME → ASK_LEAD_PHONE → LEAD_COMPLETE
+ */
+export async function processLeadCaptureStep(
+  instance: any,
+  session: any,
+  incomingText: string,
+  db: PrismaClient
+): Promise<void> {
+  const contactPhone = session.contactPhone
+  const doctorId = instance.doctorId
+
+  const collected = session.collectedData
+    ? (typeof session.collectedData === 'string' ? JSON.parse(session.collectedData) : session.collectedData) as any
+    : {}
+
+  const deliveryJid = collected?._contactIdentity?.deliveryJid || contactPhone
+
+  const send = async (msg: string) => {
+    await sendLightMessage(instance, deliveryJid, msg, 'lead_capture')
+  }
+
+  const failLead = async (msg: string) => {
+    await send(msg)
+    await db.lightFlowSession.update({
+      where: { id: session.id },
+      data: { status: 'FAILED', failedReason: msg }
+    })
+  }
+
+  const step = session.currentStepKey
+
+  // ── ASK_FIRST_TIME ─────────────────────────────────────────────────────────
+  if (step === 'ASK_FIRST_TIME') {
+    const clean = incomingText.trim()
+    if (clean !== '1' && clean !== '2') {
+      const attempts = (session.invalidAttempts || 0) + 1
+      if (attempts >= 3) {
+        return failLead('Limite de tentativas excedido. Atendimento encerrado. Caso precise, envie "oi" para reiniciar.')
+      }
+      await db.lightFlowSession.update({
+        where: { id: session.id },
+        data: { invalidAttempts: attempts }
+      })
+      await send('Opção inválida. Por favor, digite 1️⃣ para primeira vez ou 2️⃣ se já fez consulta conosco.')
+      return
+    }
+
+    collected.isFirstTime = clean === '1'
+
+    await db.lightFlowSession.update({
+      where: { id: session.id },
+      data: {
+        currentStepKey: 'ASK_LEAD_NAME',
+        collectedData: collected,
+        invalidAttempts: 0
+      }
+    })
+
+    await send('Ótimo! Por favor, informe seu nome completo:')
+    return
+  }
+
+  // ── ASK_LEAD_NAME ──────────────────────────────────────────────────────────
+  if (step === 'ASK_LEAD_NAME') {
+    const name = incomingText.trim()
+    if (name.length < 2) {
+      const attempts = (session.invalidAttempts || 0) + 1
+      if (attempts >= 3) {
+        return failLead('Limite de tentativas excedido. Atendimento encerrado. Caso precise, envie "oi" para reiniciar.')
+      }
+      await db.lightFlowSession.update({
+        where: { id: session.id },
+        data: { invalidAttempts: attempts }
+      })
+      await send('Por favor, informe seu nome completo (mínimo 2 caracteres).')
+      return
+    }
+
+    // Preservar capitalização original do nome
+    collected.leadName = incomingText.trim()
+
+    await db.lightFlowSession.update({
+      where: { id: session.id },
+      data: {
+        currentStepKey: 'ASK_LEAD_PHONE',
+        collectedData: collected,
+        invalidAttempts: 0
+      }
+    })
+
+    const firstName = collected.leadName.split(' ')[0]
+    await send(`Perfeito, ${firstName}! Agora informe seu telefone de contato:`)
+    return
+  }
+
+  // ── ASK_LEAD_PHONE ─────────────────────────────────────────────────────────
+  if (step === 'ASK_LEAD_PHONE') {
+    const cleaned = incomingText.replace(/\D/g, '')
+    if (cleaned.length < 10) {
+      const attempts = (session.invalidAttempts || 0) + 1
+      if (attempts >= 3) {
+        return failLead('Limite de tentativas excedido. Atendimento encerrado. Caso precise, envie "oi" para reiniciar.')
+      }
+      await db.lightFlowSession.update({
+        where: { id: session.id },
+        data: { invalidAttempts: attempts }
+      })
+      await send('Telefone inválido. Por favor, informe o número com DDD (mínimo 10 dígitos).')
+      return
+    }
+
+    collected.leadPhone = cleaned
+
+    await db.lightFlowSession.update({
+      where: { id: session.id },
+      data: {
+        currentStepKey: 'LEAD_COMPLETE',
+        collectedData: collected,
+        invalidAttempts: 0
+      }
+    })
+
+    // Criar paciente no banco
+    try {
+      await createLeadPatient({ ...session, collectedData: collected }, doctorId, db)
+    } catch (err) {
+      console.error('[processLeadCaptureStep] Erro ao criar paciente lead:', err)
+    }
+
+    await send('✅ Obrigado! Seu interesse foi registrado e a equipe do(a) médico(a) entrará em contato em breve para confirmar seu agendamento. 😊')
     return
   }
 }

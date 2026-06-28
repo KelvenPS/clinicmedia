@@ -25,8 +25,10 @@ import {
   CreditCard,
   Building2,
 } from 'lucide-react'
+import { useQuery } from '@tanstack/react-query'
 import { useAuthStore } from '../store/authStore'
 import { useSecretaryPermissions } from '../hooks/useSecretaryPermissions'
+import api from '../lib/api'
 
 const roleLabel: Record<string, string> = {
   ADMIN: 'Administrador',
@@ -94,6 +96,14 @@ export default function Sidebar({ collapsed = false, onToggleCollapse }: Sidebar
   const location = useLocation()
   const isChatbotRoute = location.pathname.startsWith('/chatbot')
   const [chatbotOpen, setChatbotOpen] = useState(isChatbotRoute)
+
+  const { data: preRegistrations = [] } = useQuery<unknown[]>({
+    queryKey: ['pre-registrations-count'],
+    queryFn: () => api.get('/patients/pre-registrations').then(r => r.data),
+    staleTime: 2 * 60 * 1000,
+    retry: false,
+  })
+  const pendingCount = preRegistrations.length
 
   const handleLogout = () => {
     logout()
@@ -168,7 +178,20 @@ export default function Sidebar({ collapsed = false, onToggleCollapse }: Sidebar
           <p className="section-label mb-3">Menu Principal</p>
         )}
         {visibleItems.map(({ to, icon, label }) => (
-          <NavItem key={to} to={to} icon={icon} label={label} collapsed={collapsed} />
+          <NavItem
+            key={to}
+            to={to}
+            icon={icon}
+            label={label}
+            collapsed={collapsed}
+            badge={
+              to === '/pacientes' && pendingCount > 0 ? (
+                <span className="inline-flex items-center justify-center min-w-[18px] h-[18px] px-1 text-[10px] font-bold bg-amber-500 text-white rounded-full leading-none">
+                  {pendingCount > 99 ? '99+' : pendingCount}
+                </span>
+              ) : undefined
+            }
+          />
         ))}
 
         {/* ── Automação ── */}

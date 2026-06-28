@@ -1194,6 +1194,10 @@ export default function Agenda() {
             saveMutation.mutate(payload as Record<string, unknown>)
           }}
           onDelete={selectedAppt ? () => deleteMutation.mutate(selectedAppt.id) : undefined}
+          onPatientCreated={() => {
+            qc.invalidateQueries({ queryKey: ['patients'] })
+            qc.invalidateQueries({ queryKey: ['pre-registrations-count'] })
+          }}
           loading={saveMutation.isPending}
         />
       </Modal>

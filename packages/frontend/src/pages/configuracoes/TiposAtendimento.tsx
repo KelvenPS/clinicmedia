@@ -153,8 +153,8 @@ export default function TiposAtendimento() {
     <div className="max-w-3xl space-y-6 page-stagger">
       <div className="flex items-start justify-between">
         <div className="animate-stagger-1">
-          <h1 className="page-title">Tipos de Atendimento</h1>
-          <p className="page-subtitle">Cadastre os tipos de consulta com seus valores base</p>
+          <h1 className="page-title">Procedimento</h1>
+          <p className="page-subtitle">Cadastre os procedimentos com seus valores base</p>
         </div>
         {canManage && (
           <button onClick={handleNew} className="btn-primary animate-stagger-1">
@@ -275,7 +275,7 @@ export default function TiposAtendimento() {
       <div className="card bg-amber-50 border-amber-200">
         <h3 className="font-semibold text-amber-900 mb-2 flex items-center gap-2">
           <Stethoscope className="w-4 h-4" />
-          Como usar os Tipos de Atendimento
+          Como usar os Procedimentos
         </h3>
         <ul className="text-sm text-amber-800 space-y-1.5">
           <li>• Cadastre os tipos de consulta praticados (Consulta, Retorno, Exame, etc.)</li>

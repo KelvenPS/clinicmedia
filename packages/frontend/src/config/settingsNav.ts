@@ -28,9 +28,9 @@ export interface SettingsNavItem {
 
 export const SETTINGS_NAV_ITEMS: SettingsNavItem[] = [
   { to: '/configuracoes/perfil', icon: User, label: 'Meu Perfil', shortLabel: 'Perfil', roles: ['ADMIN', 'DOCTOR', 'SECRETARY'] },
-  { to: '/configuracoes/plano-financeiro', icon: CreditCard, label: 'Planos de Saúde', shortLabel: 'Planos', roles: ['ADMIN', 'DOCTOR', 'SECRETARY'] },
-  { to: '/configuracoes/tipos-atendimento', icon: Stethoscope, label: 'Tipos de Atendimento', shortLabel: 'Tipos', roles: ['ADMIN', 'DOCTOR', 'SECRETARY'] },
-  { to: '/configuracoes/salas', icon: MapPin, label: 'Salas', roles: ['ADMIN', 'DOCTOR', 'SECRETARY'], secretaryPermission: 'salas' },
+  { to: '/configuracoes/plano-financeiro', icon: CreditCard, label: 'Convênio', shortLabel: 'Convênio', roles: ['ADMIN', 'DOCTOR', 'SECRETARY'] },
+  { to: '/configuracoes/tipos-atendimento', icon: Stethoscope, label: 'Procedimento', shortLabel: 'Procedimento', roles: ['ADMIN', 'DOCTOR', 'SECRETARY'] },
+  { to: '/configuracoes/salas', icon: MapPin, label: 'Clínica', roles: ['ADMIN', 'DOCTOR', 'SECRETARY'], secretaryPermission: 'salas' },
   { to: '/configuracoes/documentos', icon: FileText, label: 'Documentos', roles: ['ADMIN', 'DOCTOR', 'SECRETARY'], secretaryPermission: 'documentos' },
   { to: '/configuracoes/formas-pagamento', icon: Wallet, label: 'Formas de Pagamento', shortLabel: 'Pagamento', roles: ['ADMIN', 'DOCTOR'] },
   { to: '/configuracoes/notificacoes', icon: Bell, label: 'Notificações', shortLabel: 'Alertas', roles: ['ADMIN', 'DOCTOR', 'SECRETARY'] },

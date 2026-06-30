@@ -195,7 +195,7 @@ export default function Sidebar({ collapsed = false, onToggleCollapse }: Sidebar
         ))}
 
         {/* ── Automação ── */}
-        {can('chatbot') && (
+        {(can('chatbot_light') || can('chatbot_agente')) && (
         <div className={`${collapsed ? 'mt-3 pt-3' : 'mt-5 pt-4'} border-t border-white/8`}>
           {!collapsed && (
             <p className="section-label mb-2">WhatsApp</p>
@@ -204,7 +204,7 @@ export default function Sidebar({ collapsed = false, onToggleCollapse }: Sidebar
           {/* Chatbot — expandable in expanded mode, direct nav in collapsed */}
           {collapsed ? (
             <NavLink
-              to="/chatbot/light"
+              to={can('chatbot_light') ? '/chatbot/light' : '/chatbot/agente'}
               className={({ isActive: _ }) =>
                 `sidebar-link group tooltip-trigger ${isChatbotRoute ? 'active' : ''}`
               }
@@ -231,6 +231,7 @@ export default function Sidebar({ collapsed = false, onToggleCollapse }: Sidebar
               {/* Sub-items */}
               {chatbotOpen && (
                 <div className="ml-5 mt-1 space-y-0.5 border-l border-white/10 pl-3 pb-1">
+                  {can('chatbot_light') && (
                   <NavLink
                     to="/chatbot/light"
                     className={({ isActive }) =>
@@ -244,6 +245,8 @@ export default function Sidebar({ collapsed = false, onToggleCollapse }: Sidebar
                     <MessageSquare className="w-4 h-4 flex-shrink-0" />
                     <span>Chatbot Light</span>
                   </NavLink>
+                  )}
+                  {can('chatbot_agente') && (
                   <NavLink
                     to="/chatbot/agente"
                     className={({ isActive }) =>
@@ -257,6 +260,7 @@ export default function Sidebar({ collapsed = false, onToggleCollapse }: Sidebar
                     <Sparkles className="w-4 h-4 flex-shrink-0" />
                     <span>Agente Clínico</span>
                   </NavLink>
+                  )}
                 </div>
               )}
             </div>

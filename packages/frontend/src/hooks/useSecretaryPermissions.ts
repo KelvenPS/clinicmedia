@@ -3,7 +3,8 @@ import api from '../lib/api'
 import { useAuthStore } from '../store/authStore'
 
 export const SECRETARY_PERMISSION_KEYS = [
-  'chatbot',
+  'chatbot_light',
+  'chatbot_agente',
   'nota_fiscal',
   'teleconsulta',
   'documentos',
@@ -15,11 +16,12 @@ export type SecretaryPermissionKey = typeof SECRETARY_PERMISSION_KEYS[number]
 export type SecretaryPermissions = Partial<Record<SecretaryPermissionKey, boolean>>
 
 export const SECRETARY_PERMISSION_LABELS: Record<SecretaryPermissionKey, string> = {
-  chatbot: 'Chatbot (Light e Agente Clínico)',
+  chatbot_light: 'Chatbot Light',
+  chatbot_agente: 'Chatbot Agente Clínico',
   nota_fiscal: 'Nota Fiscal (NFS-e)',
   teleconsulta: 'Teleconsulta',
   documentos: 'Documentos',
-  salas: 'Salas',
+  salas: 'Clínica (Salas)',
   integracoes: 'Integrações',
 }
 
@@ -38,7 +40,13 @@ export function useSecretaryPermissions() {
     staleTime: 60 * 1000,
   })
 
-  const can = (key: SecretaryPermissionKey) => !isSecretary || !!data?.[key]
+  const can = (key: SecretaryPermissionKey) => {
+    if (!isSecretary) return true
+    // Backward compat: old 'chatbot' permission (stored as JSON) grants both Light and Agente
+    const legacy = (data as Record<string, boolean | undefined>)?.['chatbot']
+    if ((key === 'chatbot_light' || key === 'chatbot_agente') && legacy) return true
+    return !!data?.[key]
+  }
 
   return { isSecretary, permissions: data ?? {}, isLoading: isSecretary && isLoading, can }
 }

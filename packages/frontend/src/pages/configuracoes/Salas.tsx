@@ -577,7 +577,7 @@ export default function Salas() {
     <div className="max-w-3xl space-y-6 page-stagger">
       <div className="flex items-start justify-between">
         <div className="animate-stagger-1">
-          <h1 className="page-title">Salas de Atendimento</h1>
+          <h1 className="page-title">Clínica</h1>
           <p className="page-subtitle">Configure locais, equipe, permissões e WhatsApp por sala</p>
         </div>
         <button onClick={() => setCreateModalOpen(true)} className="btn-primary animate-stagger-1">

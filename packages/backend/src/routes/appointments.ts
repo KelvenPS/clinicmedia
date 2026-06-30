@@ -6,6 +6,7 @@ import { createNotification } from './notifications'
 import { fireWebhooks } from '../lib/webhook'
 
 import { triggerLightAutomatedMessage } from '../lib/chatbot-light-engine'
+import { tryRoomWhatsAppConfirmation } from '../lib/room-whatsapp'
 
 const router = Router()
 router.use(authenticate)
@@ -262,13 +263,29 @@ router.post('/', async (req: AuthRequest, res) => {
     if (appointment.patient?.phone) {
       const apptDateStr = appointment.date.toLocaleDateString('pt-BR')
       const apptTimeStr = appointment.date.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })
-      triggerLightAutomatedMessage(appointment.doctorId, 'APPOINTMENT_CONFIRMATION', {
+      const msgData = {
         patientName: appointment.patient.name,
         patientPhone: appointment.patient.phone,
         appointmentDate: apptDateStr,
         appointmentTime: apptTimeStr,
         doctorName: appointment.doctor.name,
-      }).catch(err => console.error('[triggerLightAutomatedMessage CONFIRMATION error]', err))
+        doctorId: appointment.doctorId,
+      }
+      // Try room WhatsApp first when appointment is linked to a room
+      const roomWaSent = appointment.roomId
+        ? await tryRoomWhatsAppConfirmation(appointment.roomId, msgData).catch(() => false)
+        : false
+
+      // Fall back to chatbot-light if room WA didn't send
+      if (!roomWaSent) {
+        triggerLightAutomatedMessage(appointment.doctorId, 'APPOINTMENT_CONFIRMATION', {
+          patientName: msgData.patientName,
+          patientPhone: msgData.patientPhone,
+          appointmentDate: msgData.appointmentDate,
+          appointmentTime: msgData.appointmentTime,
+          doctorName: msgData.doctorName,
+        }).catch(err => console.error('[triggerLightAutomatedMessage CONFIRMATION error]', err))
+      }
     }
 
     await createNotification(

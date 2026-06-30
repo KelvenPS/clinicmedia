@@ -435,7 +435,7 @@ export default function Equipe() {
           <div className="space-y-4">
             <p className="text-xs text-slate-500">
               Marque as telas e funcionalidades extras que <strong>{accessLink.secretary.name}</strong> pode acessar.
-              Agenda, Pacientes, Prontuário e Planos de Saúde já estão sempre liberados; Avaliações, Financeiro e
+              Agenda, Pacientes, Prontuário e Convênios já estão sempre liberados; Avaliações, Financeiro e
               agendas de outros médicos/salas continuam sempre bloqueados.
             </p>
             <div className="space-y-2">

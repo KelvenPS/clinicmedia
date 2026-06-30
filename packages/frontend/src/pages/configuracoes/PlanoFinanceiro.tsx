@@ -266,7 +266,7 @@ export default function PlanoFinanceiro() {
     <div className="max-w-3xl space-y-6 page-stagger">
       <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-3">
         <div className="animate-stagger-1">
-          <h1 className="page-title">Planos de Saúde</h1>
+          <h1 className="page-title">Convênio</h1>
           <p className="page-subtitle">Cadastre convênios e formas de atendimento</p>
         </div>
         <button onClick={handleNew} className="btn-primary self-start animate-stagger-1">
@@ -416,7 +416,7 @@ export default function PlanoFinanceiro() {
           <div className="w-7 h-7 bg-blue-100 rounded-lg flex items-center justify-center border border-blue-200">
             <Info className="w-3.5 h-3.5 text-blue-600" />
           </div>
-          Como usar os Planos de Saúde
+          Como usar os Convênios
         </h3>
         <ul className="text-sm text-blue-700 space-y-2">
           {[

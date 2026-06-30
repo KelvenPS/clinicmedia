@@ -19,7 +19,7 @@ router.use(async (req: AuthRequest, res: Response, next: NextFunction) => {
     next()
     return
   }
-  const middleware = requireSecretaryPermission('chatbot')
+  const middleware = requireSecretaryPermission('chatbot_light')
   await middleware(req, res, next)
 })
 

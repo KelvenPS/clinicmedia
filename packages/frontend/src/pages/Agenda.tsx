@@ -268,6 +268,12 @@ export default function Agenda() {
     refetchInterval: 30000,
   })
 
+  // Combine chatbot-light status with room WhatsApp connections
+  const roomWaConnected = myRooms.some(r => r.whatsappConnection?.status === 'CONNECTED')
+  const chatbotWaActive = wsStatus?.status && wsStatus.status !== 'NONE'
+  const isWaConnected = roomWaConnected || wsStatus?.status === 'CONNECTED'
+  const hasAnyWaConfig = roomWaConnected || !!chatbotWaActive
+
   // Resolve current active doctor's lunch hours
   const activeDoctor = user?.role === 'DOCTOR'
     ? user
@@ -521,14 +527,14 @@ export default function Agenda() {
         subtitle="Gerencie consultas e agendamentos"
         actions={
         <div className="flex items-center gap-2 flex-wrap">
-          {wsStatus && wsStatus.status && wsStatus.status !== 'NONE' && (
+          {hasAnyWaConfig && (
             <div className={`inline-flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-bold border mr-1 ${
-              wsStatus.status === 'CONNECTED'
+              isWaConnected
                 ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
                 : 'bg-rose-50 text-rose-700 border-rose-200'
             }`}>
-              <span className={`w-2 h-2 rounded-full ${wsStatus.status === 'CONNECTED' ? 'bg-emerald-500 animate-pulse' : 'bg-rose-500'}`} />
-              <span>WhatsApp {wsStatus.status === 'CONNECTED' ? 'Conectado' : 'Desconectado'}</span>
+              <span className={`w-2 h-2 rounded-full ${isWaConnected ? 'bg-emerald-500 animate-pulse' : 'bg-rose-500'}`} />
+              <span>WhatsApp {isWaConnected ? 'Conectado' : 'Desconectado'}</span>
             </div>
           )}
           {(user?.role === 'DOCTOR' || user?.role === 'ADMIN' || user?.role === 'SECRETARY') && (

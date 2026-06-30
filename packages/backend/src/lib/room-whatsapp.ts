@@ -220,3 +220,59 @@ export async function restoreRoomSessions(): Promise<void> {
     logRoom('error', 'startup', 'restore.error', { error: String(err) })
   }
 }
+
+/**
+ * Tenta enviar uma mensagem de confirmação de agendamento via WhatsApp da sala.
+ * Usa o template de APPOINTMENT_CONFIRMATION do chatbot-light do médico (se configurado),
+ * ou um texto padrão. Retorna true se enviada, false caso contrário.
+ */
+export async function tryRoomWhatsAppConfirmation(
+  roomId: string,
+  data: {
+    patientName: string
+    patientPhone: string
+    appointmentDate: string
+    appointmentTime: string
+    doctorName: string
+    doctorId: string
+  }
+): Promise<boolean> {
+  try {
+    const connection = await prisma.roomWhatsAppConnection.findFirst({
+      where: { roomId, status: 'CONNECTED' },
+    })
+    if (!connection) return false
+
+    const sock = roomSockets.get(connection.instanceKey)
+    if (!sock) return false
+
+    // Tenta usar template de APPOINTMENT_CONFIRMATION do médico
+    let content: string
+    try {
+      const config = await prisma.lightIntegrationConfig.findFirst({
+        where: { doctorId: data.doctorId, triggerEvent: 'APPOINTMENT_CONFIRMATION', enabled: true },
+        include: { template: { select: { content: true, active: true } } },
+      })
+      if (config?.template?.active && config.template.content) {
+        content = config.template.content
+          .replace(/\{\{patientName\}\}/g, data.patientName)
+          .replace(/\{\{appointmentDate\}\}/g, data.appointmentDate)
+          .replace(/\{\{appointmentTime\}\}/g, data.appointmentTime)
+          .replace(/\{\{doctorName\}\}/g, data.doctorName)
+      } else {
+        content = `Olá ${data.patientName}! Sua consulta com ${data.doctorName} foi agendada para ${data.appointmentDate} às ${data.appointmentTime}. Até logo!`
+      }
+    } catch {
+      content = `Olá ${data.patientName}! Sua consulta com ${data.doctorName} foi agendada para ${data.appointmentDate} às ${data.appointmentTime}. Até logo!`
+    }
+
+    const phone = data.patientPhone.replace(/\D/g, '')
+    const jid = `${phone}@s.whatsapp.net`
+    await sock.sendMessage(jid, { text: content })
+    logRoom('info', connection.instanceKey, 'appointment.confirmation.sent', { roomId, phone })
+    return true
+  } catch (err) {
+    logRoom('error', 'room-wa', 'appointment.confirmation.failed', { roomId, error: String(err) })
+    return false
+  }
+}

@@ -6,7 +6,8 @@ import { AuthRequest } from '../middleware/auth'
 // Tudo aqui é desligado por padrão — a secretária só vê se o médico marcar
 // o checkbox correspondente em "Gestão de Acessos" (Minha Equipe).
 export const SECRETARY_PERMISSION_KEYS = [
-  'chatbot',
+  'chatbot_light',
+  'chatbot_agente',
   'nota_fiscal',
   'teleconsulta',
   'documentos',
@@ -35,9 +36,15 @@ export type RoomPermissionKey =
 export function normalizeSecretaryPermissions(input: unknown): SecretaryPermissions {
   const result: SecretaryPermissions = {}
   if (!input || typeof input !== 'object') return result
+  const raw = input as Record<string, unknown>
   for (const key of SECRETARY_PERMISSION_KEYS) {
-    const value = (input as Record<string, unknown>)[key]
+    const value = raw[key]
     if (typeof value === 'boolean') result[key] = value
+  }
+  // Backward compat: old 'chatbot: true' maps to both chatbot_light and chatbot_agente
+  if (raw['chatbot'] === true) {
+    if (result['chatbot_light'] === undefined) result['chatbot_light'] = true
+    if (result['chatbot_agente'] === undefined) result['chatbot_agente'] = true
   }
   return result
 }

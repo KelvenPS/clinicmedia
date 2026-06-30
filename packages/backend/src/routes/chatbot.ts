@@ -445,7 +445,7 @@ registerMessageHandler(handleIncomingMessage)
 // ─── All routes below require authentication ──────────────────────────────────
 
 router.use(authenticate)
-router.use(requireSecretaryPermission('chatbot'))
+router.use(requireSecretaryPermission('chatbot_agente'))
 
 // ─── Instance Management ─────────────────────────────────────────────────────
 

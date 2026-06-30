@@ -2,7 +2,8 @@ import { Router, Response, NextFunction } from 'express'
 import { z } from 'zod'
 import { prisma } from '../lib/prisma'
 import { authenticate, requireFeature, AuthRequest } from '../middleware/auth'
-import { sendWhatsAppMessage, isSessionActive, startSession, stopSession, resolveDeliveryJid, resetSessionForConnect } from '../lib/whatsapp'
+import { resolveDeliveryJid } from '../lib/whatsapp'
+import { resolveChatbotLightSendTarget, sendRoomWhatsAppMessage } from '../lib/room-whatsapp'
 import { requireSecretaryPermission, getEffectiveDoctorId } from '../lib/secretaryAccess'
 import { simulateLightMessage, resetSimulation } from '../lib/chatbot-light-simulator'
 import { TEMPLATE_VARIABLE_REGISTRY, resolveContextFromAppointment, TemplateContext } from '../lib/chatbot-light-variables'
@@ -255,27 +256,9 @@ router.post('/test', async (req: AuthRequest, res) => {
     })
     const { phone, content } = schema.parse(req.body)
 
-    const instance = await prisma.whatsAppInstance.findUnique({
-      where: {
-        doctorId_type: {
-          doctorId,
-          type: 'CHATBOT_LIGHT',
-        },
-      },
-    })
-    if (!instance || instance.status !== 'CONNECTED') {
-      res.status(400).json({ message: 'WhatsApp não conectado. Conecte na aba Conexão.' })
-      return
-    }
-
-    // O status no banco pode estar desatualizado em relação à sessão Baileys real
-    // (processo reiniciou, sessão caiu em loop de reconexão, etc).
-    if (!isSessionActive(instance.instanceKey)) {
-      await prisma.whatsAppInstance.update({
-        where: { id: instance.id },
-        data: { status: 'DISCONNECTED', disconnectedAt: new Date() },
-      }).catch(() => {})
-      res.status(400).json({ message: 'A sessão do WhatsApp caiu. Reconecte na aba Conexão e tente novamente.' })
+    const target = await resolveChatbotLightSendTarget(doctorId)
+    if (!target) {
+      res.status(400).json({ message: 'WhatsApp não conectado. Vincule uma Sala na aba Conexão.' })
       return
     }
 
@@ -285,7 +268,7 @@ router.post('/test', async (req: AuthRequest, res) => {
 
     try {
       const jid = resolveDeliveryJid(phone)
-      const result = await sendWhatsAppMessage(instance.instanceKey, jid, content)
+      const result = await sendRoomWhatsAppMessage(target.instanceKey, jid, content)
       if (!result) throw new Error('Não foi possível enviar: sessão indisponível ou número inválido')
 
       const updated = await prisma.lightMessageLog.update({
@@ -556,7 +539,13 @@ const SYSTEM_ACTION_CATALOG = [
     description: 'Coleta nome e telefone do paciente e registra interesse para contato posterior',
     configurable: false,
   },
-  { key: 'CONFIRM_APPOINTMENT', label: 'Confirmar consulta', implemented: false },
+  {
+    key: 'CONFIRM_APPOINTMENT',
+    label: 'Confirmar consulta',
+    implemented: true,
+    description: 'Quando a secretária agenda uma consulta, envia template SIM/NÃO ao paciente. SIM confirma; NÃO notifica a secretária para reagendar.',
+    configurable: true,
+  },
   { key: 'CANCEL_APPOINTMENT', label: 'Cancelar consulta', implemented: false },
   { key: 'SEND_PAYMENT_LINK', label: 'Enviar link de pagamento', implemented: false },
   { key: 'SEND_EVALUATION_FORM', label: 'Enviar formulário de avaliação', implemented: false },
@@ -813,27 +802,11 @@ router.get('/pre-schedulings', async (req: AuthRequest, res) => {
 })
 
 // ─── WhatsApp Instance Management (Chatbot Light) ──────────────────────────
-
-async function resolveInstance(userId: string) {
-  const instance = await prisma.whatsAppInstance.findUnique({
-    where: {
-      doctorId_type: {
-        doctorId: userId,
-        type: 'CHATBOT_LIGHT',
-      },
-    },
-  })
-  if (!instance) return instance
-
-  if (instance.status === 'CONNECTED' && !isSessionActive(instance.instanceKey)) {
-    return prisma.whatsAppInstance.update({
-      where: { id: instance.id },
-      data: { status: 'DISCONNECTED', disconnectedAt: new Date() },
-    }).catch(() => instance)
-  }
-
-  return instance
-}
+//
+// O Chatbot Light não possui mais conexão própria (QR code/Baileys). Ele usa
+// exclusivamente a conexão WhatsApp já estabelecida em uma Sala, evitando
+// duplicidade. O médico vincula uma Sala em LightSettings.boundRoomId, e o
+// status/telefone exibidos aqui refletem a RoomWhatsAppConnection daquela sala.
 
 async function resolveOrCreateInstance(userId: string) {
   const existing = await prisma.whatsAppInstance.findUnique({
@@ -850,99 +823,118 @@ async function resolveOrCreateInstance(userId: string) {
   })
 }
 
+async function resolveBoundConnectionStatus(doctorId: string) {
+  const settings = await prisma.lightSettings.findUnique({
+    where: { doctorId },
+    select: { boundRoomId: true },
+  })
+
+  if (!settings?.boundRoomId) {
+    return { status: 'NONE' as const, roomId: null, roomName: null, phoneNumber: null, displayName: null, connectedAt: null }
+  }
+
+  const room = await prisma.room.findUnique({
+    where: { id: settings.boundRoomId },
+    select: { id: true, name: true, whatsappConnection: { select: { status: true, phoneNumber: true, displayName: true, connectedAt: true } } },
+  })
+
+  if (!room) {
+    return { status: 'NONE' as const, roomId: null, roomName: null, phoneNumber: null, displayName: null, connectedAt: null }
+  }
+
+  const conn = room.whatsappConnection
+  return {
+    status: conn?.status ?? 'DISCONNECTED',
+    roomId: room.id,
+    roomName: room.name,
+    phoneNumber: conn?.phoneNumber ?? null,
+    displayName: conn?.displayName ?? null,
+    connectedAt: conn?.connectedAt ?? null,
+  }
+}
+
 router.get('/instance', async (req: AuthRequest, res: Response) => {
   try {
     const doctorId = await getTargetDoctorId(req)
-    const instance = await resolveInstance(doctorId)
-    res.json(instance ?? null)
+    const merged = await resolveBoundConnectionStatus(doctorId)
+    res.json(merged)
   } catch {
     res.status(500).json({ message: 'Erro interno do servidor' })
-  }
-})
-
-router.post('/instance/connect', async (req: AuthRequest, res: Response) => {
-  try {
-    const doctorId = await getTargetDoctorId(req)
-    const instance = await resolveOrCreateInstance(doctorId)
-
-    // Fecha socket existente e reseta contadores antes de iniciar nova sessão.
-    // Sem isso, startSession retorna sem fazer nada se o socket já existir,
-    // e o delay de 60s entre ciclos de QR persiste entre tentativas manuais.
-    resetSessionForConnect(instance.instanceKey)
-
-    await prisma.whatsAppInstance.update({
-      where: { id: instance.id },
-      data: {
-        status: 'CONNECTING',
-        qrCode: null,
-        qrCodeExpiresAt: null,
-        reconnectAttempts: 0,
-      },
-    })
-
-    startSession(instance.instanceKey, instance.id).catch(err =>
-      console.error('[/chatbot-light/instance/connect] Erro Baileys:', err)
-    )
-
-    res.json({ status: 'CONNECTING', instanceKey: instance.instanceKey })
-  } catch (err) {
-    console.error('[/chatbot-light/instance/connect]', err)
-    res.status(500).json({ message: 'Erro ao iniciar conexão com WhatsApp' })
   }
 })
 
 router.get('/instance/status', async (req: AuthRequest, res: Response) => {
   try {
     const doctorId = await getTargetDoctorId(req)
-    const instance = await resolveInstance(doctorId)
-    if (!instance) {
-      res.json({ status: 'NONE' })
-      return
-    }
-
-    const now = new Date()
-    const qrExpired = instance.qrCodeExpiresAt ? instance.qrCodeExpiresAt < now : false
-
-    res.json({
-      status: instance.status,
-      qrCode: qrExpired ? null : instance.qrCode,
-      qrCodeExpired: qrExpired,
-      phoneNumber: instance.phoneNumber,
-      displayName: instance.displayName,
-      connectedAt: instance.connectedAt,
-    })
+    const merged = await resolveBoundConnectionStatus(doctorId)
+    res.json(merged)
   } catch {
     res.status(500).json({ message: 'Erro interno do servidor' })
   }
 })
 
-router.post('/instance/disconnect', async (req: AuthRequest, res: Response) => {
+// Lista as Salas do médico com o status de conexão WhatsApp de cada uma,
+// para o médico escolher qual Sala fornecerá a conexão do Chatbot Light.
+router.get('/instance/available-rooms', async (req: AuthRequest, res: Response) => {
   try {
     const doctorId = await getTargetDoctorId(req)
-    const instance = await resolveInstance(doctorId)
-    if (!instance) {
-      res.status(404).json({ message: 'Instância não encontrada' })
+    const rooms = await prisma.room.findMany({
+      where: { doctorId, active: true },
+      select: {
+        id: true,
+        name: true,
+        whatsappConnection: { select: { status: true, phoneNumber: true, displayName: true } },
+      },
+      orderBy: { name: 'asc' },
+    })
+    res.json(rooms)
+  } catch {
+    res.status(500).json({ message: 'Erro interno do servidor' })
+  }
+})
+
+router.post('/instance/bind-room', async (req: AuthRequest, res: Response) => {
+  try {
+    const doctorId = await getTargetDoctorId(req)
+    const { roomId } = z.object({ roomId: z.string().min(1) }).parse(req.body)
+
+    const room = await prisma.room.findFirst({ where: { id: roomId, doctorId } })
+    if (!room) {
+      res.status(404).json({ message: 'Sala não encontrada' })
       return
     }
 
-    await stopSession(instance.instanceKey)
-
-    const updated = await prisma.whatsAppInstance.update({
-      where: { id: instance.id },
-      data: {
-        status: 'DISCONNECTED',
-        qrCode: null,
-        qrCodeExpiresAt: null,
-        phoneNumber: null,
-        displayName: null,
-        disconnectedAt: new Date(),
-      },
+    await resolveOrCreateInstance(doctorId)
+    await prisma.lightSettings.upsert({
+      where: { doctorId },
+      create: { doctorId, boundRoomId: roomId },
+      update: { boundRoomId: roomId },
     })
 
-    res.json(updated)
+    const merged = await resolveBoundConnectionStatus(doctorId)
+    res.json(merged)
   } catch (err) {
-    console.error('[/chatbot-light/instance/disconnect]', err)
-    res.status(500).json({ message: 'Erro ao desconectar WhatsApp' })
+    if (err instanceof z.ZodError) {
+      res.status(400).json({ message: 'Dados inválidos', errors: err.errors })
+      return
+    }
+    console.error('[/chatbot-light/instance/bind-room]', err)
+    res.status(500).json({ message: 'Erro ao vincular sala' })
+  }
+})
+
+router.post('/instance/unbind-room', async (req: AuthRequest, res: Response) => {
+  try {
+    const doctorId = await getTargetDoctorId(req)
+    await prisma.lightSettings.upsert({
+      where: { doctorId },
+      create: { doctorId, boundRoomId: null },
+      update: { boundRoomId: null },
+    })
+    res.json({ status: 'NONE', roomId: null, roomName: null, phoneNumber: null, displayName: null, connectedAt: null })
+  } catch (err) {
+    console.error('[/chatbot-light/instance/unbind-room]', err)
+    res.status(500).json({ message: 'Erro ao desvincular sala' })
   }
 })
 

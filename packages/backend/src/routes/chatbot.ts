@@ -236,7 +236,7 @@ async function resolveOrCreateInstance(userId: string) {
 
 // ─── Handler de mensagens recebidas via Baileys ───────────────────────────────
 
-async function handleIncomingMessage(instanceId: string, msg: WAMessage): Promise<void> {
+export async function handleIncomingMessage(instanceId: string, msg: WAMessage): Promise<void> {
   const remoteJid = msg.key.remoteJid ?? ''
   const fromMe = msg.key.fromMe ?? false
   const pushName = msg.pushName ?? ''

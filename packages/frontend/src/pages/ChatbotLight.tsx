@@ -9,7 +9,7 @@ import {
   Calendar, Users, ClipboardList, Brain, DollarSign,
   Plus, Pencil, Trash2, Send, Wifi, WifiOff,
   CheckCircle2, XCircle, Clock, Loader2, AlertCircle,
-  ToggleLeft, ToggleRight, Eye, EyeOff, QrCode,
+  ToggleLeft, ToggleRight, Eye, EyeOff,
   Zap, GitBranch, Reply, X, FileText, Play, RotateCcw,
   Smartphone, Info, CalendarClock, PhoneCall, UserCheck,
 } from 'lucide-react'
@@ -1228,7 +1228,7 @@ function FluxosPanel() {
                               >
                                 <option value="">— Selecionar Ação —</option>
                                 <option value="SCHEDULE_APPOINTMENT">Agendar consulta</option>
-                                <option value="CONFIRM_APPOINTMENT" disabled>Confirmar consulta (Em breve)</option>
+                                <option value="CONFIRM_APPOINTMENT">Confirmar consulta</option>
                                 <option value="CANCEL_APPOINTMENT" disabled>Cancelar consulta (Em breve)</option>
                                 <option value="SEND_PAYMENT_LINK" disabled>Enviar link de pagamento (Em breve)</option>
                                 <option value="SEND_EVALUATION_FORM" disabled>Enviar formulário de avaliação (Em breve)</option>
@@ -2121,6 +2121,14 @@ function SystemActionsPanel() {
   const [msgOptionCancel, setMsgOptionCancel] = useState('Cancelar')
   const [msgCancel, setMsgCancel] = useState('Tudo bem, o agendamento não foi confirmado.')
 
+  // CONFIRM_APPOINTMENT fields
+  const [confirmationMessage, setConfirmationMessage] = useState(
+    'Olá {nome}! Sua consulta com {medico} está marcada para {data} às {hora}.\n\nPara confirmar, responda *SIM*.\nPara reagendar, responda *NÃO*.'
+  )
+  const [declineMessage, setDeclineMessage] = useState(
+    'Entendemos, {nome}! Nossa equipe entrará em contato para encontrar um horário melhor para você. Até logo!'
+  )
+
   // Fallbacks
   const [maxAttempts, setMaxAttempts] = useState(3)
   const [fallbackMessage, setFallbackMessage] = useState('Não consegui entender. Vou transferir para um atendente.')
@@ -2220,6 +2228,8 @@ function SystemActionsPanel() {
     setMsgCancel('Tudo bem, o agendamento não foi confirmado.')
     setMaxAttempts(3)
     setFallbackMessage('Não consegui entender. Vou transferir para um atendente.')
+    setConfirmationMessage('Olá {nome}! Sua consulta com {medico} está marcada para {data} às {hora}.\n\nPara confirmar, responda *SIM*.\nPara reagendar, responda *NÃO*.')
+    setDeclineMessage('Entendemos, {nome}! Nossa equipe entrará em contato para encontrar um horário melhor para você. Até logo!')
     setSimStep('START')
     setSimMessages([])
 
@@ -2278,6 +2288,8 @@ function SystemActionsPanel() {
     const fback = c.fallback || {}
     setMaxAttempts(parseInt(fback.maxAttempts) || 3)
     setFallbackMessage(fback.fallbackMessage || 'Não consegui entender. Vou transferir para um atendente.')
+    setConfirmationMessage(c.confirmationMessage || 'Olá {nome}! Sua consulta com {medico} está marcada para {data} às {hora}.\n\nPara confirmar, responda *SIM*.\nPara reagendar, responda *NÃO*.')
+    setDeclineMessage(c.declineMessage || 'Entendemos, {nome}! Nossa equipe entrará em contato para encontrar um horário melhor para você. Até logo!')
     setSimStep('START')
     setSimMessages([])
 
@@ -2290,12 +2302,17 @@ function SystemActionsPanel() {
       return
     }
 
+    const isConfirmAction = selectedAction?.key === 'CONFIRM_APPOINTMENT'
+
     const payload = {
       actionKey: selectedAction?.key,
       name: configName,
       description: configDesc,
       active: configActive,
-      config: {
+      config: isConfirmAction ? {
+        confirmationMessage,
+        declineMessage,
+      } : {
         planSource,
         customItems: planSource === 'CUSTOM' ? customItems : undefined,
         batchCapture,
@@ -2351,17 +2368,21 @@ function SystemActionsPanel() {
     }
   }
 
-  const tabs = [
-    { label: '1. Geral' },
-    { label: '2. Paciente' },
-    { label: '3. Serviços' },
-    { label: '4. Agenda' },
-    { label: '5. Captura' },
-    { label: '6. Confirmação' },
-    { label: '7. Fallbacks' },
-    { label: '8. Ordem' },
-    { label: '9. Simulador' }
-  ]
+  const isConfirmAction = selectedAction?.key === 'CONFIRM_APPOINTMENT'
+
+  const tabs = isConfirmAction
+    ? [{ label: '1. Geral' }, { label: '2. Templates' }]
+    : [
+        { label: '1. Geral' },
+        { label: '2. Paciente' },
+        { label: '3. Serviços' },
+        { label: '4. Agenda' },
+        { label: '5. Captura' },
+        { label: '6. Confirmação' },
+        { label: '7. Fallbacks' },
+        { label: '8. Ordem' },
+        { label: '9. Simulador' },
+      ]
 
   return (
     <div className="p-6 space-y-6">
@@ -2429,7 +2450,7 @@ function SystemActionsPanel() {
                 <div className="flex items-start justify-between gap-3 mb-2">
                   <div>
                     <h4 className="font-semibold text-slate-900 text-sm font-sans">{cfg.name}</h4>
-                    <p className="text-xs text-slate-400 font-mono mt-0.5">{cfg.actionKey === 'SCHEDULE_APPOINTMENT' ? 'Agendar consulta' : cfg.actionKey}</p>
+                    <p className="text-xs text-slate-400 font-mono mt-0.5">{cfg.actionKey === 'SCHEDULE_APPOINTMENT' ? 'Agendar consulta' : cfg.actionKey === 'CONFIRM_APPOINTMENT' ? 'Confirmar consulta' : cfg.actionKey}</p>
                     {cfg.description && <p className="text-xs text-slate-500 mt-1.5">{cfg.description}</p>}
                   </div>
                   <Toggle
@@ -2524,11 +2545,67 @@ function SystemActionsPanel() {
                   <label className="label mb-0">Configuração Ativa</label>
                   <Toggle enabled={configActive} onToggle={() => setConfigActive(!configActive)} />
                 </div>
+                {isConfirmAction && (
+                  <div className="flex items-start gap-2 p-3 bg-cyan-50 border border-cyan-200 rounded-xl">
+                    <span className="text-cyan-500 text-base leading-none mt-0.5">ℹ️</span>
+                    <p className="text-xs text-cyan-800">
+                      Quando a secretária agendar uma consulta, o WhatsApp enviará automaticamente o template de confirmação ao paciente.
+                      O paciente responde <strong>SIM</strong> para confirmar ou <strong>NÃO</strong> para reagendar.
+                    </p>
+                  </div>
+                )}
               </div>
             )}
 
-            {/* Tab 2: Paciente */}
-            {activeTab === 1 && (
+            {/* Tab 2: Templates (CONFIRM_APPOINTMENT only) */}
+            {isConfirmAction && activeTab === 1 && (
+              <div className="space-y-6">
+                <div className="space-y-2">
+                  <label className="label">Mensagem de confirmação</label>
+                  <p className="text-[11px] text-slate-400 -mt-1">
+                    Enviada ao paciente quando a secretária cria o agendamento. Peça que responda SIM ou NÃO.
+                  </p>
+                  <textarea
+                    value={confirmationMessage}
+                    onChange={e => setConfirmationMessage(e.target.value)}
+                    rows={6}
+                    className="input-field font-mono text-xs resize-none"
+                    placeholder="Olá {nome}! Sua consulta..."
+                  />
+                  <p className="text-[10px] text-slate-400">
+                    Variáveis disponíveis: <code className="bg-slate-100 px-1 rounded">{'{nome}'}</code> <code className="bg-slate-100 px-1 rounded">{'{medico}'}</code> <code className="bg-slate-100 px-1 rounded">{'{data}'}</code> <code className="bg-slate-100 px-1 rounded">{'{hora}'}</code> <code className="bg-slate-100 px-1 rounded">{'{endereco}'}</code>
+                  </p>
+                </div>
+
+                <div className="space-y-2">
+                  <label className="label">Mensagem quando paciente responde NÃO</label>
+                  <p className="text-[11px] text-slate-400 -mt-1">
+                    Enviada automaticamente caso o paciente recuse. A secretária recebe uma notificação para reagendar.
+                  </p>
+                  <textarea
+                    value={declineMessage}
+                    onChange={e => setDeclineMessage(e.target.value)}
+                    rows={4}
+                    className="input-field font-mono text-xs resize-none"
+                    placeholder="Entendemos, {nome}! Nossa equipe entrará em contato..."
+                  />
+                  <p className="text-[10px] text-slate-400">
+                    Variáveis disponíveis: <code className="bg-slate-100 px-1 rounded">{'{nome}'}</code> <code className="bg-slate-100 px-1 rounded">{'{medico}'}</code> <code className="bg-slate-100 px-1 rounded">{'{data}'}</code> <code className="bg-slate-100 px-1 rounded">{'{hora}'}</code>
+                  </p>
+                </div>
+
+                <div className="flex items-start gap-2 p-3 bg-amber-50 border border-amber-200 rounded-xl">
+                  <span className="text-amber-500 text-base leading-none mt-0.5">⚠️</span>
+                  <p className="text-xs text-amber-800">
+                    O paciente tem até <strong>24 horas</strong> para responder. Respostas válidas para SIM: "sim", "s", "1", "confirmar", "ok".
+                    Para NÃO: "não", "nao", "n", "2", "cancelar".
+                  </p>
+                </div>
+              </div>
+            )}
+
+            {/* Tab 2: Paciente (SCHEDULE_APPOINTMENT only) */}
+            {!isConfirmAction && activeTab === 1 && (
               <div className="space-y-4">
                 {/* CPF Radio Group */}
                 <div className="bg-slate-50 p-4 rounded-xl border border-slate-200 space-y-2">
@@ -2596,7 +2673,7 @@ function SystemActionsPanel() {
             )}
 
             {/* Tab 3: Serviço/Plano */}
-            {activeTab === 2 && (
+            {!isConfirmAction && activeTab === 2 && (
               <div className="space-y-4">
                 <div>
                   <label className="label">Fonte dos planos/serviços *</label>
@@ -2661,7 +2738,7 @@ function SystemActionsPanel() {
             )}
 
             {/* Tab 4: Agenda */}
-            {activeTab === 3 && (
+            {!isConfirmAction && activeTab === 3 && (
               <div className="space-y-4">
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   <div>
@@ -2732,7 +2809,7 @@ function SystemActionsPanel() {
             )}
 
             {/* Tab 5: Captura */}
-            {activeTab === 4 && (
+            {!isConfirmAction && activeTab === 4 && (
               <div className="space-y-4">
                 <p className="text-xs font-bold text-slate-500 uppercase tracking-wider">Perguntas enviadas pelo robô para coletar dados</p>
 
@@ -2874,7 +2951,7 @@ function SystemActionsPanel() {
             )}
 
             {/* Tab 6: Confirmação */}
-            {activeTab === 5 && (
+            {!isConfirmAction && activeTab === 5 && (
               <div className="space-y-4">
                 <p className="text-xs font-bold text-slate-500 uppercase tracking-wider">Resumo e confirmação antes de criar o agendamento</p>
 
@@ -2955,7 +3032,7 @@ function SystemActionsPanel() {
             )}
 
             {/* Tab 7: Fallbacks */}
-            {activeTab === 6 && (
+            {!isConfirmAction && activeTab === 6 && (
               <div className="space-y-4">
                 <p className="text-xs font-bold text-slate-500 uppercase tracking-wider">Tratamento de indisponibilidade e respostas incorretas</p>
 
@@ -2997,7 +3074,7 @@ function SystemActionsPanel() {
             )}
 
             {/* Tab 8: Ordem da Conversa */}
-            {activeTab === 7 && (
+            {!isConfirmAction && activeTab === 7 && (
               <div className="space-y-4">
                 <p className="text-xs font-bold text-slate-500 uppercase tracking-wider">Ordem real das etapas da conversa</p>
                 <p className="text-xs text-slate-400">Esta é a sequência exata que o robô seguirá quando um paciente iniciar o agendamento. As etapas condicionais aparecem em cinza quando inativas.</p>
@@ -3055,7 +3132,7 @@ function SystemActionsPanel() {
             )}
 
             {/* Tab 9: Simulador */}
-            {activeTab === 8 && (() => {
+            {!isConfirmAction && activeTab === 8 && (() => {
               const interpolate = (tpl: string) => {
                 const d = simCollected
                 return tpl
@@ -3284,11 +3361,15 @@ function SystemActionsPanel() {
 
 
 
+interface ChatbotLightRoomOption {
+  id: string
+  name: string
+  whatsappConnection: { status: string; phoneNumber: string | null; displayName: string | null } | null
+}
+
 function ConexaoTab() {
   const qc = useQueryClient()
-  const [polling, setPolling]     = useState(false)
-  const [qrCode, setQrCode]       = useState<string | null>(null)
-  const [showQrModal, setShowQrModal] = useState(false)
+  const [pickerOpen, setPickerOpen] = useState(false)
 
   const { data: instance, refetch } = useQuery({
     queryKey: ['chatbot-light-instance'],
@@ -3296,45 +3377,35 @@ function ConexaoTab() {
     staleTime: 10_000,
   })
 
-  const isConnected = instance?.status === 'CONNECTED'
-  const isQuarantined = instance?.status === 'QUARANTINED'
-
-  useEffect(() => {
-    if (!polling) return
-    const interval = setInterval(async () => {
-      try {
-        const res = await api.get('/chatbot-light/instance/status').then(r => r.data)
-        if (res.qrCode) {
-          setQrCode(res.qrCode)
-        } else if (res.qrCodeExpired || res.status === 'CONNECTING') {
-          // QR expirou ou ainda aguardando geração — limpa imagem antiga para mostrar spinner
-          setQrCode(null)
-        }
-        if (res.status === 'CONNECTED') {
-          setPolling(false)
-          setShowQrModal(false)
-          toast.success('WhatsApp conectado!')
-          refetch()
-        }
-      } catch { /* ignore */ }
-    }, 3000)
-    return () => clearInterval(interval)
-  }, [polling, refetch])
-
-  const connectMutation = useMutation({
-    mutationFn: () => api.post('/chatbot-light/instance/connect').then(r => r.data),
-    onSuccess:  () => { setQrCode(null); setPolling(true); setShowQrModal(true) },
-    onError:    () => toast.error('Erro ao iniciar conexão'),
+  const { data: rooms = [] } = useQuery<ChatbotLightRoomOption[]>({
+    queryKey: ['chatbot-light-available-rooms'],
+    queryFn:  () => api.get('/chatbot-light/instance/available-rooms').then(r => r.data),
+    enabled: pickerOpen || !instance?.roomId,
   })
 
-  const disconnectMutation = useMutation({
-    mutationFn: () => api.post('/chatbot-light/instance/disconnect').then(r => r.data),
-    onSuccess:  () => {
-      toast.success('WhatsApp desconectado')
+  const isConnected   = instance?.status === 'CONNECTED'
+  const isQuarantined = instance?.status === 'QUARANTINED'
+  const hasBoundRoom  = !!instance?.roomId
+
+  const bindMutation = useMutation({
+    mutationFn: (roomId: string) => api.post('/chatbot-light/instance/bind-room', { roomId }).then(r => r.data),
+    onSuccess: () => {
+      toast.success('Sala vinculada ao Chatbot Light')
+      setPickerOpen(false)
       qc.invalidateQueries({ queryKey: ['chatbot-light-instance'] })
       refetch()
     },
-    onError: () => toast.error('Erro ao desconectar'),
+    onError: () => toast.error('Erro ao vincular sala'),
+  })
+
+  const unbindMutation = useMutation({
+    mutationFn: () => api.post('/chatbot-light/instance/unbind-room').then(r => r.data),
+    onSuccess: () => {
+      toast.success('Sala desvinculada')
+      qc.invalidateQueries({ queryKey: ['chatbot-light-instance'] })
+      refetch()
+    },
+    onError: () => toast.error('Erro ao desvincular sala'),
   })
 
   return (
@@ -3342,7 +3413,7 @@ function ConexaoTab() {
       <div>
         <h3 className="font-semibold text-slate-900">Conexão WhatsApp</h3>
         <p className="text-sm text-slate-500 mt-0.5">
-          Conecte seu WhatsApp para enviar mensagens automáticas para os pacientes
+          O Chatbot Light usa a conexão WhatsApp de uma Sala — vincule uma sala já conectada para enviar mensagens automáticas aos pacientes
         </p>
       </div>
 
@@ -3352,77 +3423,88 @@ function ConexaoTab() {
         </div>
         <div className="flex-1">
           <p className="font-semibold text-slate-900">
-            {isConnected ? 'WhatsApp conectado' : isQuarantined ? 'WhatsApp em Quarentena' : 'WhatsApp desconectado'}
+            {hasBoundRoom
+              ? (isConnected ? 'WhatsApp conectado' : isQuarantined ? 'WhatsApp em Quarentena' : 'WhatsApp desconectado')
+              : 'Nenhuma sala vinculada'}
           </p>
-          {isConnected ? (
-            <div className="text-sm text-emerald-700 space-y-0.5 mt-0.5">
-              {instance?.phoneNumber  && <p>{instance.phoneNumber}</p>}
+          {hasBoundRoom ? (
+            <div className="text-sm space-y-0.5 mt-0.5">
+              <p className={isConnected ? 'text-emerald-700' : isQuarantined ? 'text-amber-700' : 'text-slate-500'}>
+                Sala: <strong>{instance.roomName}</strong>
+              </p>
+              {instance?.phoneNumber  && <p className={isConnected ? 'text-emerald-700' : 'text-slate-500'}>{instance.phoneNumber}</p>}
               {instance?.displayName  && <p className="text-xs text-emerald-600">{instance.displayName}</p>}
+              {isQuarantined && <p className="text-sm text-amber-700">A conexão foi interrompida repetidamente. Acesse a Sala em Configurações para recuperar.</p>}
+              {!isConnected && !isQuarantined && <p className="text-sm text-slate-500">A sala vinculada está com o WhatsApp desconectado. Conecte-a em Configurações &gt; Salas.</p>}
             </div>
-          ) : isQuarantined ? (
-            <p className="text-sm text-amber-700">A conexão foi interrompida repetidamente. Acesse as configurações completas do chatbot para recuperar.</p>
           ) : (
-            <p className="text-sm text-slate-500">Escaneie o QR code para conectar</p>
+            <p className="text-sm text-slate-500">Escolha uma sala já conectada ao WhatsApp</p>
           )}
         </div>
         <div className="flex flex-col gap-2 items-end">
-          {isConnected ? (
+          {hasBoundRoom ? (
             <button
-              onClick={() => disconnectMutation.mutate()}
-              disabled={disconnectMutation.isPending}
+              onClick={() => unbindMutation.mutate()}
+              disabled={unbindMutation.isPending}
               className="px-4 py-2 text-sm font-semibold text-red-600 bg-white border border-red-200 rounded-xl hover:bg-red-50 transition-colors disabled:opacity-50"
             >
-              Desconectar
+              Desvincular
             </button>
-          ) : isQuarantined ? (
-            <span className="text-xs font-semibold text-amber-600 bg-amber-50 border border-amber-200 px-3 py-1.5 rounded-xl">
-              Em Quarentena
-            </span>
           ) : (
             <button
-              onClick={() => connectMutation.mutate()}
-              disabled={connectMutation.isPending || polling}
+              onClick={() => setPickerOpen(true)}
               className="px-4 py-2 text-sm font-semibold text-white bg-cyan-600 rounded-xl hover:bg-cyan-700 transition-colors disabled:opacity-50 flex items-center gap-2"
             >
-              {polling
-                ? <><Loader2 className="w-4 h-4 animate-spin" /> Aguardando QR...</>
-                : <><QrCode className="w-4 h-4" /> Conectar WhatsApp</>
-              }
-            </button>
-          )}
-          {!isConnected && !isQuarantined && (
-            <button
-              onClick={() => refetch()}
-              className="text-xs text-slate-400 hover:text-slate-600 transition-colors"
-            >
-              Verificar status
+              <Smartphone className="w-4 h-4" /> Vincular Sala
             </button>
           )}
         </div>
       </div>
 
-      {!isConnected && (
+      {!hasBoundRoom && (
         <div className="bg-amber-50 border border-amber-200 rounded-xl px-4 py-3 text-xs text-amber-700 flex items-start gap-2">
           <AlertCircle className="w-4 h-4 flex-shrink-0 mt-0.5" />
-          Com o WhatsApp desconectado, nenhuma mensagem automática será enviada.
+          Sem uma sala vinculada, nenhuma mensagem automática será enviada.
         </div>
       )}
 
-      <Modal isOpen={showQrModal} onClose={() => { setShowQrModal(false); setPolling(false) }} title="Escanear QR Code" size="sm">
-        <div className="text-center space-y-4">
-          <p className="text-sm text-slate-500">
-            Abra o WhatsApp no celular → <strong>Menu → Aparelhos conectados → Conectar aparelho</strong>
-          </p>
-          {qrCode ? (
-            <div className="flex items-center justify-center">
-              <img src={qrCode} alt="QR Code WhatsApp" className="w-56 h-56 rounded-xl border border-slate-200" />
-            </div>
+      <div className="bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 text-xs text-slate-500 flex items-start gap-2">
+        <Info className="w-4 h-4 flex-shrink-0 mt-0.5" />
+        Para conectar, desconectar ou trocar o número de WhatsApp de uma sala, acesse <Link to="/configuracoes/salas" className="font-semibold text-cyan-600 hover:underline">Configurações &gt; Salas</Link>.
+      </div>
+
+      <Modal isOpen={pickerOpen} onClose={() => setPickerOpen(false)} title="Vincular Sala" size="sm">
+        <div className="space-y-3">
+          <p className="text-sm text-slate-500">Selecione a sala cuja conexão WhatsApp o Chatbot Light deve usar.</p>
+          {rooms.length === 0 ? (
+            <p className="text-sm text-slate-400 text-center py-6">Nenhuma sala cadastrada. Crie uma sala em Configurações &gt; Salas.</p>
           ) : (
-            <div className="w-56 h-56 mx-auto rounded-xl border border-slate-200 bg-slate-50 flex items-center justify-center">
-              <Loader2 className="w-8 h-8 animate-spin text-slate-300" />
+            <div className="space-y-2 max-h-80 overflow-y-auto">
+              {rooms.map(room => {
+                const roomConnected = room.whatsappConnection?.status === 'CONNECTED'
+                return (
+                  <button
+                    key={room.id}
+                    onClick={() => bindMutation.mutate(room.id)}
+                    disabled={bindMutation.isPending}
+                    className="w-full flex items-center gap-3 p-3 rounded-xl border border-slate-200 hover:border-cyan-300 hover:bg-cyan-50 transition-colors text-left disabled:opacity-50"
+                  >
+                    <div className={`w-9 h-9 rounded-xl flex items-center justify-center flex-shrink-0 ${roomConnected ? 'bg-emerald-500' : 'bg-slate-300'}`}>
+                      {roomConnected ? <Wifi className="w-4 h-4 text-white" /> : <WifiOff className="w-4 h-4 text-white" />}
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <p className="font-semibold text-slate-900 text-sm truncate">{room.name}</p>
+                      <p className="text-xs text-slate-500">
+                        {roomConnected
+                          ? (room.whatsappConnection?.phoneNumber ?? 'Conectado')
+                          : 'WhatsApp desconectado'}
+                      </p>
+                    </div>
+                  </button>
+                )
+              })}
             </div>
           )}
-          <p className="text-xs text-slate-400">Aguardando conexão... O QR atualiza automaticamente.</p>
         </div>
       </Modal>
     </div>

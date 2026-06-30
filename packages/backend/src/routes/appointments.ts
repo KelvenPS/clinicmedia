@@ -264,6 +264,7 @@ router.post('/', async (req: AuthRequest, res) => {
       const apptDateStr = appointment.date.toLocaleDateString('pt-BR')
       const apptTimeStr = appointment.date.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })
       const msgData = {
+        appointmentId: appointment.id,
         patientName: appointment.patient.name,
         patientPhone: appointment.patient.phone,
         appointmentDate: apptDateStr,

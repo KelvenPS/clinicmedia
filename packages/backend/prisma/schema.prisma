@@ -387,6 +387,7 @@ model Room {
   appointments    Appointment[]   @relation("RoomAppointments")
   whatsappConnection RoomWhatsAppConnection?
   patients        Patient[]       @relation("RoomPatients")
+  chatbotLightBindings LightSettings[] @relation("ChatbotLightRoomBinding")
 
   @@map("TBLSALA")
 }
@@ -838,10 +839,13 @@ model LightSettings {
   id             String   @id @default(uuid())
   doctorId       String   @unique
   enabledScreens String[] @default(["agenda", "pacientes", "prontuario", "avaliacao", "financeiro"])
+  // Sala cuja conexão WhatsApp é usada pelo Chatbot Light — elimina conexão duplicada.
+  boundRoomId    String?
   createdAt      DateTime @default(now())
   updatedAt      DateTime @updatedAt
 
   doctor         User     @relation("DoctorLightSettings", fields: [doctorId], references: [id])
+  boundRoom      Room?    @relation("ChatbotLightRoomBinding", fields: [boundRoomId], references: [id])
 
   @@map("TBLCHATBOTLIGHTSETTINGS")
 }

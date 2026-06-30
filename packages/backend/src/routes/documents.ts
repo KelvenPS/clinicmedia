@@ -4,7 +4,7 @@ import { prisma } from '../lib/prisma'
 import { authenticate, requireRole, AuthRequest } from '../middleware/auth'
 import { getEffectiveDoctorId, requireSecretaryPermission } from '../lib/secretaryAccess'
 import { sendLightMessage } from '../lib/chatbot-light-engine'
-import { isSessionActive } from '../lib/whatsapp'
+import { resolveChatbotLightSendTarget } from '../lib/room-whatsapp'
 
 const router = Router()
 router.use(authenticate)
@@ -192,7 +192,8 @@ router.post('/:id/emit', async (req: AuthRequest, res) => {
       res.status(400).json({ message: 'WhatsApp não configurado. Conecte no menu ChatBot Light → Configurações.' })
       return
     }
-    if (instance.status !== 'CONNECTED' || !isSessionActive(instance.instanceKey)) {
+    const target = await resolveChatbotLightSendTarget(doctorId)
+    if (!target) {
       res.status(400).json({ message: 'WhatsApp desconectado. Verifique a conexão no menu ChatBot Light.' })
       return
     }

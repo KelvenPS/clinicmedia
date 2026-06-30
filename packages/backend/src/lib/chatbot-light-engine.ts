@@ -1,6 +1,7 @@
 import NodeCache from 'node-cache'
 import { prisma } from './prisma'
-import { sendWhatsAppMessage, isSessionActive, resolveWhatsAppContactIdentity, resolveDeliveryJid } from './whatsapp'
+import { resolveWhatsAppContactIdentity, resolveDeliveryJid } from './whatsapp'
+import { resolveChatbotLightSendTarget, sendRoomWhatsAppMessage } from './room-whatsapp'
 import { processGuidedStep, interpolateTemplate, startLeadCaptureFlow, processLeadCaptureStep } from './chatbot-light-guided-engine'
 import { resolveTemplateVariables, TemplateContext } from './chatbot-light-variables'
 
@@ -35,7 +36,10 @@ export async function sendLightMessage(
   })
 
   try {
-    const result = await sendWhatsAppMessage(instance.instanceKey, jid, content)
+    const target = await resolveChatbotLightSendTarget(instance.doctorId)
+    if (!target) throw new Error('WhatsApp não conectado — vincule uma Sala em Configurações > Conexão')
+
+    const result = await sendRoomWhatsAppMessage(target.instanceKey, jid, content)
     if (!result) throw new Error('Falha no envio do socket')
 
     await prisma.lightMessageLog.update({
@@ -673,9 +677,8 @@ export async function triggerLightAutomatedMessage(
     const interpolatedText = resolveTemplateVariables(config.template.content, contextData)
 
     const sendFn = async () => {
-      const sessionAlive = isSessionActive(instance.instanceKey)
-      if (instance.status !== 'CONNECTED' || !sessionAlive) {
-        // Registrar log de erro no banco
+      const target = await resolveChatbotLightSendTarget(doctorId)
+      if (!target) {
         await prisma.lightMessageLog.create({
           data: {
             doctorId,
@@ -685,7 +688,7 @@ export async function triggerLightAutomatedMessage(
             module: config.module,
             triggerEvent: event,
             status: 'FAILED',
-            errorMessage: !sessionAlive ? 'Sessão WhatsApp inativa' : 'WhatsApp desconectado',
+            errorMessage: 'WhatsApp desconectado — vincule uma Sala em Configurações > Conexão',
           },
         })
         return

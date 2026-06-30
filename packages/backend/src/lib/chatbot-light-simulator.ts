@@ -43,7 +43,7 @@ export async function simulateLightMessage(params: {
   })
 
   if (!instance) {
-    collect('⚠️ Nenhuma instância Chatbot Light configurada. Crie uma conexão WhatsApp primeiro.')
+    collect('⚠️ Chatbot Light ainda não tem uma Sala vinculada. Vincule uma Sala em Configurações > Conexão.')
     return { botMessages, currentStep: null, sessionStatus: 'NO_INSTANCE', flowName: null, sessionId: null }
   }
 

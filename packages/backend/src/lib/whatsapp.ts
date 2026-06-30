@@ -1160,8 +1160,18 @@ function closeSocket(instanceKey: string) {
 
 export async function restoreSessions(): Promise<void> {
   logWA('info', 'global', 'restore_sessions.started')
+
+  // CHATBOT_LIGHT não tem mais conexão própria — usa exclusivamente a conexão
+  // da Sala (room-whatsapp.ts). Instâncias antigas que ficaram com status
+  // CONNECTED/CONNECTING de antes dessa mudança são limpas aqui para não
+  // tentar abrir um socket próprio nunca mais.
+  await prisma.whatsAppInstance.updateMany({
+    where: { type: 'CHATBOT_LIGHT', status: { in: ['CONNECTED', 'CONNECTING'] } },
+    data: { status: 'DISCONNECTED', qrCode: null, qrCodeExpiresAt: null },
+  }).catch(() => {})
+
   const instances = await prisma.whatsAppInstance.findMany({
-    where: { status: { in: ['CONNECTED', 'CONNECTING'] } },
+    where: { type: 'CLINICAL_AGENT', status: { in: ['CONNECTED', 'CONNECTING'] } },
   }).catch(() => [] as Awaited<ReturnType<typeof prisma.whatsAppInstance.findMany>>)
 
   for (const inst of instances) {

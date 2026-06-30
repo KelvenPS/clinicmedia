@@ -741,17 +741,20 @@ const SCHEDULER_STATUS_MAP: Record<string, string> = {
   IN_PROGRESS: 'Em atendimento',
 }
 
+const BR_TZ = 'America/Sao_Paulo'
+
 function schedulerFormatDate(date: Date): string {
-  const d = String(date.getDate()).padStart(2, '0')
-  const m = String(date.getMonth() + 1).padStart(2, '0')
-  const y = date.getFullYear()
-  return `${d}/${m}/${y}`
+  return date.toLocaleDateString('pt-BR', { timeZone: BR_TZ })
 }
 
 function schedulerFormatTime(date: Date): string {
-  const h = String(date.getHours()).padStart(2, '0')
-  const min = String(date.getMinutes()).padStart(2, '0')
-  return `${h}:${min}`
+  return date.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit', timeZone: BR_TZ })
+}
+
+function buildRoomAddress(room: any): string | undefined {
+  const parts = [room?.logradouro, room?.numero, room?.bairro].filter(Boolean)
+  if (parts.length > 0) return parts.join(', ')
+  return room?.address ?? undefined
 }
 
 export async function checkScheduledReminders() {
@@ -791,7 +794,7 @@ export async function checkScheduledReminders() {
       appointmentStatus: SCHEDULER_STATUS_MAP[appt.status] ?? appt.status,
       doctorName:        appt.doctor.name,
       doctorSpecialty:   (appt.doctor as any).specialty ?? undefined,
-      clinicAddress:     (appt.room as any)?.address,
+      clinicAddress:     buildRoomAddress(appt.room),
       teleconsultaLink:  (appt.room as any)?.teleconsultaLink,
     })
     await prisma.appointment.update({
@@ -834,7 +837,7 @@ export async function checkScheduledReminders() {
       appointmentStatus: SCHEDULER_STATUS_MAP[appt.status] ?? appt.status,
       doctorName:        appt.doctor.name,
       doctorSpecialty:   (appt.doctor as any).specialty ?? undefined,
-      clinicAddress:     (appt.room as any)?.address,
+      clinicAddress:     buildRoomAddress(appt.room),
       teleconsultaLink:  (appt.room as any)?.teleconsultaLink,
     })
     await prisma.appointment.update({

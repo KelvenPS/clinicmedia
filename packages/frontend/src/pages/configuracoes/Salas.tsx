@@ -38,6 +38,7 @@ const ROOM_PERM_LABELS: { key: keyof RoomPermissions; label: string; description
 const schema = z.object({
   name: z.string().min(1, 'Nome obrigatório'),
   logradouro: z.string().optional(),
+  bairro: z.string().optional(),
   cep: z.string().optional(),
   numero: z.string().optional(),
   cidade: z.string().optional(),
@@ -92,6 +93,7 @@ function RoomForm({ room, secretaries, onSubmit, loading }: {
     defaultValues: {
       name: room?.name || '',
       logradouro: room?.logradouro || '',
+      bairro: (room as any)?.bairro || '',
       cep: room?.cep || '',
       numero: room?.numero || '',
       cidade: room?.cidade || '',
@@ -128,10 +130,13 @@ function RoomForm({ room, secretaries, onSubmit, loading }: {
         </label>
         <input {...register('logradouro')} className="input-field" placeholder="Logradouro (Rua, Av., Al...)" />
         <div className="grid grid-cols-2 gap-3">
-          <input {...register('cep')} className="input-field" placeholder="CEP" maxLength={9} />
           <input {...register('numero')} className="input-field" placeholder="Número" />
+          <input {...register('bairro')} className="input-field" placeholder="Bairro" />
         </div>
-        <input {...register('cidade')} className="input-field" placeholder="Cidade / UF" />
+        <div className="grid grid-cols-2 gap-3">
+          <input {...register('cep')} className="input-field" placeholder="CEP" maxLength={9} />
+          <input {...register('cidade')} className="input-field" placeholder="Cidade / UF" />
+        </div>
       </div>
 
       <div>
@@ -568,7 +573,7 @@ export default function Salas() {
     DAYS.filter(d => days.includes(d.value)).map(d => d.label).join(', ')
 
   const addressLine = (room: Room) => {
-    const parts = [room.logradouro, room.numero].filter(Boolean).join(', ')
+    const parts = [room.logradouro, room.numero, (room as any).bairro].filter(Boolean).join(', ')
     const city = room.cidade || ''
     return [parts, city].filter(Boolean).join(' — ') || null
   }

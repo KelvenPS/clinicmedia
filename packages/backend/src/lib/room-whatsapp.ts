@@ -449,8 +449,11 @@ export async function tryRoomWhatsAppConfirmation(
 
     const room = await prisma.room.findUnique({
       where: { id: connection.roomId },
-      select: { address: true } as any,
+      select: { address: true, logradouro: true, numero: true, bairro: true },
     }).catch(() => null)
+
+    const roomAddressParts = [(room as any)?.logradouro, (room as any)?.numero, (room as any)?.bairro].filter(Boolean)
+    const clinicAddress = roomAddressParts.length > 0 ? roomAddressParts.join(', ') : ((room as any)?.address ?? undefined)
 
     const ctx: TemplateContext = {
       patientName: data.patientName,
@@ -458,7 +461,7 @@ export async function tryRoomWhatsAppConfirmation(
       appointmentDate: data.appointmentDate,
       appointmentTime: data.appointmentTime,
       doctorName: data.doctorName,
-      clinicAddress: (room as any)?.address ?? undefined,
+      clinicAddress,
     }
 
     let content: string

@@ -11,6 +11,7 @@ router.use(authenticate)
 const roomSchema = z.object({
   name: z.string().min(1, 'Nome obrigatório'),
   logradouro: z.string().optional(),
+  bairro: z.string().optional(),
   cep: z.string().optional(),
   numero: z.string().optional(),
   cidade: z.string().optional(),

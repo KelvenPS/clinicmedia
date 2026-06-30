@@ -8,6 +8,8 @@ import { fireWebhooks } from '../lib/webhook'
 import { triggerLightAutomatedMessage } from '../lib/chatbot-light-engine'
 import { tryRoomWhatsAppConfirmation } from '../lib/room-whatsapp'
 
+const BR_TZ = 'America/Sao_Paulo'
+
 const router = Router()
 router.use(authenticate)
 
@@ -252,7 +254,7 @@ router.post('/', async (req: AuthRequest, res) => {
             patient: { select: { id: true, name: true, phone: true, status: true } },
             doctor: { select: { id: true, name: true, specialty: true } },
             createdBy: { select: { id: true, name: true } },
-            room: { select: { id: true, name: true, logradouro: true, cidade: true } },
+            room: { select: { id: true, name: true, logradouro: true, bairro: true, numero: true, cidade: true, address: true } },
           },
         })
       )
@@ -261,8 +263,11 @@ router.post('/', async (req: AuthRequest, res) => {
     const appointment = created[0]
 
     if (appointment.patient?.phone) {
-      const apptDateStr = appointment.date.toLocaleDateString('pt-BR')
-      const apptTimeStr = appointment.date.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })
+      const apptDateStr = appointment.date.toLocaleDateString('pt-BR', { timeZone: BR_TZ })
+      const apptTimeStr = appointment.date.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit', timeZone: BR_TZ })
+      const roomData = appointment.room as any
+      const roomAddressParts = [roomData?.logradouro, roomData?.numero, roomData?.bairro].filter(Boolean)
+      const clinicAddress = roomAddressParts.length > 0 ? roomAddressParts.join(', ') : (roomData?.address ?? undefined)
       const msgData = {
         appointmentId: appointment.id,
         patientName: appointment.patient.name,
@@ -285,6 +290,7 @@ router.post('/', async (req: AuthRequest, res) => {
           appointmentDate: msgData.appointmentDate,
           appointmentTime: msgData.appointmentTime,
           doctorName: msgData.doctorName,
+          clinicAddress,
         }).catch(err => console.error('[triggerLightAutomatedMessage CONFIRMATION error]', err))
       }
     }
@@ -293,8 +299,8 @@ router.post('/', async (req: AuthRequest, res) => {
       appointment.doctorId,
       totalOccurrences > 1 ? `${totalOccurrences} agendamentos criados` : 'Novo agendamento',
       totalOccurrences > 1
-        ? `${appointment.patient.name} – ${totalOccurrences} sessões semanais a partir de ${appointment.date.toLocaleDateString('pt-BR')}`
-        : `${appointment.patient.name} agendou ${appointment.type || 'consulta'} para ${appointment.date.toLocaleDateString('pt-BR')}`,
+        ? `${appointment.patient.name} – ${totalOccurrences} sessões semanais a partir de ${appointment.date.toLocaleDateString('pt-BR', { timeZone: BR_TZ })}`
+        : `${appointment.patient.name} agendou ${appointment.type || 'consulta'} para ${appointment.date.toLocaleDateString('pt-BR', { timeZone: BR_TZ })}`,
       'INFO',
     )
 

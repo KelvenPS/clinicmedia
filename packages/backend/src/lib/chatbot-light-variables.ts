@@ -72,19 +72,22 @@ const APPOINTMENT_STATUS_MAP: Record<string, string> = {
   IN_PROGRESS: 'Em atendimento',
 }
 
-// ─── Date Formatting (sem date-fns) ──────────────────────────────────────────
+const BR_TZ = 'America/Sao_Paulo'
+
+// ─── Date Formatting ──────────────────────────────────────────────────────────
 
 function formatDatePtBR(date: Date): string {
-  const d = String(date.getDate()).padStart(2, '0')
-  const m = String(date.getMonth() + 1).padStart(2, '0')
-  const y = date.getFullYear()
-  return `${d}/${m}/${y}`
+  return date.toLocaleDateString('pt-BR', { timeZone: BR_TZ })
 }
 
 function formatTimePtBR(date: Date): string {
-  const h = String(date.getHours()).padStart(2, '0')
-  const min = String(date.getMinutes()).padStart(2, '0')
-  return `${h}:${min}`
+  return date.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit', timeZone: BR_TZ })
+}
+
+function buildRoomAddress(room: any): string | undefined {
+  const parts = [room?.logradouro, room?.numero, room?.bairro].filter(Boolean)
+  if (parts.length > 0) return parts.join(', ')
+  return room?.address ?? undefined
 }
 
 // ─── CPF Mask ─────────────────────────────────────────────────────────────────
@@ -174,7 +177,7 @@ export async function resolveContextFromAppointment(
     appointmentStatus: APPOINTMENT_STATUS_MAP[(appt.status as string) ?? ''] ?? (appt.status as string | undefined),
     doctorName:        doctor?.name                                 ?? undefined,
     doctorSpecialty:   doctor?.specialty                            ?? undefined,
-    clinicAddress:     room?.address                                ?? undefined,
+    clinicAddress:     buildRoomAddress(room),
     teleconsultaLink:  room?.teleconsultaLink                       ?? undefined,
     prontuarioLink:    `${frontendUrl}/prontuario`,
   }

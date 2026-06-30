@@ -368,10 +368,11 @@ model Room {
   doctorId          String
   name              String
   logradouro        String?
+  bairro            String?
   cep               String?
   numero            String?
   cidade            String?
-  address           String?  @map("address")           // Endereço completo formatado para variável {endereco}
+  address           String?  @map("address")
   teleconsultaLink  String?  @map("teleconsulta_link") // Link de teleconsulta para variável {teleconsulta}
   daysOfWeek        Json     @default("[]")
   startTime         String

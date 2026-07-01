@@ -1,7 +1,7 @@
 import NodeCache from 'node-cache'
 import { prisma } from './prisma'
 import { resolveWhatsAppContactIdentity } from './whatsapp'
-import { resolveChatbotLightSendTarget, sendRoomWhatsAppMessage, normalizeToWhatsAppJid } from './room-whatsapp'
+import { resolveChatbotLightSendTarget, sendRoomWhatsAppMessage, normalizeToWhatsAppJid, checkPhoneOnWhatsApp } from './room-whatsapp'
 import { processGuidedStep, interpolateTemplate, startLeadCaptureFlow, processLeadCaptureStep } from './chatbot-light-guided-engine'
 import { resolveTemplateVariables, TemplateContext } from './chatbot-light-variables'
 
@@ -39,7 +39,15 @@ export async function sendLightMessage(
     const target = await resolveChatbotLightSendTarget(instance.doctorId)
     if (!target) throw new Error('WhatsApp não conectado — vincule uma Sala em Configurações > Conexão')
 
-    const result = await sendRoomWhatsAppMessage(target.instanceKey, jid, content)
+    // Resolve canonical WhatsApp JID so 8-digit vs 9-digit Brazilian numbers are handled correctly.
+    // onWhatsApp() returns the JID the server actually knows — avoids silent delivery failure.
+    const phoneCheck = await checkPhoneOnWhatsApp(target.instanceKey, to).catch(() => null)
+    const sendJid = phoneCheck?.jid ?? jid
+    if (phoneCheck && !phoneCheck.exists) {
+      throw new Error(`Número ${to} não está no WhatsApp`)
+    }
+
+    const result = await sendRoomWhatsAppMessage(target.instanceKey, sendJid, content)
     if (!result) throw new Error('Falha no envio do socket')
 
     await prisma.lightMessageLog.update({

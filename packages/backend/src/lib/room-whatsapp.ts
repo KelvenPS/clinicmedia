@@ -665,15 +665,29 @@ export async function tryRoomWhatsAppConfirmation(
       content = `Olá ${data.patientName}! Sua consulta com ${data.doctorName} foi agendada para ${data.appointmentDate} às ${data.appointmentTime}. Até logo!`
     }
 
-    // Use sendRoomWhatsAppMessage so the message is normalized (adds 55 CC),
-    // cached for WhatsApp MD retry, and properly logged.
+    // Resolve the canonical WhatsApp JID for the patient's phone.
+    // Brazilian numbers may be registered on WhatsApp as 8-digit (old format) even
+    // if stored with 9 digits — onWhatsApp() returns the server-side canonical JID
+    // so the message is delivered to the right account and not silently dropped.
+    const phoneCheck = await checkPhoneOnWhatsApp(connection.instanceKey, data.patientPhone).catch(() => null)
+    const resolvedPhone = phoneCheck?.jid ?? normalizeToWhatsAppJid(data.patientPhone)
+    if (phoneCheck && !phoneCheck.exists) {
+      logRoom('warn', connection.instanceKey, 'appointment.confirmation.phone_not_on_whatsapp', {
+        roomId,
+        patientPhone: data.patientPhone,
+        resolvedPhone,
+      })
+      return false
+    }
+
     logRoom('info', connection.instanceKey, 'appointment.confirmation.attempt', {
       roomId,
       patientPhone: data.patientPhone,
+      resolvedPhone,
       appointmentId: data.appointmentId,
       isPendingConfirm,
     })
-    const result = await sendRoomWhatsAppMessage(connection.instanceKey, data.patientPhone, content)
+    const result = await sendRoomWhatsAppMessage(connection.instanceKey, resolvedPhone, content)
     if (!result) {
       logRoom('error', connection.instanceKey, 'appointment.confirmation.send_failed', { roomId, patientPhone: data.patientPhone })
       return false

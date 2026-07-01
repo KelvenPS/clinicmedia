@@ -5,8 +5,18 @@ import Login from './pages/Login'
 import LandingPage from './pages/LandingPage'
 import Dashboard from './pages/Dashboard'
 import Agenda from './pages/Agenda'
-import Financeiro from './pages/Financeiro'
 import Usuarios from './pages/Usuarios'
+import FinanceiroResumo from './pages/financeiro/Resumo'
+import FluxoCaixa from './pages/financeiro/FluxoCaixa'
+import Extrato from './pages/financeiro/Extrato'
+import Receitas from './pages/financeiro/Receitas'
+import Despesas from './pages/financeiro/Despesas'
+import AnaliseReceitas from './pages/financeiro/AnaliseReceitas'
+import AnaliseDespesas from './pages/financeiro/AnaliseDespesas'
+import FinanceiroCategorias from './pages/financeiro/Categorias'
+import ContasBancarias from './pages/financeiro/ContasBancarias'
+import CentrosCusto from './pages/financeiro/CentrosCusto'
+import OutrasConfiguracoes from './pages/financeiro/OutrasConfiguracoes'
 import Pacientes from './pages/Pacientes'
 import Prontuario from './pages/Prontuario'
 import Avaliacoes from './pages/Avaliacoes'
@@ -61,7 +71,18 @@ export default function App() {
           <Route path="pacientes" element={<Pacientes />} />
           <Route path="prontuario" element={<FeatureGate feature="prontuario"><Prontuario /></FeatureGate>} />
           <Route path="avaliacoes" element={<ProtectedRoute allowedRoles={['ADMIN', 'DOCTOR']}><FeatureGate feature="avaliacoes"><Avaliacoes /></FeatureGate></ProtectedRoute>} />
-          <Route path="financeiro" element={<ProtectedRoute allowedRoles={['ADMIN', 'DOCTOR']}><FeatureGate feature="financeiro"><Financeiro /></FeatureGate></ProtectedRoute>} />
+          <Route path="financeiro" element={<Navigate to="/financeiro/resumo" replace />} />
+          <Route path="financeiro/resumo" element={<ProtectedRoute allowedRoles={['ADMIN', 'DOCTOR']}><FeatureGate feature="financeiro"><FinanceiroResumo /></FeatureGate></ProtectedRoute>} />
+          <Route path="financeiro/fluxo-caixa" element={<ProtectedRoute allowedRoles={['ADMIN', 'DOCTOR']}><FeatureGate feature="financeiro"><FluxoCaixa /></FeatureGate></ProtectedRoute>} />
+          <Route path="financeiro/extrato" element={<ProtectedRoute allowedRoles={['ADMIN', 'DOCTOR']}><FeatureGate feature="financeiro"><Extrato /></FeatureGate></ProtectedRoute>} />
+          <Route path="financeiro/receitas" element={<ProtectedRoute allowedRoles={['ADMIN', 'DOCTOR']}><FeatureGate feature="financeiro"><Receitas /></FeatureGate></ProtectedRoute>} />
+          <Route path="financeiro/despesas" element={<ProtectedRoute allowedRoles={['ADMIN', 'DOCTOR']}><FeatureGate feature="financeiro"><Despesas /></FeatureGate></ProtectedRoute>} />
+          <Route path="financeiro/analise-receitas" element={<ProtectedRoute allowedRoles={['ADMIN', 'DOCTOR']}><FeatureGate feature="financeiro"><AnaliseReceitas /></FeatureGate></ProtectedRoute>} />
+          <Route path="financeiro/analise-despesas" element={<ProtectedRoute allowedRoles={['ADMIN', 'DOCTOR']}><FeatureGate feature="financeiro"><AnaliseDespesas /></FeatureGate></ProtectedRoute>} />
+          <Route path="financeiro/categorias" element={<ProtectedRoute allowedRoles={['ADMIN', 'DOCTOR']}><FeatureGate feature="financeiro"><FinanceiroCategorias /></FeatureGate></ProtectedRoute>} />
+          <Route path="financeiro/contas-bancarias" element={<ProtectedRoute allowedRoles={['ADMIN', 'DOCTOR']}><FeatureGate feature="financeiro"><ContasBancarias /></FeatureGate></ProtectedRoute>} />
+          <Route path="financeiro/centros-custo" element={<ProtectedRoute allowedRoles={['ADMIN', 'DOCTOR']}><FeatureGate feature="financeiro"><CentrosCusto /></FeatureGate></ProtectedRoute>} />
+          <Route path="financeiro/outras-configuracoes" element={<ProtectedRoute allowedRoles={['ADMIN', 'DOCTOR']}><FeatureGate feature="financeiro"><OutrasConfiguracoes /></FeatureGate></ProtectedRoute>} />
           <Route path="usuarios" element={<ProtectedRoute allowedRoles={['ADMIN']}><Usuarios /></ProtectedRoute>} />
           <Route path="admin/gestao" element={<ProtectedRoute allowedRoles={['ADMIN']}><AdminGestao /></ProtectedRoute>} />
           <Route path="admin/sql" element={<ProtectedRoute allowedRoles={['ADMIN']}><AdminSQL /></ProtectedRoute>} />

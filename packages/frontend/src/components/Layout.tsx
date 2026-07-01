@@ -3,6 +3,7 @@ import { Outlet, useLocation, NavLink, useNavigate } from 'react-router-dom'
 import { Menu, X, ChevronRight, Home, Settings, LogOut, User as UserIcon } from 'lucide-react'
 import Sidebar from './Sidebar'
 import SettingsSidebar from './SettingsSidebar'
+import FinanceiroSidebar from './FinanceiroSidebar'
 import NotificationBell from './NotificationBell'
 import SubscriptionGate from './SubscriptionGate'
 import PageTransition from './ui/PageTransition'
@@ -18,6 +19,17 @@ const ROUTE_LABELS: Record<string, string> = {
   prontuario: 'Prontuário',
   avaliacoes: 'Avaliações',
   financeiro: 'Financeiro',
+  resumo: 'Resumo',
+  'fluxo-caixa': 'Fluxo de Caixa',
+  extrato: 'Extrato',
+  receitas: 'Receitas',
+  despesas: 'Despesas',
+  'analise-receitas': 'Análise de Receitas',
+  'analise-despesas': 'Análise de Despesas',
+  categorias: 'Categorias',
+  'contas-bancarias': 'Contas Bancárias',
+  'centros-custo': 'Centros de Custo',
+  'outras-configuracoes': 'Outras Configurações',
   usuarios: 'Usuários',
   configuracoes: 'Configurações',
   perfil: 'Perfil',
@@ -176,6 +188,7 @@ function UserDropdown({ user, onLogout }: { user: AuthUser | null; onLogout: () 
 export default function Layout() {
   const location = useLocation()
   const isSettings = location.pathname.startsWith('/configuracoes')
+  const isFinanceiro = location.pathname.startsWith('/financeiro')
   const { user, logout } = useAuthStore()
   const navigate = useNavigate()
 
@@ -216,7 +229,7 @@ export default function Layout() {
         >
           <div
             className={`absolute inset-0 transition-all duration-300 ${
-              isSettings
+              isSettings || isFinanceiro
                 ? 'opacity-0 pointer-events-none -translate-x-2'
                 : 'opacity-100 translate-x-0'
             }`}
@@ -235,6 +248,15 @@ export default function Layout() {
           >
             <SettingsSidebar />
           </div>
+          <div
+            className={`absolute inset-0 transition-all duration-300 ${
+              isFinanceiro
+                ? 'opacity-100 translate-x-0'
+                : 'opacity-0 pointer-events-none translate-x-2'
+            }`}
+          >
+            <FinanceiroSidebar />
+          </div>
         </div>
 
         {/* ── Mobile sidebar drawer ── */}
@@ -248,6 +270,8 @@ export default function Layout() {
         >
           {isSettings ? (
             <SettingsSidebar />
+          ) : isFinanceiro ? (
+            <FinanceiroSidebar />
           ) : (
             <Sidebar
               collapsed={false}

@@ -98,7 +98,7 @@ function RoomForm({ room, secretaries, onSubmit, loading }: {
       cep: room?.cep || '',
       numero: room?.numero || '',
       cidade: room?.cidade || '',
-      daysOfWeek: room?.daysOfWeek || [1, 2, 3, 4, 5],
+      daysOfWeek: room?.daysOfWeek?.length ? room.daysOfWeek : [1, 2, 3, 4, 5],
       startTime: room?.startTime || '07:00',
       endTime: room?.endTime || '18:00',
       secretaryIds: room?.secretaries?.filter(s => s.active).map(s => s.secretaryId) || [],

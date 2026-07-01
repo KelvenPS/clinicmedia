@@ -14,11 +14,38 @@ const transactionSchema = z.object({
   doctorId: z.string(),
   appointmentId: z.string().optional(),
   type: z.enum(['INCOME', 'EXPENSE']),
-  amount: z.number().positive('Valor deve ser positivo'),
+  amount: z.number().nonnegative('Valor deve ser positivo ou zero'),
   description: z.string().min(2, 'Descrição muito curta'),
   date: z.string(),
   status: z.enum(['PENDING', 'PAID', 'CANCELLED']).optional().default('PENDING'),
   category: z.string().optional(),
+  categoryId: z.string().optional(),
+  costCenterId: z.string().optional(),
+  bankAccountId: z.string().optional(),
+  paymentMethod: z.string().optional(),
+})
+
+const categorySchema = z.object({
+  name: z.string().min(1, 'Nome obrigatório'),
+  type: z.enum(['INCOME', 'EXPENSE']),
+  color: z.string().optional(),
+  active: z.boolean().optional().default(true),
+})
+
+const costCenterSchema = z.object({
+  name: z.string().min(1, 'Nome obrigatório'),
+  description: z.string().optional(),
+  active: z.boolean().optional().default(true),
+})
+
+const bankAccountSchema = z.object({
+  name: z.string().min(1, 'Nome obrigatório'),
+  bank: z.string().optional(),
+  agency: z.string().optional(),
+  account: z.string().optional(),
+  type: z.enum(['CHECKING', 'SAVINGS', 'CASH']).optional().default('CHECKING'),
+  balance: z.number().optional().default(0),
+  active: z.boolean().optional().default(true),
 })
 
 router.get('/', async (req: AuthRequest, res) => {
@@ -52,6 +79,9 @@ router.get('/', async (req: AuthRequest, res) => {
             patient: { select: { id: true, name: true } },
           },
         },
+        financialCategory: { select: { id: true, name: true, color: true } },
+        costCenter: { select: { id: true, name: true } },
+        bankAccount: { select: { id: true, name: true } },
       },
       orderBy: { date: 'desc' },
     })
@@ -267,6 +297,194 @@ router.delete('/:id', async (req, res) => {
     const { id } = req.params
     await prisma.transaction.delete({ where: { id } })
     res.json({ message: 'Transação removida com sucesso' })
+  } catch {
+    res.status(500).json({ message: 'Erro interno do servidor' })
+  }
+})
+
+// ─── Cash Flow ────────────────────────────────────────────────────────────────
+
+router.get('/cash-flow', async (req: AuthRequest, res) => {
+  try {
+    const { startDate, endDate, doctorId, period } = req.query
+    const resolvedDoctorId = req.user!.role === 'DOCTOR' ? req.user!.userId : (doctorId as string)
+
+    const start = startDate ? new Date(startDate as string) : new Date(new Date().setDate(1)) // Start of current month
+    const end = endDate ? new Date(endDate as string) : new Date()
+
+    const where: Record<string, unknown> = {
+      status: 'PAID',
+      date: { gte: start, lte: end },
+    }
+    if (resolvedDoctorId) where.doctorId = resolvedDoctorId
+
+    const transactions = await prisma.transaction.findMany({
+      where,
+      select: { date: true, type: true, amount: true },
+      orderBy: { date: 'asc' },
+    })
+
+    // Group by day or month based on period param
+    const byDay = new Map<string, { income: number; expense: number; balance: number }>()
+    for (const tx of transactions) {
+      const key = period === 'monthly'
+        ? `${tx.date.getFullYear()}-${String(tx.date.getMonth() + 1).padStart(2, '0')}`
+        : tx.date.toISOString().split('T')[0]
+      const prev = byDay.get(key) ?? { income: 0, expense: 0, balance: 0 }
+      if (tx.type === 'INCOME') {
+        byDay.set(key, { ...prev, income: prev.income + tx.amount, balance: prev.balance + tx.amount })
+      } else {
+        byDay.set(key, { ...prev, expense: prev.expense + tx.amount, balance: prev.balance - tx.amount })
+      }
+    }
+
+    let runningBalance = 0
+    const entries = Array.from(byDay.entries())
+      .sort(([a], [b]) => a.localeCompare(b))
+      .map(([date, v]) => {
+        runningBalance += v.income - v.expense
+        return { date, ...v, cumulativeBalance: runningBalance }
+      })
+
+    res.json(entries)
+  } catch {
+    res.status(500).json({ message: 'Erro interno do servidor' })
+  }
+})
+
+// ─── Financial Categories CRUD ────────────────────────────────────────────────
+
+router.get('/categories', async (req: AuthRequest, res) => {
+  try {
+    const doctorId = req.user!.role === 'DOCTOR' ? req.user!.userId : (req.query.doctorId as string)
+    const categories = await prisma.financialCategory.findMany({
+      where: { doctorId, active: true },
+      orderBy: [{ type: 'asc' }, { name: 'asc' }],
+    })
+    res.json(categories)
+  } catch {
+    res.status(500).json({ message: 'Erro interno do servidor' })
+  }
+})
+
+router.post('/categories', async (req: AuthRequest, res) => {
+  try {
+    const doctorId = req.user!.role === 'DOCTOR' ? req.user!.userId : req.body.doctorId
+    const data = categorySchema.parse(req.body)
+    const category = await prisma.financialCategory.create({ data: { ...data, doctorId } })
+    res.status(201).json(category)
+  } catch (error) {
+    if (error instanceof z.ZodError) return res.status(400).json({ message: 'Dados inválidos', errors: error.errors })
+    res.status(500).json({ message: 'Erro interno do servidor' })
+  }
+})
+
+router.put('/categories/:id', async (req: AuthRequest, res) => {
+  try {
+    const data = categorySchema.partial().parse(req.body)
+    const category = await prisma.financialCategory.update({ where: { id: req.params.id }, data })
+    res.json(category)
+  } catch {
+    res.status(500).json({ message: 'Erro interno do servidor' })
+  }
+})
+
+router.delete('/categories/:id', async (req: AuthRequest, res) => {
+  try {
+    await prisma.financialCategory.update({ where: { id: req.params.id }, data: { active: false } })
+    res.json({ message: 'Categoria desativada' })
+  } catch {
+    res.status(500).json({ message: 'Erro interno do servidor' })
+  }
+})
+
+// ─── Cost Centers CRUD ────────────────────────────────────────────────────────
+
+router.get('/cost-centers', async (req: AuthRequest, res) => {
+  try {
+    const doctorId = req.user!.role === 'DOCTOR' ? req.user!.userId : (req.query.doctorId as string)
+    const centers = await prisma.costCenter.findMany({
+      where: { doctorId, active: true },
+      orderBy: { name: 'asc' },
+    })
+    res.json(centers)
+  } catch {
+    res.status(500).json({ message: 'Erro interno do servidor' })
+  }
+})
+
+router.post('/cost-centers', async (req: AuthRequest, res) => {
+  try {
+    const doctorId = req.user!.role === 'DOCTOR' ? req.user!.userId : req.body.doctorId
+    const data = costCenterSchema.parse(req.body)
+    const center = await prisma.costCenter.create({ data: { ...data, doctorId } })
+    res.status(201).json(center)
+  } catch (error) {
+    if (error instanceof z.ZodError) return res.status(400).json({ message: 'Dados inválidos', errors: error.errors })
+    res.status(500).json({ message: 'Erro interno do servidor' })
+  }
+})
+
+router.put('/cost-centers/:id', async (req: AuthRequest, res) => {
+  try {
+    const data = costCenterSchema.partial().parse(req.body)
+    const center = await prisma.costCenter.update({ where: { id: req.params.id }, data })
+    res.json(center)
+  } catch {
+    res.status(500).json({ message: 'Erro interno do servidor' })
+  }
+})
+
+router.delete('/cost-centers/:id', async (req: AuthRequest, res) => {
+  try {
+    await prisma.costCenter.update({ where: { id: req.params.id }, data: { active: false } })
+    res.json({ message: 'Centro de custo desativado' })
+  } catch {
+    res.status(500).json({ message: 'Erro interno do servidor' })
+  }
+})
+
+// ─── Bank Accounts CRUD ───────────────────────────────────────────────────────
+
+router.get('/bank-accounts', async (req: AuthRequest, res) => {
+  try {
+    const doctorId = req.user!.role === 'DOCTOR' ? req.user!.userId : (req.query.doctorId as string)
+    const accounts = await prisma.bankAccount.findMany({
+      where: { doctorId, active: true },
+      orderBy: { name: 'asc' },
+    })
+    res.json(accounts)
+  } catch {
+    res.status(500).json({ message: 'Erro interno do servidor' })
+  }
+})
+
+router.post('/bank-accounts', async (req: AuthRequest, res) => {
+  try {
+    const doctorId = req.user!.role === 'DOCTOR' ? req.user!.userId : req.body.doctorId
+    const data = bankAccountSchema.parse(req.body)
+    const account = await prisma.bankAccount.create({ data: { ...data, doctorId } })
+    res.status(201).json(account)
+  } catch (error) {
+    if (error instanceof z.ZodError) return res.status(400).json({ message: 'Dados inválidos', errors: error.errors })
+    res.status(500).json({ message: 'Erro interno do servidor' })
+  }
+})
+
+router.put('/bank-accounts/:id', async (req: AuthRequest, res) => {
+  try {
+    const data = bankAccountSchema.partial().parse(req.body)
+    const account = await prisma.bankAccount.update({ where: { id: req.params.id }, data })
+    res.json(account)
+  } catch {
+    res.status(500).json({ message: 'Erro interno do servidor' })
+  }
+})
+
+router.delete('/bank-accounts/:id', async (req: AuthRequest, res) => {
+  try {
+    await prisma.bankAccount.update({ where: { id: req.params.id }, data: { active: false } })
+    res.json({ message: 'Conta bancária desativada' })
   } catch {
     res.status(500).json({ message: 'Erro interno do servidor' })
   }

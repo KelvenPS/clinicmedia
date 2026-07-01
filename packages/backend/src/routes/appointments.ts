@@ -458,7 +458,7 @@ router.put('/:id', async (req: AuthRequest, res) => {
             id: true, name: true, phone: true,
             patientPlans: {
               take: 1,
-              include: { healthPlan: { select: { discountPercent: true } } },
+              include: { healthPlan: { select: { discountPercent: true, defaultValue: true } } },
             },
           },
         },
@@ -474,12 +474,24 @@ router.put('/:id', async (req: AuthRequest, res) => {
 
     let transactionAmount: number | null = updated.value ?? null
 
+    if (beingCompleted && (!transactionAmount || transactionAmount <= 0)) {
+      const plan = updated.patient?.patientPlans?.[0]
+      if (plan) {
+        const discount = plan.healthPlan.discountPercent ?? 0
+        const planValue = (plan as any).value ?? plan.healthPlan.defaultValue ?? null
+        if (planValue && planValue > 0) {
+          transactionAmount = Math.round(planValue * (1 - discount / 100) * 100) / 100
+        }
+      }
+    }
+
     if (beingCompleted && (!transactionAmount || transactionAmount <= 0) && updated.type) {
       const appType = await prisma.appointmentType.findFirst({
         where: { name: updated.type, doctorId: updated.doctorId },
       })
-      if (appType?.baseValue && updated.patient?.patientPlans?.[0]) {
-        const discount = updated.patient.patientPlans[0].healthPlan.discountPercent ?? 0
+      if (appType?.baseValue) {
+        const plan = updated.patient?.patientPlans?.[0]
+        const discount = plan?.healthPlan.discountPercent ?? 0
         transactionAmount = Math.round(appType.baseValue * (1 - discount / 100) * 100) / 100
       }
     }

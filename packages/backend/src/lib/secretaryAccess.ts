@@ -6,6 +6,7 @@ import { AuthRequest } from '../middleware/auth'
 // Tudo aqui é desligado por padrão — a secretária só vê se o médico marcar
 // o checkbox correspondente em "Gestão de Acessos" (Minha Equipe).
 export const SECRETARY_PERMISSION_KEYS = [
+  'financeiro',
   'chatbot_light',
   'chatbot_agente',
   'nota_fiscal',

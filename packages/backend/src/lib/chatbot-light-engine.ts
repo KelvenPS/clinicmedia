@@ -682,7 +682,7 @@ export async function triggerLightAutomatedMessage(
         await prisma.lightMessageLog.create({
           data: {
             doctorId,
-            phone: contextData.patientPhone.replace(/\D/g, ''),
+            phone: normalizeToWhatsAppJid(contextData.patientPhone).replace('@s.whatsapp.net', ''),
             recipientName: contextData.patientName ?? null,
             content: interpolatedText,
             module: config.module,

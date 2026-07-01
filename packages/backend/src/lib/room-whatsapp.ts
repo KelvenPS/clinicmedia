@@ -656,9 +656,12 @@ export async function tryRoomWhatsAppConfirmation(
       content = `Olá ${data.patientName}! Sua consulta com ${data.doctorName} foi agendada para ${data.appointmentDate} às ${data.appointmentTime}. Até logo!`
     }
 
-    const phone = data.patientPhone.replace(/\D/g, '')
-    const jid = `${phone}@s.whatsapp.net`
-    await sock.sendMessage(jid, { text: content })
+    // Use sendRoomWhatsAppMessage so the message is normalized (adds 55 CC),
+    // cached for WhatsApp MD retry, and properly logged.
+    const result = await sendRoomWhatsAppMessage(connection.instanceKey, data.patientPhone, content)
+    if (!result) return false
+
+    const phone = result.resolvedJid.replace('@s.whatsapp.net', '')
 
     if (isPendingConfirm) {
       registerRoomConfirmationPending(phone, {
@@ -670,7 +673,7 @@ export async function tryRoomWhatsAppConfirmation(
       })
     }
 
-    logRoom('info', connection.instanceKey, 'appointment.confirmation.sent', { roomId, phone, interactive: isPendingConfirm })
+    logRoom('info', connection.instanceKey, 'appointment.confirmation.sent', { roomId, resolvedJid: result.resolvedJid, interactive: isPendingConfirm })
     return true
   } catch (err) {
     logRoom('error', 'room-wa', 'appointment.confirmation.failed', { roomId, error: String(err) })

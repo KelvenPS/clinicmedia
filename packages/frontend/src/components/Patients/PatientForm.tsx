@@ -41,8 +41,18 @@ const typeLabel: Record<string, string> = {
   OUTROS: 'Outros',
 }
 
+function formatBrazilPhone(value: string): string {
+  const digits = value.replace(/\D/g, '').slice(0, 11)
+  if (digits.length === 0) return ''
+  if (digits.length <= 2) return `(${digits}`
+  if (digits.length <= 6) return `(${digits.slice(0, 2)}) ${digits.slice(2)}`
+  if (digits.length <= 10) return `(${digits.slice(0, 2)}) ${digits.slice(2, 6)}-${digits.slice(6)}`
+  return `(${digits.slice(0, 2)}) ${digits.slice(2, 7)}-${digits.slice(7)}`
+}
+
 export default function PatientForm({ patient, onSubmit, loading }: Props) {
   const [plans, setPlans] = useState<PlanEntry[]>([])
+  const [phoneDisplay, setPhoneDisplay] = useState('')
 
   const { data: healthPlans = [] } = useQuery<HealthPlan[]>({
     queryKey: ['health-plans'],
@@ -69,7 +79,9 @@ export default function PatientForm({ patient, onSubmit, loading }: Props) {
   useEffect(() => {
     if (patient) {
       setValue('name', patient.name)
-      setValue('phone', patient.phone)
+      const formattedPhone = formatBrazilPhone(patient.phone ?? '')
+      setPhoneDisplay(formattedPhone)
+      setValue('phone', formattedPhone)
       setValue('email', patient.email || '')
       setValue('cpf', patient.cpf || '')
       setValue('rg', patient.rg || '')
@@ -128,8 +140,18 @@ export default function PatientForm({ patient, onSubmit, loading }: Props) {
         </div>
 
         <div>
-          <label className="label">Telefone *</label>
-          <input {...register('phone')} className="input-field" placeholder="(11) 99999-0000" />
+          <label className="label">Celular *</label>
+          <input
+            value={phoneDisplay}
+            onChange={e => {
+              const formatted = formatBrazilPhone(e.target.value)
+              setPhoneDisplay(formatted)
+              setValue('phone', formatted, { shouldValidate: !!errors.phone })
+            }}
+            className="input-field"
+            placeholder="(34) 99999-0000"
+            inputMode="numeric"
+          />
           {errors.phone && <p className="text-xs text-red-500 mt-1">{errors.phone.message}</p>}
         </div>
 

@@ -3521,7 +3521,16 @@ function TesteTab() {
     queryFn:  () => api.get('/chatbot-light/templates').then(r => r.data),
   })
 
-  const [phone, setPhone]                   = useState('')
+  const [phone, setPhone] = useState('')
+
+  function formatBrazilPhone(value: string): string {
+    const digits = value.replace(/\D/g, '').slice(0, 11)
+    if (digits.length === 0) return ''
+    if (digits.length <= 2) return `(${digits}`
+    if (digits.length <= 6) return `(${digits.slice(0, 2)}) ${digits.slice(2)}`
+    if (digits.length <= 10) return `(${digits.slice(0, 2)}) ${digits.slice(2, 6)}-${digits.slice(6)}`
+    return `(${digits.slice(0, 2)}) ${digits.slice(2, 7)}-${digits.slice(7)}`
+  }
   const [selectedTemplate, setSelectedTemplate] = useState('')
   const [customMsg, setCustomMsg]           = useState('')
   const [simVars, setSimVars] = useState({ nome: 'Maria Silva', data: '20/06/2026', hora: '14:00', medico: 'Dr. João', valor: 'R$ 150,00', link: 'https://clinica.com/confirmar' })
@@ -3569,12 +3578,13 @@ function TesteTab() {
 
       <div className="space-y-4">
         <div>
-          <label className="label">Número de telefone *</label>
+          <label className="label">Celular *</label>
           <input
             value={phone}
-            onChange={e => setPhone(e.target.value)}
+            onChange={e => setPhone(formatBrazilPhone(e.target.value))}
             className="input-field"
-            placeholder="5511999999999 (com código do país)"
+            placeholder="(34) 99999-0000"
+            inputMode="numeric"
           />
         </div>
 

@@ -411,8 +411,9 @@ export default function Equipe() {
             {[
               { color: 'bg-blue-500', text: 'Visualiza a agenda apenas do médico vinculado' },
               { color: 'bg-blue-500', text: 'Pode agendar, confirmar e cancelar consultas' },
-              { color: 'bg-red-500', text: 'Não acessa o painel financeiro' },
+              { color: 'bg-emerald-500', text: 'Acesso ao Financeiro configurável em "Gestão de Acessos"' },
               { color: 'bg-red-500', text: 'Não acessa laudos e avaliações' },
+              { color: 'bg-red-500', text: 'Configurações financeiras (categorias, contas) são exclusivas do médico' },
               { color: 'bg-amber-500', text: 'Horários bloqueados pelo médico aparecem como "Bloqueado"' },
             ].map(({ color, text }) => (
               <li key={text} className="flex items-start gap-2 text-sm text-blue-700">
@@ -434,9 +435,8 @@ export default function Equipe() {
         {accessLink && (
           <div className="space-y-4">
             <p className="text-xs text-slate-500">
-              Marque as telas e funcionalidades extras que <strong>{accessLink.secretary.name}</strong> pode acessar.
-              Agenda, Pacientes, Prontuário e Convênios já estão sempre liberados; Avaliações, Financeiro e
-              agendas de outros médicos/salas continuam sempre bloqueados.
+              Marque as telas e funcionalidades que <strong>{accessLink.secretary.name}</strong> pode acessar.
+              Agenda, Pacientes e Prontuário já estão sempre liberados. Avaliações e agendas de outros médicos/salas continuam sempre bloqueados.
             </p>
             <div className="space-y-2">
               {SECRETARY_PERMISSION_KEYS.map((key: SecretaryPermissionKey) => {

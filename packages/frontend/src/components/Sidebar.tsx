@@ -111,18 +111,24 @@ export default function Sidebar({ collapsed = false, onToggleCollapse }: Sidebar
   }
 
   const navItems = [
-    { to: '/dashboard', icon: LayoutDashboard, label: 'Dashboard', roles: ['ADMIN', 'DOCTOR', 'SECRETARY'] },
-    { to: '/agenda', icon: Calendar, label: 'Agenda', roles: ['ADMIN', 'DOCTOR', 'SECRETARY'] },
-    { to: '/pacientes', icon: Users, label: 'Pacientes', roles: ['ADMIN', 'DOCTOR', 'SECRETARY'] },
-    { to: '/prontuario', icon: ClipboardList, label: 'Prontuário', roles: ['ADMIN', 'DOCTOR', 'SECRETARY'] },
-    { to: '/avaliacoes', icon: Brain, label: 'Avaliações', roles: ['ADMIN', 'DOCTOR'] },
-    { to: '/financeiro', icon: DollarSign, label: 'Financeiro', roles: ['ADMIN', 'DOCTOR'] },
-    { to: '/usuarios', icon: UserCog, label: 'Usuários', roles: ['ADMIN'] },
+    { to: '/dashboard', icon: LayoutDashboard, label: 'Dashboard', roles: ['ADMIN', 'DOCTOR', 'SECRETARY'], secretaryPermission: undefined },
+    { to: '/agenda', icon: Calendar, label: 'Agenda', roles: ['ADMIN', 'DOCTOR', 'SECRETARY'], secretaryPermission: undefined },
+    { to: '/pacientes', icon: Users, label: 'Pacientes', roles: ['ADMIN', 'DOCTOR', 'SECRETARY'], secretaryPermission: undefined },
+    { to: '/prontuario', icon: ClipboardList, label: 'Prontuário', roles: ['ADMIN', 'DOCTOR', 'SECRETARY'], secretaryPermission: undefined },
+    { to: '/avaliacoes', icon: Brain, label: 'Avaliações', roles: ['ADMIN', 'DOCTOR'], secretaryPermission: undefined },
+    { to: '/financeiro', icon: DollarSign, label: 'Financeiro', roles: ['ADMIN', 'DOCTOR', 'SECRETARY'], secretaryPermission: 'financeiro' as const },
+    { to: '/usuarios', icon: UserCog, label: 'Usuários', roles: ['ADMIN'], secretaryPermission: undefined },
   ]
 
-  const visibleItems = navItems.filter(item =>
-    user?.role ? item.roles.includes(user.role) : false
-  )
+  const visibleItems = navItems.filter(item => {
+    if (!user?.role) return false
+    if (!item.roles.includes(user.role)) return false
+    // For secretaries, items with a required permission need that permission granted
+    if (user.role === 'SECRETARY' && item.secretaryPermission) {
+      return can(item.secretaryPermission)
+    }
+    return true
+  })
 
   const initials = user?.name
     .split(' ')

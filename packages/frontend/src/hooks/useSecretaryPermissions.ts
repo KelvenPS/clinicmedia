@@ -3,6 +3,7 @@ import api from '../lib/api'
 import { useAuthStore } from '../store/authStore'
 
 export const SECRETARY_PERMISSION_KEYS = [
+  'financeiro',
   'chatbot_light',
   'chatbot_agente',
   'nota_fiscal',
@@ -16,6 +17,7 @@ export type SecretaryPermissionKey = typeof SECRETARY_PERMISSION_KEYS[number]
 export type SecretaryPermissions = Partial<Record<SecretaryPermissionKey, boolean>>
 
 export const SECRETARY_PERMISSION_LABELS: Record<SecretaryPermissionKey, string> = {
+  financeiro: 'Financeiro (Painel Financeiro)',
   chatbot_light: 'Chatbot Light',
   chatbot_agente: 'Chatbot Agente Clínico',
   nota_fiscal: 'Nota Fiscal (NFS-e)',

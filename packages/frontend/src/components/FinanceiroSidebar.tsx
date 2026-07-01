@@ -10,10 +10,9 @@ import {
 } from 'lucide-react'
 import { useAuthStore } from '../store/authStore'
 
-const NAV_SECTIONS = [
+const PAINEL_SECTIONS = [
   {
     label: 'Painel',
-    icon: LayoutDashboard,
     items: [
       { to: '/financeiro/resumo', label: 'Resumo' },
       { to: '/financeiro/fluxo-caixa', label: 'Fluxo de caixa' },
@@ -21,7 +20,6 @@ const NAV_SECTIONS = [
   },
   {
     label: 'Transações',
-    icon: ArrowLeftRight,
     items: [
       { to: '/financeiro/extrato', label: 'Extrato' },
       { to: '/financeiro/receitas', label: 'Receitas' },
@@ -30,27 +28,28 @@ const NAV_SECTIONS = [
   },
   {
     label: 'Relatórios',
-    icon: BarChart3,
     items: [
       { to: '/financeiro/analise-receitas', label: 'Análise de receitas' },
       { to: '/financeiro/analise-despesas', label: 'Análise de despesas' },
     ],
   },
-  {
-    label: 'Configurações',
-    icon: Settings2,
-    items: [
-      { to: '/financeiro/categorias', label: 'Categorias financeiras' },
-      { to: '/financeiro/contas-bancarias', label: 'Contas bancárias' },
-      { to: '/financeiro/centros-custo', label: 'Centros de custo' },
-      { to: '/financeiro/outras-configuracoes', label: 'Outras configurações' },
-    ],
-  },
 ]
+
+const CONFIG_SECTION = {
+  label: 'Configurações',
+  items: [
+    { to: '/financeiro/categorias', label: 'Categorias financeiras' },
+    { to: '/financeiro/contas-bancarias', label: 'Contas bancárias' },
+    { to: '/financeiro/centros-custo', label: 'Centros de custo' },
+    { to: '/financeiro/outras-configuracoes', label: 'Outras configurações' },
+  ],
+}
 
 export default function FinanceiroSidebar() {
   const { user } = useAuthStore()
   const navigate = useNavigate()
+  const isSecretary = user?.role === 'SECRETARY'
+  const sections = isSecretary ? PAINEL_SECTIONS : [...PAINEL_SECTIONS, CONFIG_SECTION]
 
   const initials = user?.name
     ?.split(' ')
@@ -83,7 +82,7 @@ export default function FinanceiroSidebar() {
       </div>
 
       <nav className="flex-1 min-h-0 overflow-y-auto px-2 py-3 space-y-4 scrollbar-none">
-        {NAV_SECTIONS.map(({ label, items }) => (
+        {sections.map(({ label, items }) => (
           <div key={label}>
             <p className="section-label mb-2 text-slate-500 px-2">{label}</p>
             <div className="space-y-0.5">

@@ -351,6 +351,41 @@ export function getRoomSocket(instanceKey: string) {
 }
 
 /**
+ * Normaliza um número de telefone para o formato JID do WhatsApp.
+ * Adiciona o código do país 55 para números brasileiros (10-11 dígitos sem CC).
+ */
+export function normalizeToWhatsAppJid(input: string): string {
+  if (input.endsWith('@s.whatsapp.net') || input.endsWith('@lid') || input.endsWith('@g.us')) return input
+  const rawDigits = input.replace(/\D/g, '')
+  const normalized = (rawDigits.length === 10 || rawDigits.length === 11) ? `55${rawDigits}` : rawDigits
+  return `${normalized}@s.whatsapp.net`
+}
+
+/**
+ * Verifica se um número existe no WhatsApp via onWhatsApp() do Baileys.
+ * Retorna o JID correto retornado pelo servidor, ou null se não encontrado/erro.
+ */
+export async function checkPhoneOnWhatsApp(
+  instanceKey: string,
+  phone: string,
+): Promise<{ exists: boolean; jid: string } | null> {
+  const sock = roomSockets.get(instanceKey)
+  if (!sock) return null
+
+  const jid = normalizeToWhatsAppJid(phone)
+  const numberOnly = jid.replace('@s.whatsapp.net', '')
+
+  try {
+    const result = await (sock as any).onWhatsApp(numberOnly)
+    if (!result || result.length === 0) return { exists: false, jid }
+    return { exists: result[0].exists, jid: result[0].jid ?? jid }
+  } catch (err) {
+    logRoom('warn', instanceKey, 'phone.check_failed', { phone, error: String(err) })
+    return null
+  }
+}
+
+/**
  * Envia uma mensagem de texto pelo socket de uma sala (usado pelo Chatbot Light
  * quando sua conexão está vinculada a uma Sala, eliminando a conexão própria).
  */
@@ -358,22 +393,20 @@ export async function sendRoomWhatsAppMessage(
   instanceKey: string,
   jid: string,
   content: string,
-): Promise<{ waMessageId: string } | null> {
+): Promise<{ waMessageId: string; resolvedJid: string } | null> {
   const sock = roomSockets.get(instanceKey)
   if (!sock) return null
 
-  const rawDigits = jid.replace(/\D/g, '')
-  // Add Brazil country code for 10-11 digit numbers (DDD + phone, no CC)
-  const normalized = (rawDigits.length === 10 || rawDigits.length === 11) ? `55${rawDigits}` : rawDigits
-  const resolvedJid = jid.includes('@') ? jid : `${normalized}@s.whatsapp.net`
+  const resolvedJid = normalizeToWhatsAppJid(jid)
   try {
+    logRoom('info', instanceKey, 'message.sending', { resolvedJid, source: 'CHATBOT_LIGHT' })
     const result = await sock.sendMessage(resolvedJid, { text: content })
     if (!result?.key.id) return null
 
-    logRoom('info', instanceKey, 'message.sent', { messageId: result.key.id, source: 'CHATBOT_LIGHT' })
-    return { waMessageId: result.key.id }
+    logRoom('info', instanceKey, 'message.sent', { messageId: result.key.id, resolvedJid, source: 'CHATBOT_LIGHT' })
+    return { waMessageId: result.key.id, resolvedJid }
   } catch (err) {
-    logRoom('error', instanceKey, 'message.send_failed', { jid: resolvedJid, error: String(err) })
+    logRoom('error', instanceKey, 'message.send_failed', { resolvedJid, error: String(err) })
     return null
   }
 }

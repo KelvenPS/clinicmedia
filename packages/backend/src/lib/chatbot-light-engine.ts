@@ -1,7 +1,7 @@
 import NodeCache from 'node-cache'
 import { prisma } from './prisma'
-import { resolveWhatsAppContactIdentity, resolveDeliveryJid } from './whatsapp'
-import { resolveChatbotLightSendTarget, sendRoomWhatsAppMessage } from './room-whatsapp'
+import { resolveWhatsAppContactIdentity } from './whatsapp'
+import { resolveChatbotLightSendTarget, sendRoomWhatsAppMessage, normalizeToWhatsAppJid } from './room-whatsapp'
 import { processGuidedStep, interpolateTemplate, startLeadCaptureFlow, processLeadCaptureStep } from './chatbot-light-guided-engine'
 import { resolveTemplateVariables, TemplateContext } from './chatbot-light-variables'
 
@@ -20,8 +20,8 @@ export async function sendLightMessage(
   triggerEvent?: string,
   recipientName?: string
 ): Promise<boolean> {
-  const jid = resolveDeliveryJid(to)
-  const cleanPhone = jid.split('@')[0]
+  const jid = normalizeToWhatsAppJid(to)
+  const cleanPhone = jid.replace('@s.whatsapp.net', '')
 
   const log = await prisma.lightMessageLog.create({
     data: {

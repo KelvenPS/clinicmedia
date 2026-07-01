@@ -2,8 +2,7 @@ import { Router, Response, NextFunction } from 'express'
 import { z } from 'zod'
 import { prisma } from '../lib/prisma'
 import { authenticate, requireFeature, AuthRequest } from '../middleware/auth'
-import { resolveDeliveryJid } from '../lib/whatsapp'
-import { resolveChatbotLightSendTarget, sendRoomWhatsAppMessage, isRoomSessionActive } from '../lib/room-whatsapp'
+import { resolveChatbotLightSendTarget, sendRoomWhatsAppMessage, checkPhoneOnWhatsApp, normalizeToWhatsAppJid, isRoomSessionActive } from '../lib/room-whatsapp'
 import { requireSecretaryPermission, getEffectiveDoctorId } from '../lib/secretaryAccess'
 import { simulateLightMessage, resetSimulation } from '../lib/chatbot-light-simulator'
 import { TEMPLATE_VARIABLE_REGISTRY, resolveContextFromAppointment, TemplateContext } from '../lib/chatbot-light-variables'
@@ -262,20 +261,37 @@ router.post('/test', async (req: AuthRequest, res) => {
       return
     }
 
+    // Resolve and verify the JID before sending
+    const resolvedJid = normalizeToWhatsAppJid(phone)
+    const normalizedPhone = resolvedJid.replace('@s.whatsapp.net', '')
+
+    // Check if the number exists on WhatsApp (gives proper error instead of silent failure)
+    const phoneCheck = await checkPhoneOnWhatsApp(target.instanceKey, phone)
+    if (phoneCheck && !phoneCheck.exists) {
+      res.status(400).json({
+        success: false,
+        message: `O número ${phone} não está cadastrado no WhatsApp.`,
+        resolvedJid,
+      })
+      return
+    }
+
+    // Use the jid returned by onWhatsApp if available (handles 8-digit / 9-digit variants)
+    const deliveryJid = (phoneCheck?.jid && phoneCheck.exists) ? phoneCheck.jid : resolvedJid
+
     const log = await prisma.lightMessageLog.create({
-      data: { doctorId, phone, content, module: 'teste', status: 'PENDING' },
+      data: { doctorId, phone: normalizedPhone, content, module: 'teste', status: 'PENDING' },
     })
 
     try {
-      const jid = resolveDeliveryJid(phone)
-      const result = await sendRoomWhatsAppMessage(target.instanceKey, jid, content)
+      const result = await sendRoomWhatsAppMessage(target.instanceKey, deliveryJid, content)
       if (!result) throw new Error('Não foi possível enviar: sessão indisponível ou número inválido')
 
       const updated = await prisma.lightMessageLog.update({
         where: { id: log.id },
         data: { status: 'SENT', sentAt: new Date() },
       })
-      res.json({ success: true, log: updated })
+      res.json({ success: true, log: updated, resolvedJid: result.resolvedJid })
     } catch (sendErr: any) {
       const isRecentlyConnected = sendErr?.code === 'WA_RECENTLY_CONNECTED'
       const isNotConnected = sendErr?.message?.includes('indisponível') || sendErr?.message?.includes('not connected')

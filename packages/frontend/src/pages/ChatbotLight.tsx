@@ -3562,7 +3562,10 @@ function TesteTab() {
 
   const testMutation = useMutation({
     mutationFn: () => api.post('/chatbot-light/test', { phone, content: previewContent }).then(r => r.data),
-    onSuccess: () => setLastResult({ success: true, msg: 'Mensagem enviada com sucesso!' }),
+    onSuccess: (data: { resolvedJid?: string }) => {
+      const jidInfo = data?.resolvedJid ? ` → ${data.resolvedJid}` : ''
+      setLastResult({ success: true, msg: `Mensagem enviada com sucesso!${jidInfo}` })
+    },
     onError: (err: unknown) => {
       const msg = (err as { response?: { data?: { message?: string } } })?.response?.data?.message ?? 'Falha no envio'
       setLastResult({ success: false, msg })

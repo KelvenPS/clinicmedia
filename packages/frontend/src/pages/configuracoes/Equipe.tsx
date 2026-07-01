@@ -411,6 +411,7 @@ export default function Equipe() {
             {[
               { color: 'bg-blue-500', text: 'Visualiza a agenda apenas do médico vinculado' },
               { color: 'bg-blue-500', text: 'Pode agendar, confirmar e cancelar consultas' },
+              { color: 'bg-blue-500', text: 'Pode criar pré-cadastros e finalizar cadastros pendentes' },
               { color: 'bg-emerald-500', text: 'Acesso ao Financeiro configurável em "Gestão de Acessos"' },
               { color: 'bg-red-500', text: 'Não acessa laudos e avaliações' },
               { color: 'bg-red-500', text: 'Configurações financeiras (categorias, contas) são exclusivas do médico' },

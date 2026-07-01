@@ -141,18 +141,6 @@ router.get('/check-duplicate', async (req: AuthRequest, res) => {
 
 router.get('/pre-registrations', async (req: AuthRequest, res) => {
   try {
-    // Permissão: SECRETARY precisa de canViewPendingPatients
-    if (req.user!.role === 'SECRETARY') {
-      const link = await prisma.doctorSecretary.findFirst({
-        where: { secretaryId: req.user!.userId, active: true },
-        select: { permissions: true },
-      })
-      const perms = (link?.permissions as Record<string, boolean> | null) ?? {}
-      if (!perms.canViewPendingPatients) {
-        return res.status(403).json({ message: 'Acesso negado', code: 'SECRETARY_PERMISSION_DENIED' })
-      }
-    }
-
     const { doctorIds } = await resolveScope(req)
     if (doctorIds !== null && doctorIds.length === 0) return res.json([])
 
@@ -424,21 +412,6 @@ router.post('/pre-register', async (req: AuthRequest, res) => {
     const data = preRegisterSchema.parse(req.body)
     const doctorId = await resolvePrimaryDoctorId(req)
 
-    // Permissão: SECRETARY precisa de canCreatePreRegistration
-    if (req.user!.role === 'SECRETARY') {
-      const link = await prisma.doctorSecretary.findFirst({
-        where: { secretaryId: req.user!.userId, active: true },
-        select: { permissions: true },
-      })
-      const perms = (link?.permissions as Record<string, boolean> | null) ?? {}
-      if (!perms.canCreatePreRegistration) {
-        return res.status(403).json({
-          message: 'Você não tem permissão para criar pré-cadastros',
-          code: 'SECRETARY_PERMISSION_DENIED',
-        })
-      }
-    }
-
     // Detectar duplicidade
     const duplicate = await findDuplicatePatient({
       phone: data.phone,
@@ -507,21 +480,6 @@ router.post('/:id/complete-registration', async (req: AuthRequest, res) => {
   try {
     const { id } = req.params
     const { doctorIds } = await resolveScope(req)
-
-    // Permissão: SECRETARY precisa de canCompleteRegistration
-    if (req.user!.role === 'SECRETARY') {
-      const link = await prisma.doctorSecretary.findFirst({
-        where: { secretaryId: req.user!.userId, active: true },
-        select: { permissions: true },
-      })
-      const perms = (link?.permissions as Record<string, boolean> | null) ?? {}
-      if (!perms.canCompleteRegistration) {
-        return res.status(403).json({
-          message: 'Você não tem permissão para finalizar cadastros',
-          code: 'SECRETARY_PERMISSION_DENIED',
-        })
-      }
-    }
 
     const existing = await prisma.patient.findUnique({ where: { id } })
     if (!existing) return res.status(404).json({ message: 'Paciente não encontrado' })

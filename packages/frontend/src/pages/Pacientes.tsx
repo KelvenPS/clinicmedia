@@ -13,7 +13,6 @@ import Modal from '../components/ui/Modal'
 import PatientForm from '../components/Patients/PatientForm'
 import { SkeletonTable } from '../components/ui/SkeletonCard'
 import PageHeader from '../components/ui/PageHeader'
-import { useAuthStore } from '../store/authStore'
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -199,7 +198,6 @@ const FILTER_TABS: { key: FilterKey; label: string }[] = [
 
 export default function Pacientes() {
   const qc = useQueryClient()
-  const { user } = useAuthStore()
   const [modalOpen, setModalOpen] = useState(false)
   const [editPatient, setEditPatient] = useState<Patient | null>(null)
   const [completePatient, setCompletePatient] = useState<Patient | null>(null)
@@ -241,8 +239,6 @@ export default function Pacientes() {
 
   const handleEdit = (p: Patient) => { setEditPatient(p); setModalOpen(true) }
   const handleNew = () => { setEditPatient(null); setModalOpen(true) }
-
-  const canCompleteRegistration = user?.role !== 'SECRETARY'
 
   return (
     <div className="space-y-6 page-stagger">
@@ -442,7 +438,7 @@ export default function Pacientes() {
                       </td>
                       <td className="table-cell" onClick={e => e.stopPropagation()}>
                         <div className="flex items-center gap-1">
-                          {isPreCad && canCompleteRegistration && (
+                          {isPreCad && (
                             <button
                               onClick={() => setCompletePatient(p)}
                               className="px-2 py-1 text-xs font-medium text-emerald-700 bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 rounded-lg transition-all flex items-center gap-1"
@@ -538,7 +534,7 @@ export default function Pacientes() {
                     <ChevronRight className="w-3.5 h-3.5 text-slate-300" />
                   </div>
                 </div>
-                {isPreCad && canCompleteRegistration && (
+                {isPreCad && (
                   <div className="mt-2 pt-2 border-t border-slate-100" onClick={e => e.stopPropagation()}>
                     <button
                       onClick={() => setCompletePatient(p)}

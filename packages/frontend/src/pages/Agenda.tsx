@@ -307,11 +307,13 @@ export default function Agenda() {
           return isNaN(h) ? defaultEndHour : h
         })
         const days = activeRoomsForSchedule.flatMap(r => Array.isArray(r.daysOfWeek) ? r.daysOfWeek : [])
+        // Empty days array means no restriction was configured — allow all days
+        const effectiveDays = days.length > 0 ? Array.from(new Set(days)) : [1, 2, 3, 4, 5, 6, 7]
 
         return {
           startHour: startHours.length > 0 ? Math.min(...startHours) : defaultStartHour,
           endHour: endHours.length > 0 ? Math.max(...endHours) : defaultEndHour,
-          days: Array.from(new Set(days))
+          days: effectiveDays,
         }
       })()
     : null

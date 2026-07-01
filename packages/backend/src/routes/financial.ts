@@ -346,7 +346,13 @@ router.get('/cash-flow', async (req: AuthRequest, res) => {
         return { date, ...v, cumulativeBalance: runningBalance }
       })
 
-    res.json(entries)
+    const totals = {
+      income: entries.reduce((acc, e) => acc + e.income, 0),
+      expense: entries.reduce((acc, e) => acc + e.expense, 0),
+      net: entries.reduce((acc, e) => acc + e.income - e.expense, 0),
+    }
+
+    res.json({ entries, totals })
   } catch {
     res.status(500).json({ message: 'Erro interno do servidor' })
   }

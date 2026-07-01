@@ -458,7 +458,10 @@ router.put('/:id', async (req: AuthRequest, res) => {
             id: true, name: true, phone: true,
             patientPlans: {
               take: 1,
-              include: { healthPlan: { select: { discountPercent: true, defaultValue: true } } },
+              select: {
+                value: true,
+                healthPlan: { select: { discountPercent: true, defaultValue: true } },
+              },
             },
           },
         },
@@ -478,7 +481,7 @@ router.put('/:id', async (req: AuthRequest, res) => {
       const plan = updated.patient?.patientPlans?.[0]
       if (plan) {
         const discount = plan.healthPlan.discountPercent ?? 0
-        const planValue = (plan as any).value ?? plan.healthPlan.defaultValue ?? null
+        const planValue = plan.value ?? plan.healthPlan.defaultValue ?? null
         if (planValue && planValue > 0) {
           transactionAmount = Math.round(planValue * (1 - discount / 100) * 100) / 100
         }
@@ -495,6 +498,16 @@ router.put('/:id', async (req: AuthRequest, res) => {
         transactionAmount = Math.round(appType.baseValue * (1 - discount / 100) * 100) / 100
       }
     }
+
+    console.log('[repasse]', {
+      appointmentId: id,
+      beingCompleted,
+      dataStatus: data.status,
+      currentStatus: current?.status,
+      hasExistingTransaction: !!current?.transaction,
+      appointmentValue: updated.value,
+      resolvedAmount: transactionAmount,
+    })
 
     const completingNow = beingCompleted && transactionAmount && transactionAmount > 0
 

@@ -3383,9 +3383,10 @@ function ConexaoTab() {
     enabled: pickerOpen || !instance?.roomId,
   })
 
-  const isConnected   = instance?.status === 'CONNECTED'
-  const isQuarantined = instance?.status === 'QUARANTINED'
-  const hasBoundRoom  = !!instance?.roomId
+  const isConnected    = instance?.status === 'CONNECTED'
+  const isQuarantined  = instance?.status === 'QUARANTINED'
+  const isReconnecting = instance?.status === 'RECONNECTING'
+  const hasBoundRoom   = !!instance?.roomId
 
   const bindMutation = useMutation({
     mutationFn: (roomId: string) => api.post('/chatbot-light/instance/bind-room', { roomId }).then(r => r.data),
@@ -3417,25 +3418,26 @@ function ConexaoTab() {
         </p>
       </div>
 
-      <div className={`flex items-center gap-4 p-5 rounded-2xl border ${isConnected ? 'bg-emerald-50 border-emerald-200' : isQuarantined ? 'bg-amber-50 border-amber-200' : 'bg-slate-50 border-slate-200'}`}>
-        <div className={`w-12 h-12 rounded-2xl flex items-center justify-center ${isConnected ? 'bg-emerald-500' : isQuarantined ? 'bg-amber-500' : 'bg-slate-300'}`}>
-          {isConnected ? <Wifi className="w-6 h-6 text-white" /> : isQuarantined ? <AlertCircle className="w-6 h-6 text-white" /> : <WifiOff className="w-6 h-6 text-white" />}
+      <div className={`flex items-center gap-4 p-5 rounded-2xl border ${isConnected ? 'bg-emerald-50 border-emerald-200' : isQuarantined ? 'bg-amber-50 border-amber-200' : isReconnecting ? 'bg-blue-50 border-blue-200' : 'bg-slate-50 border-slate-200'}`}>
+        <div className={`w-12 h-12 rounded-2xl flex items-center justify-center ${isConnected ? 'bg-emerald-500' : isQuarantined ? 'bg-amber-500' : isReconnecting ? 'bg-blue-500' : 'bg-slate-300'}`}>
+          {isConnected ? <Wifi className="w-6 h-6 text-white" /> : isQuarantined ? <AlertCircle className="w-6 h-6 text-white" /> : isReconnecting ? <Loader2 className="w-6 h-6 text-white animate-spin" /> : <WifiOff className="w-6 h-6 text-white" />}
         </div>
         <div className="flex-1">
           <p className="font-semibold text-slate-900">
             {hasBoundRoom
-              ? (isConnected ? 'WhatsApp conectado' : isQuarantined ? 'WhatsApp em Quarentena' : 'WhatsApp desconectado')
+              ? (isConnected ? 'WhatsApp conectado' : isQuarantined ? 'WhatsApp em Quarentena' : isReconnecting ? 'Reconectando WhatsApp...' : 'WhatsApp desconectado')
               : 'Nenhuma sala vinculada'}
           </p>
           {hasBoundRoom ? (
             <div className="text-sm space-y-0.5 mt-0.5">
-              <p className={isConnected ? 'text-emerald-700' : isQuarantined ? 'text-amber-700' : 'text-slate-500'}>
+              <p className={isConnected ? 'text-emerald-700' : isQuarantined ? 'text-amber-700' : isReconnecting ? 'text-blue-700' : 'text-slate-500'}>
                 Sala: <strong>{instance.roomName}</strong>
               </p>
-              {instance?.phoneNumber  && <p className={isConnected ? 'text-emerald-700' : 'text-slate-500'}>{instance.phoneNumber}</p>}
+              {instance?.phoneNumber  && <p className={isConnected ? 'text-emerald-700' : isReconnecting ? 'text-blue-700' : 'text-slate-500'}>{instance.phoneNumber}</p>}
               {instance?.displayName  && <p className="text-xs text-emerald-600">{instance.displayName}</p>}
               {isQuarantined && <p className="text-sm text-amber-700">A conexão foi interrompida repetidamente. Acesse a Sala em Configurações para recuperar.</p>}
-              {!isConnected && !isQuarantined && <p className="text-sm text-slate-500">A sala vinculada está com o WhatsApp desconectado. Conecte-a em Configurações &gt; Salas.</p>}
+              {isReconnecting && <p className="text-sm text-blue-700">A sessão está sendo restaurada automaticamente. Aguarde alguns instantes.</p>}
+              {!isConnected && !isQuarantined && !isReconnecting && <p className="text-sm text-slate-500">A sala vinculada está com o WhatsApp desconectado. Conecte-a em Configurações &gt; Salas.</p>}
             </div>
           ) : (
             <p className="text-sm text-slate-500">Escolha uma sala já conectada ao WhatsApp</p>

@@ -28,6 +28,8 @@ const logger = pino({ level: process.env.WA_LOG_LEVEL || 'warn' })
 const roomSockets = new Map<string, ReturnType<typeof makeWASocket>>()
 const roomReconnectTimers = new Map<string, NodeJS.Timeout>()
 const stoppingRoomKeys = new Set<string>()
+// Tracks sessions currently in the connecting/authenticating phase (not yet open)
+const roomConnecting = new Set<string>()
 
 // ─── Pending Confirmations (SIM/NÃO interactive flow) ────────────────────────
 
@@ -99,7 +101,7 @@ function logRoom(level: 'info' | 'warn' | 'error', instanceKey: string, event: s
  */
 export async function startRoomSession(connectionId: string, instanceKey: string): Promise<void> {
   if (stoppingRoomKeys.has(instanceKey)) return
-  if (roomSockets.has(instanceKey)) {
+  if (roomSockets.has(instanceKey) || roomConnecting.has(instanceKey)) {
     logRoom('info', instanceKey, 'session.start_ignored_active')
     return
   }
@@ -112,6 +114,8 @@ export async function startRoomSession(connectionId: string, instanceKey: string
 
   const sessDir = path.join(SESSIONS_DIR, 'room_' + instanceKey)
   fs.mkdirSync(sessDir, { recursive: true })
+
+  roomConnecting.add(instanceKey)
 
   try {
     const { state, saveCreds } = await useMultiFileAuthState(sessDir)
@@ -130,9 +134,91 @@ export async function startRoomSession(connectionId: string, instanceKey: string
       markOnlineOnConnect: false,
     })
 
-    roomSockets.set(instanceKey, sock)
-
     sock.ev.on('creds.update', saveCreds)
+
+    sock.ev.on('connection.update', async ({ connection, lastDisconnect, qr }) => {
+      if (qr) {
+        try {
+          const qrDataUrl = await QRCode.toDataURL(qr)
+          await prisma.roomWhatsAppConnection.update({
+            where: { id: connectionId },
+            data: {
+              qrCode: qrDataUrl,
+              qrCodeExpiresAt: new Date(Date.now() + 55_000),
+              status: 'CONNECTING',
+            },
+          })
+          logRoom('info', instanceKey, 'qr.generated')
+        } catch (e) {
+          logRoom('error', instanceKey, 'qr.save_failed', { error: String(e) })
+        }
+      }
+
+      if (connection === 'open') {
+        roomConnecting.delete(instanceKey)
+        roomSockets.set(instanceKey, sock)
+        const phoneRaw = sock.user?.id ?? ''
+        const phone = phoneRaw.split(':')[0].split('@')[0]
+        try {
+          await prisma.roomWhatsAppConnection.update({
+            where: { id: connectionId },
+            data: {
+              status: 'CONNECTED',
+              qrCode: null,
+              qrCodeExpiresAt: null,
+              phoneNumber: phone || null,
+              displayName: sock.user?.name ?? null,
+              connectedAt: new Date(),
+              lastSyncAt: new Date(),
+              reconnectAttempts: 0,
+            },
+          })
+          logRoom('info', instanceKey, 'session.connected', { phone })
+        } catch (e) {
+          logRoom('error', instanceKey, 'connected.update_failed', { error: String(e) })
+        }
+      }
+
+      if (connection === 'close') {
+        roomConnecting.delete(instanceKey)
+        roomSockets.delete(instanceKey)
+        const boom = lastDisconnect?.error as Boom | undefined
+        const code = boom?.output?.statusCode
+        const loggedOut = code === DisconnectReason.loggedOut
+
+        logRoom('warn', instanceKey, 'session.closed', { code, loggedOut })
+
+        try {
+          const conn = await prisma.roomWhatsAppConnection.findUnique({ where: { id: connectionId } })
+          if (!conn) return
+
+          const attempts = (conn.reconnectAttempts ?? 0) + 1
+          await prisma.roomWhatsAppConnection.update({
+            where: { id: connectionId },
+            data: {
+              status: 'DISCONNECTED',
+              qrCode: null,
+              disconnectedAt: new Date(),
+              reconnectAttempts: attempts,
+            },
+          })
+
+          if (!loggedOut && !stoppingRoomKeys.has(instanceKey) && attempts <= MAX_ROOM_RECONNECT_ATTEMPTS) {
+            const delay = Math.min(5000 * attempts, 30_000)
+            logRoom('info', instanceKey, 'reconnect.scheduled', { delay, attempts })
+            const timer = setTimeout(() => {
+              roomReconnectTimers.delete(instanceKey)
+              startRoomSession(connectionId, instanceKey).catch(err =>
+                logRoom('error', instanceKey, 'reconnect.failed', { error: String(err) })
+              )
+            }, delay)
+            roomReconnectTimers.set(instanceKey, timer)
+          }
+        } catch (e) {
+          logRoom('error', instanceKey, 'close.update_failed', { error: String(e) })
+        }
+      }
+    })
 
     // ── SIM/NÃO interactive confirmation + Chatbot Light dispatch ─────────────
     sock.ev.on('messages.upsert', async ({ messages: msgs, type }) => {
@@ -210,87 +296,8 @@ export async function startRoomSession(connectionId: string, instanceKey: string
       }
     })
 
-    sock.ev.on('connection.update', async ({ connection, lastDisconnect, qr }) => {
-      if (qr) {
-        try {
-          const qrDataUrl = await QRCode.toDataURL(qr)
-          await prisma.roomWhatsAppConnection.update({
-            where: { id: connectionId },
-            data: {
-              qrCode: qrDataUrl,
-              qrCodeExpiresAt: new Date(Date.now() + 55_000),
-              status: 'CONNECTING',
-            },
-          })
-          logRoom('info', instanceKey, 'qr.generated')
-        } catch (e) {
-          logRoom('error', instanceKey, 'qr.save_failed', { error: String(e) })
-        }
-      }
-
-      if (connection === 'open') {
-        const phoneRaw = sock.user?.id ?? ''
-        const phone = phoneRaw.split(':')[0].split('@')[0]
-        try {
-          await prisma.roomWhatsAppConnection.update({
-            where: { id: connectionId },
-            data: {
-              status: 'CONNECTED',
-              qrCode: null,
-              qrCodeExpiresAt: null,
-              phoneNumber: phone || null,
-              displayName: sock.user?.name ?? null,
-              connectedAt: new Date(),
-              lastSyncAt: new Date(),
-              reconnectAttempts: 0,
-            },
-          })
-          logRoom('info', instanceKey, 'session.connected', { phone })
-        } catch (e) {
-          logRoom('error', instanceKey, 'connected.update_failed', { error: String(e) })
-        }
-      }
-
-      if (connection === 'close') {
-        roomSockets.delete(instanceKey)
-        const boom = lastDisconnect?.error as Boom | undefined
-        const code = boom?.output?.statusCode
-        const loggedOut = code === DisconnectReason.loggedOut
-
-        logRoom('warn', instanceKey, 'session.closed', { code, loggedOut })
-
-        try {
-          const conn = await prisma.roomWhatsAppConnection.findUnique({ where: { id: connectionId } })
-          if (!conn) return
-
-          const attempts = (conn.reconnectAttempts ?? 0) + 1
-          await prisma.roomWhatsAppConnection.update({
-            where: { id: connectionId },
-            data: {
-              status: 'DISCONNECTED',
-              qrCode: null,
-              disconnectedAt: new Date(),
-              reconnectAttempts: attempts,
-            },
-          })
-
-          if (!loggedOut && !stoppingRoomKeys.has(instanceKey) && attempts <= MAX_ROOM_RECONNECT_ATTEMPTS) {
-            const delay = Math.min(5000 * attempts, 30_000)
-            logRoom('info', instanceKey, 'reconnect.scheduled', { delay, attempts })
-            const timer = setTimeout(() => {
-              roomReconnectTimers.delete(instanceKey)
-              startRoomSession(connectionId, instanceKey).catch(err =>
-                logRoom('error', instanceKey, 'reconnect.failed', { error: String(err) })
-              )
-            }, delay)
-            roomReconnectTimers.set(instanceKey, timer)
-          }
-        } catch (e) {
-          logRoom('error', instanceKey, 'close.update_failed', { error: String(e) })
-        }
-      }
-    })
   } catch (err) {
+    roomConnecting.delete(instanceKey)
     logRoom('error', instanceKey, 'session.start_failed', { error: String(err) })
     await prisma.roomWhatsAppConnection.update({
       where: { id: connectionId },
@@ -308,6 +315,8 @@ export async function stopRoomSession(instanceKey: string, logout = false): Prom
 
   const timer = roomReconnectTimers.get(instanceKey)
   if (timer) { clearTimeout(timer); roomReconnectTimers.delete(instanceKey) }
+
+  roomConnecting.delete(instanceKey)
 
   const sock = roomSockets.get(instanceKey)
   if (sock) {
@@ -354,11 +363,16 @@ export async function sendRoomWhatsAppMessage(
   if (!sock) return null
 
   const resolvedJid = jid.includes('@') ? jid : `${jid.replace(/\D/g, '')}@s.whatsapp.net`
-  const result = await sock.sendMessage(resolvedJid, { text: content })
-  if (!result?.key.id) return null
+  try {
+    const result = await sock.sendMessage(resolvedJid, { text: content })
+    if (!result?.key.id) return null
 
-  logRoom('info', instanceKey, 'message.sent', { messageId: result.key.id, source: 'CHATBOT_LIGHT' })
-  return { waMessageId: result.key.id }
+    logRoom('info', instanceKey, 'message.sent', { messageId: result.key.id, source: 'CHATBOT_LIGHT' })
+    return { waMessageId: result.key.id }
+  } catch (err) {
+    logRoom('error', instanceKey, 'message.send_failed', { jid: resolvedJid, error: String(err) })
+    return null
+  }
 }
 
 /**
@@ -418,6 +432,78 @@ export async function restoreRoomSessions(): Promise<void> {
   } catch (err) {
     logRoom('error', 'startup', 'restore.error', { error: String(err) })
   }
+}
+
+let roomWatchdogInterval: NodeJS.Timeout | null = null
+
+/**
+ * Watchdog for room WhatsApp connections — mirrors startHealthWatchdog from whatsapp.ts.
+ * Every 60s it checks for connections that the DB marks CONNECTED but have no active
+ * socket in memory (zombie state), and attempts to restore them. Also resets the
+ * reconnect attempt counter so connections with valid session files can recover after
+ * hitting the MAX_ROOM_RECONNECT_ATTEMPTS cap.
+ */
+export function startRoomHealthWatchdog(): void {
+  if (roomWatchdogInterval) return
+
+  const WATCHDOG_INTERVAL_MS = 60_000
+
+  roomWatchdogInterval = setInterval(async () => {
+    try {
+      // 1. CONNECTED in DB but socket not in memory and not connecting → zombie, restore
+      const connectedConns = await prisma.roomWhatsAppConnection.findMany({
+        where: { status: 'CONNECTED' },
+        select: { id: true, instanceKey: true },
+      }).catch(() => [] as { id: string; instanceKey: string }[])
+
+      for (const conn of connectedConns) {
+        if (!roomSockets.has(conn.instanceKey) && !roomConnecting.has(conn.instanceKey)) {
+          const sessDir = path.join(SESSIONS_DIR, 'room_' + conn.instanceKey)
+          if (fs.existsSync(sessDir)) {
+            logRoom('warn', conn.instanceKey, 'watchdog.zombie_detected_restoring')
+            startRoomSession(conn.id, conn.instanceKey).catch(err =>
+              logRoom('error', conn.instanceKey, 'watchdog.restore_failed', { error: String(err) })
+            )
+          } else {
+            logRoom('warn', conn.instanceKey, 'watchdog.zombie_no_files_disconnecting')
+            await prisma.roomWhatsAppConnection.update({
+              where: { id: conn.id },
+              data: { status: 'DISCONNECTED', disconnectedAt: new Date() },
+            }).catch(() => {})
+          }
+        }
+      }
+
+      // 2. DISCONNECTED with session files and reconnect cap exhausted → reset and retry
+      const disconnectedConns = await prisma.roomWhatsAppConnection.findMany({
+        where: {
+          status: 'DISCONNECTED',
+          disconnectedAt: { lt: new Date(Date.now() - 120_000) },
+          reconnectAttempts: { gt: MAX_ROOM_RECONNECT_ATTEMPTS },
+        },
+        select: { id: true, instanceKey: true },
+      }).catch(() => [] as { id: string; instanceKey: string }[])
+
+      for (const conn of disconnectedConns) {
+        if (roomSockets.has(conn.instanceKey) || roomConnecting.has(conn.instanceKey)) continue
+        const sessDir = path.join(SESSIONS_DIR, 'room_' + conn.instanceKey)
+        if (fs.existsSync(sessDir)) {
+          logRoom('info', conn.instanceKey, 'watchdog.retrying_after_cap')
+          await prisma.roomWhatsAppConnection.update({
+            where: { id: conn.id },
+            data: { reconnectAttempts: 0 },
+          }).catch(() => {})
+          startRoomSession(conn.id, conn.instanceKey).catch(err =>
+            logRoom('error', conn.instanceKey, 'watchdog.retry_failed', { error: String(err) })
+          )
+        }
+      }
+    } catch (e) {
+      logRoom('error', 'global', 'room_watchdog.error', { error: String(e) })
+    }
+  }, WATCHDOG_INTERVAL_MS)
+
+  logRoom('info', 'global', 'room_watchdog.started', { intervalMs: WATCHDOG_INTERVAL_MS })
 }
 
 /**

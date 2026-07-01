@@ -106,6 +106,84 @@ router.get('/', async (req: AuthRequest, res) => {
   }
 })
 
+// ─── GET /patients/pre-registrations ─────────────────────────────────────────
+
+// ─── GET /patients/check-duplicate ───────────────────────────────────────────
+
+router.get('/check-duplicate', async (req: AuthRequest, res) => {
+  try {
+    const { phone, cpf } = req.query as { phone?: string; cpf?: string }
+    if (!phone && !cpf) {
+      return res.status(400).json({ message: 'Informe phone ou cpf' })
+    }
+    const doctorId = await resolvePrimaryDoctorId(req)
+    const duplicate = await findDuplicatePatient({ phone: phone ?? '', cpf, doctorId })
+    if (duplicate) {
+      return res.json({
+        found: true,
+        reason: duplicate.reason,
+        patient: {
+          id: duplicate.patient.id,
+          name: duplicate.patient.name,
+          phone: duplicate.patient.phone,
+          cpf: duplicate.patient.cpf,
+          status: duplicate.patient.status,
+        },
+      })
+    }
+    return res.json({ found: false })
+  } catch {
+    res.status(500).json({ message: 'Erro interno do servidor' })
+  }
+})
+
+// ─── GET /patients/pre-registrations ─────────────────────────────────────────
+
+router.get('/pre-registrations', async (req: AuthRequest, res) => {
+  try {
+    // Permissão: SECRETARY precisa de canViewPendingPatients
+    if (req.user!.role === 'SECRETARY') {
+      const link = await prisma.doctorSecretary.findFirst({
+        where: { secretaryId: req.user!.userId, active: true },
+        select: { permissions: true },
+      })
+      const perms = (link?.permissions as Record<string, boolean> | null) ?? {}
+      if (!perms.canViewPendingPatients) {
+        return res.status(403).json({ message: 'Acesso negado', code: 'SECRETARY_PERMISSION_DENIED' })
+      }
+    }
+
+    const { doctorIds } = await resolveScope(req)
+    if (doctorIds !== null && doctorIds.length === 0) return res.json([])
+
+    const where: Record<string, unknown> = {
+      status: { in: ['PRE_CADASTRO', 'INCOMPLETO'] },
+    }
+    if (doctorIds !== null) {
+      where.doctorId = doctorIds.length === 1 ? doctorIds[0] : { in: doctorIds }
+    }
+
+    const patients = await prisma.patient.findMany({
+      where,
+      include: {
+        appointments: {
+          where: { date: { gte: new Date() } },
+          orderBy: { date: 'asc' },
+          take: 1,
+          select: { id: true, date: true, title: true, status: true },
+        },
+        createdByUser: { select: { id: true, name: true } },
+        room: { select: { id: true, name: true } },
+      },
+      orderBy: { createdAt: 'desc' },
+    })
+
+    return res.json(patients)
+  } catch {
+    res.status(500).json({ message: 'Erro interno do servidor' })
+  }
+})
+
 router.get('/:id', async (req: AuthRequest, res) => {
   try {
     const { id } = req.params
@@ -423,53 +501,6 @@ router.post('/pre-register', async (req: AuthRequest, res) => {
   }
 })
 
-// ─── GET /patients/pre-registrations ─────────────────────────────────────────
-
-router.get('/pre-registrations', async (req: AuthRequest, res) => {
-  try {
-    // Permissão: SECRETARY precisa de canViewPendingPatients
-    if (req.user!.role === 'SECRETARY') {
-      const link = await prisma.doctorSecretary.findFirst({
-        where: { secretaryId: req.user!.userId, active: true },
-        select: { permissions: true },
-      })
-      const perms = (link?.permissions as Record<string, boolean> | null) ?? {}
-      if (!perms.canViewPendingPatients) {
-        return res.status(403).json({ message: 'Acesso negado', code: 'SECRETARY_PERMISSION_DENIED' })
-      }
-    }
-
-    const { doctorIds } = await resolveScope(req)
-    if (doctorIds !== null && doctorIds.length === 0) return res.json([])
-
-    const where: Record<string, unknown> = {
-      status: { in: ['PRE_CADASTRO', 'INCOMPLETO'] },
-    }
-    if (doctorIds !== null) {
-      where.doctorId = doctorIds.length === 1 ? doctorIds[0] : { in: doctorIds }
-    }
-
-    const patients = await prisma.patient.findMany({
-      where,
-      include: {
-        appointments: {
-          where: { date: { gte: new Date() } },
-          orderBy: { date: 'asc' },
-          take: 1,
-          select: { id: true, date: true, title: true, status: true },
-        },
-        createdByUser: { select: { id: true, name: true } },
-        room: { select: { id: true, name: true } },
-      },
-      orderBy: { createdAt: 'desc' },
-    })
-
-    return res.json(patients)
-  } catch {
-    res.status(500).json({ message: 'Erro interno do servidor' })
-  }
-})
-
 // ─── POST /patients/:id/complete-registration ────────────────────────────────
 
 router.post('/:id/complete-registration', async (req: AuthRequest, res) => {
@@ -582,35 +613,6 @@ router.patch('/:id/status', async (req: AuthRequest, res) => {
     if (error instanceof z.ZodError) {
       return res.status(400).json({ message: 'Dados inválidos', errors: error.errors })
     }
-    res.status(500).json({ message: 'Erro interno do servidor' })
-  }
-})
-
-// ─── GET /patients/check-duplicate ───────────────────────────────────────────
-
-router.get('/check-duplicate', async (req: AuthRequest, res) => {
-  try {
-    const { phone, cpf } = req.query as { phone?: string; cpf?: string }
-    if (!phone && !cpf) {
-      return res.status(400).json({ message: 'Informe phone ou cpf' })
-    }
-    const doctorId = await resolvePrimaryDoctorId(req)
-    const duplicate = await findDuplicatePatient({ phone: phone ?? '', cpf, doctorId })
-    if (duplicate) {
-      return res.json({
-        found: true,
-        reason: duplicate.reason,
-        patient: {
-          id: duplicate.patient.id,
-          name: duplicate.patient.name,
-          phone: duplicate.patient.phone,
-          cpf: duplicate.patient.cpf,
-          status: duplicate.patient.status,
-        },
-      })
-    }
-    return res.json({ found: false })
-  } catch {
     res.status(500).json({ message: 'Erro interno do servidor' })
   }
 })

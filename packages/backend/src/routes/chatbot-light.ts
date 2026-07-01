@@ -3,7 +3,7 @@ import { z } from 'zod'
 import { prisma } from '../lib/prisma'
 import { authenticate, requireFeature, AuthRequest } from '../middleware/auth'
 import { resolveDeliveryJid } from '../lib/whatsapp'
-import { resolveChatbotLightSendTarget, sendRoomWhatsAppMessage } from '../lib/room-whatsapp'
+import { resolveChatbotLightSendTarget, sendRoomWhatsAppMessage, isRoomSessionActive } from '../lib/room-whatsapp'
 import { requireSecretaryPermission, getEffectiveDoctorId } from '../lib/secretaryAccess'
 import { simulateLightMessage, resetSimulation } from '../lib/chatbot-light-simulator'
 import { TEMPLATE_VARIABLE_REGISTRY, resolveContextFromAppointment, TemplateContext } from '../lib/chatbot-light-variables'
@@ -835,7 +835,11 @@ async function resolveBoundConnectionStatus(doctorId: string) {
 
   const room = await prisma.room.findUnique({
     where: { id: settings.boundRoomId },
-    select: { id: true, name: true, whatsappConnection: { select: { status: true, phoneNumber: true, displayName: true, connectedAt: true } } },
+    select: {
+      id: true,
+      name: true,
+      whatsappConnection: { select: { instanceKey: true, status: true, phoneNumber: true, displayName: true, connectedAt: true } },
+    },
   })
 
   if (!room) {
@@ -843,8 +847,15 @@ async function resolveBoundConnectionStatus(doctorId: string) {
   }
 
   const conn = room.whatsappConnection
+
+  // Reflect real socket state: if DB says CONNECTED but socket not in memory, report RECONNECTING
+  let effectiveStatus: string = conn?.status ?? 'DISCONNECTED'
+  if (effectiveStatus === 'CONNECTED' && conn?.instanceKey && !isRoomSessionActive(conn.instanceKey)) {
+    effectiveStatus = 'RECONNECTING'
+  }
+
   return {
-    status: conn?.status ?? 'DISCONNECTED',
+    status: effectiveStatus,
     roomId: room.id,
     roomName: room.name,
     phoneNumber: conn?.phoneNumber ?? null,

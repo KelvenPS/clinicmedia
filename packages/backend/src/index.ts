@@ -23,7 +23,7 @@ import chatbotRoutes from './routes/chatbot'
 import chatbotLightRoutes from './routes/chatbot-light'
 import myRoomsRoutes from './routes/my-rooms'
 import { restoreSessions, startHealthWatchdog, runStartupDatabaseCleanup } from './lib/whatsapp'
-import { restoreRoomSessions } from './lib/room-whatsapp'
+import { restoreRoomSessions, startRoomHealthWatchdog } from './lib/room-whatsapp'
 import { startLightScheduler } from './lib/chatbot-light-engine'
 import adminRoutes from './routes/admin'
 import adminSqlRoutes from './routes/admin-sql'
@@ -114,6 +114,7 @@ app.listen(PORT, () => {
 
   // Inicia watchdog que monitora e restaura sessões WhatsApp que morrem silenciosamente
   startHealthWatchdog()
+  startRoomHealthWatchdog()
 
   // Inicia o scheduler do Chatbot Light para disparar avisos atrasados e lembretes periódicos
   startLightScheduler()

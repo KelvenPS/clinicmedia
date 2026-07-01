@@ -362,7 +362,10 @@ export async function sendRoomWhatsAppMessage(
   const sock = roomSockets.get(instanceKey)
   if (!sock) return null
 
-  const resolvedJid = jid.includes('@') ? jid : `${jid.replace(/\D/g, '')}@s.whatsapp.net`
+  const rawDigits = jid.replace(/\D/g, '')
+  // Add Brazil country code for 10-11 digit numbers (DDD + phone, no CC)
+  const normalized = (rawDigits.length === 10 || rawDigits.length === 11) ? `55${rawDigits}` : rawDigits
+  const resolvedJid = jid.includes('@') ? jid : `${normalized}@s.whatsapp.net`
   try {
     const result = await sock.sendMessage(resolvedJid, { text: content })
     if (!result?.key.id) return null

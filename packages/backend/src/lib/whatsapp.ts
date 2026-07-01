@@ -397,7 +397,9 @@ export function resolveDeliveryJid(input: string): string {
   if (input === 'status@broadcast' || input.endsWith('@broadcast')) throw new Error('Não enviar para status')
 
   const digits = input.replace(/\D/g, '')
-  return `${digits}@s.whatsapp.net`
+  // Add Brazil country code for 10-11 digit numbers (DDD + phone, no CC)
+  const normalized = (digits.length === 10 || digits.length === 11) ? `55${digits}` : digits
+  return `${normalized}@s.whatsapp.net`
 }
 
 export interface WhatsAppContactIdentity {

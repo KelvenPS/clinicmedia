@@ -356,10 +356,17 @@ router.get('/:roomId/whatsapp/status', requireRole('DOCTOR', 'ADMIN'), async (re
     if (!connection) return res.json({ status: 'DISCONNECTED', roomId, connected: false })
 
     const activeInMemory = isRoomSessionActive(connection.instanceKey)
+
+    const effectiveStatus =
+      connection.status === 'CONNECTING' ? 'CONNECTING' :
+      connection.status === 'CONNECTED' && activeInMemory ? 'CONNECTED' :
+      connection.status === 'CONNECTED' && !activeInMemory ? 'RECONNECTING' :
+      'DISCONNECTED'
+
     res.json({
       id: connection.id,
       roomId,
-      status: activeInMemory ? connection.status : 'DISCONNECTED',
+      status: effectiveStatus,
       phoneNumber: connection.phoneNumber,
       displayName: connection.displayName,
       connectedAt: connection.connectedAt,

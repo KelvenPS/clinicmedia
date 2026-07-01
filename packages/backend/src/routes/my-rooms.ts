@@ -160,10 +160,18 @@ router.get('/:roomId/whatsapp/status', async (req: AuthRequest, res) => {
 
     const activeInMemory = isRoomSessionActive(connection.instanceKey)
 
+    // Preserve CONNECTING from DB regardless of socket state — socket doesn't
+    // exist yet during QR scanning, so we must not force DISCONNECTED here.
+    const effectiveStatus =
+      connection.status === 'CONNECTING' ? 'CONNECTING' :
+      connection.status === 'CONNECTED' && activeInMemory ? 'CONNECTED' :
+      connection.status === 'CONNECTED' && !activeInMemory ? 'RECONNECTING' :
+      'DISCONNECTED'
+
     res.json({
       id: connection.id,
       roomId,
-      status: activeInMemory ? connection.status : 'DISCONNECTED',
+      status: effectiveStatus,
       phoneNumber: connection.phoneNumber,
       displayName: connection.displayName,
       connectedAt: connection.connectedAt,

@@ -55,6 +55,7 @@ function WaBadge({ status }: { status?: string }) {
   const map: Record<string, { cls: string; label: string }> = {
     CONNECTED: { cls: 'text-emerald-700 bg-emerald-50 border-emerald-200', label: 'Conectado' },
     CONNECTING: { cls: 'text-amber-700 bg-amber-50 border-amber-200', label: 'Conectando...' },
+    RECONNECTING: { cls: 'text-blue-700 bg-blue-50 border-blue-200', label: 'Reconectando...' },
     QUARANTINED: { cls: 'text-red-700 bg-red-50 border-red-200', label: 'Quarentena' },
   }
   const m = map[status] ?? map.CONNECTED
@@ -69,20 +70,22 @@ function WaBadge({ status }: { status?: string }) {
 
 function WhatsAppPanel({ room, perms }: { room: MyRoom; perms: RoomPermissions }) {
   const qc = useQueryClient()
-  const [polling, setPolling] = useState(false)
 
   const { data: waStatus, isLoading } = useQuery<RoomWhatsAppConnection>({
     queryKey: ['my-room-wa', room.id],
     queryFn: () => api.get(`/my/rooms/${room.id}/whatsapp/status`).then(r => r.data),
-    refetchInterval: polling ? 2000 : false,
+    // Fast poll while connecting/reconnecting, slow poll otherwise so the page
+    // stays live without hammering the server when idle or connected.
+    refetchInterval: (query) => {
+      const s = (query.state.data as RoomWhatsAppConnection | undefined)?.status
+      if (s === 'CONNECTING' || s === 'RECONNECTING') return 2000
+      return 15000
+    },
   })
-
-  if (waStatus?.status === 'CONNECTED' && polling) setPolling(false)
 
   const connectMutation = useMutation({
     mutationFn: () => api.post(`/my/rooms/${room.id}/whatsapp/connect`),
     onSuccess: () => {
-      setPolling(true)
       qc.invalidateQueries({ queryKey: ['my-room-wa', room.id] })
       toast.success('Aguardando QR Code...')
     },
@@ -93,7 +96,6 @@ function WhatsAppPanel({ room, perms }: { room: MyRoom; perms: RoomPermissions }
   const reconnectMutation = useMutation({
     mutationFn: () => api.post(`/my/rooms/${room.id}/whatsapp/reconnect`),
     onSuccess: () => {
-      setPolling(true)
       qc.invalidateQueries({ queryKey: ['my-room-wa', room.id] })
       toast.success('Reconectando...')
     },
@@ -103,7 +105,6 @@ function WhatsAppPanel({ room, perms }: { room: MyRoom; perms: RoomPermissions }
   const disconnectMutation = useMutation({
     mutationFn: () => api.post(`/my/rooms/${room.id}/whatsapp/disconnect`),
     onSuccess: () => {
-      setPolling(false)
       qc.invalidateQueries({ queryKey: ['my-room-wa', room.id] })
       toast.success('WhatsApp desconectado')
     },
@@ -149,12 +150,30 @@ function WhatsAppPanel({ room, perms }: { room: MyRoom; perms: RoomPermissions }
         )}
       </div>
 
+      {/* Reconectando */}
+      {waStatus?.status === 'RECONNECTING' && (
+        <div className="flex items-center gap-3 p-4 bg-blue-50 border border-blue-200 rounded-xl">
+          <RefreshCw className="w-5 h-5 text-blue-600 animate-spin flex-shrink-0" />
+          <div>
+            <p className="text-sm font-semibold text-blue-800">Reconectando WhatsApp...</p>
+            <p className="text-xs text-blue-600 mt-0.5">A sessão está sendo restaurada automaticamente. Aguarde alguns instantes.</p>
+          </div>
+        </div>
+      )}
+
       {/* QR Code */}
-      {waStatus?.qrCode && waStatus.status === 'CONNECTING' && (
+      {waStatus?.status === 'CONNECTING' && (
         <div className="flex flex-col items-center gap-3 p-4 bg-amber-50 border border-amber-200 rounded-xl">
           <QrCode className="w-5 h-5 text-amber-600" />
           <p className="text-sm font-semibold text-amber-800">Escaneie o QR Code no WhatsApp</p>
-          <img src={waStatus.qrCode} alt="QR Code WhatsApp" className="w-48 h-48 rounded-xl border-4 border-white shadow-md" />
+          {waStatus.qrCode && (!waStatus.qrCodeExpiresAt || new Date(waStatus.qrCodeExpiresAt) > new Date()) ? (
+            <img src={waStatus.qrCode} alt="QR Code WhatsApp" className="w-48 h-48 rounded-xl border-4 border-white shadow-md" />
+          ) : (
+            <div className="w-48 h-48 flex flex-col items-center justify-center bg-white rounded-xl border-4 border-white shadow-md gap-2">
+              <RefreshCw className="w-8 h-8 text-amber-400 animate-spin" />
+              <p className="text-xs text-amber-600 text-center">Gerando novo QR Code...</p>
+            </div>
+          )}
           <p className="text-xs text-amber-600 text-center">Abra o WhatsApp → Menu → Dispositivos vinculados → Vincular dispositivo</p>
         </div>
       )}

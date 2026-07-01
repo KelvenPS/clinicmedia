@@ -64,11 +64,12 @@ function WhatsAppBadge({ connection }: { connection?: Room['whatsappConnection']
   const colors: Record<string, string> = {
     CONNECTED: 'text-emerald-600 bg-emerald-50 border-emerald-200',
     CONNECTING: 'text-amber-600 bg-amber-50 border-amber-200',
+    RECONNECTING: 'text-blue-600 bg-blue-50 border-blue-200',
     DISCONNECTED: 'text-slate-500 bg-slate-50 border-slate-200',
     QUARANTINED: 'text-red-600 bg-red-50 border-red-200',
   }
   const labels: Record<string, string> = {
-    CONNECTED: 'Conectado', CONNECTING: 'Conectando...', DISCONNECTED: 'Desconectado', QUARANTINED: 'Quarentena',
+    CONNECTED: 'Conectado', CONNECTING: 'Conectando...', RECONNECTING: 'Reconectando...', DISCONNECTED: 'Desconectado', QUARANTINED: 'Quarentena',
   }
   const cls = colors[connection.status] ?? colors.DISCONNECTED
   return (
@@ -305,18 +306,20 @@ function PermissionsTab({ room }: { room: Room }) {
 
 function WhatsAppTab({ room }: { room: Room }) {
   const qc = useQueryClient()
-  const [polling, setPolling] = useState(false)
 
   const { data: waStatus, isLoading } = useQuery<RoomWhatsAppConnection>({
     queryKey: ['room-wa-status', room.id],
     queryFn: () => api.get(`/rooms/${room.id}/whatsapp/status`).then(r => r.data),
-    refetchInterval: polling ? 2000 : false,
+    refetchInterval: (query) => {
+      const s = (query.state.data as RoomWhatsAppConnection | undefined)?.status
+      if (s === 'CONNECTING' || s === 'RECONNECTING') return 2000
+      return 15000
+    },
   })
 
   const connectMutation = useMutation({
     mutationFn: () => api.post(`/rooms/${room.id}/whatsapp/connect`),
     onSuccess: () => {
-      setPolling(true)
       qc.invalidateQueries({ queryKey: ['room-wa-status', room.id] })
       qc.invalidateQueries({ queryKey: ['rooms'] })
       toast.success('Aguardando QR Code...')
@@ -328,7 +331,6 @@ function WhatsAppTab({ room }: { room: Room }) {
   const reconnectMutation = useMutation({
     mutationFn: () => api.post(`/rooms/${room.id}/whatsapp/reconnect`),
     onSuccess: () => {
-      setPolling(true)
       qc.invalidateQueries({ queryKey: ['room-wa-status', room.id] })
       toast.success('Reconectando...')
     },
@@ -338,15 +340,12 @@ function WhatsAppTab({ room }: { room: Room }) {
   const disconnectMutation = useMutation({
     mutationFn: () => api.post(`/rooms/${room.id}/whatsapp/disconnect`),
     onSuccess: () => {
-      setPolling(false)
       qc.invalidateQueries({ queryKey: ['room-wa-status', room.id] })
       qc.invalidateQueries({ queryKey: ['rooms'] })
       toast.success('WhatsApp desconectado')
     },
     onError: () => toast.error('Erro ao desconectar'),
   })
-
-  if (waStatus?.status === 'CONNECTED' && polling) setPolling(false)
 
   if (isLoading) return <div className="py-8 text-center text-slate-400 text-sm">Carregando...</div>
 
@@ -373,12 +372,30 @@ function WhatsAppTab({ room }: { room: Room }) {
         )}
       </div>
 
+      {/* Reconectando */}
+      {waStatus?.status === 'RECONNECTING' && (
+        <div className="flex items-center gap-3 p-4 bg-blue-50 border border-blue-200 rounded-xl">
+          <RefreshCw className="w-5 h-5 text-blue-600 animate-spin flex-shrink-0" />
+          <div>
+            <p className="text-sm font-semibold text-blue-800">Reconectando WhatsApp...</p>
+            <p className="text-xs text-blue-600 mt-0.5">A sessão está sendo restaurada automaticamente. Aguarde alguns instantes.</p>
+          </div>
+        </div>
+      )}
+
       {/* QR Code */}
-      {waStatus?.qrCode && waStatus.status === 'CONNECTING' && (
+      {waStatus?.status === 'CONNECTING' && (
         <div className="flex flex-col items-center gap-3 p-4 bg-amber-50 border border-amber-200 rounded-xl">
           <QrCode className="w-5 h-5 text-amber-600" />
           <p className="text-sm font-semibold text-amber-800">Escaneie o QR Code no WhatsApp</p>
-          <img src={waStatus.qrCode} alt="QR Code WhatsApp" className="w-52 h-52 rounded-xl border-4 border-white shadow-md" />
+          {waStatus.qrCode && (!waStatus.qrCodeExpiresAt || new Date(waStatus.qrCodeExpiresAt) > new Date()) ? (
+            <img src={waStatus.qrCode} alt="QR Code WhatsApp" className="w-52 h-52 rounded-xl border-4 border-white shadow-md" />
+          ) : (
+            <div className="w-52 h-52 flex flex-col items-center justify-center bg-white rounded-xl border-4 border-white shadow-md gap-2">
+              <RefreshCw className="w-8 h-8 text-amber-400 animate-spin" />
+              <p className="text-xs text-amber-600 text-center">Gerando novo QR Code...</p>
+            </div>
+          )}
           <p className="text-xs text-amber-600">Abra o WhatsApp → Menu → Dispositivos vinculados → Vincular dispositivo</p>
         </div>
       )}

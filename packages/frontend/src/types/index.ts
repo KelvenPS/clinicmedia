@@ -233,7 +233,7 @@ export interface AppointmentStats {
   totalPatients: number
 }
 
-export type RoomWhatsAppStatus = 'CONNECTED' | 'CONNECTING' | 'DISCONNECTED' | 'QUARANTINED'
+export type RoomWhatsAppStatus = 'CONNECTED' | 'CONNECTING' | 'RECONNECTING' | 'DISCONNECTED' | 'QUARANTINED'
 
 export interface RoomWhatsAppConnection {
   id: string

@@ -10,6 +10,7 @@ import {
   useMultiFileAuthState,
   fetchLatestBaileysVersion,
   type WAMessage,
+  proto,
 } from '@whiskeysockets/baileys'
 import { Boom } from '@hapi/boom'
 import QRCode from 'qrcode'
@@ -30,6 +31,14 @@ const roomReconnectTimers = new Map<string, NodeJS.Timeout>()
 const stoppingRoomKeys = new Set<string>()
 // Tracks sessions currently in the connecting/authenticating phase (not yet open)
 const roomConnecting = new Set<string>()
+
+// ─── Retry infrastructure (CRITICAL for WhatsApp MD message delivery) ─────────
+// Without getMessage + msgRetryCounterCache, recipients see "Aguardando mensagem"
+// because Baileys can't answer the server's retry requests for the original ciphertext.
+const roomMsgRetryCounterCache = new NodeCache({ stdTTL: 60, checkperiod: 10 })
+const roomUserDevicesCache     = new NodeCache({ stdTTL: 300, checkperiod: 60 })
+// messageId → proto.IMessage stored for up to 5 minutes so retry requests can be served
+const roomSentMsgCache         = new NodeCache({ stdTTL: 300, checkperiod: 60 })
 
 // ─── Pending Confirmations (SIM/NÃO interactive flow) ────────────────────────
 
@@ -126,7 +135,16 @@ export async function startRoomSession(connectionId: string, instanceKey: string
       auth: state,
       logger,
       printQRInTerminal: false,
-      browser: ['ClinIQ-Room', 'Safari', '1.0'],
+      browser: ['ClinIQ-Room', 'Chrome', '120.0.0'],
+      // Required for WhatsApp MD: answer server retry requests with the original
+      // message ciphertext, otherwise recipients see "Aguardando mensagem" forever.
+      getMessage: async (key) => {
+        const id = key.id
+        if (!id) return undefined
+        return roomSentMsgCache.get<proto.IMessage>(id)
+      },
+      msgRetryCounterCache: roomMsgRetryCounterCache,
+      userDevicesCache: roomUserDevicesCache,
       syncFullHistory: false,
       defaultQueryTimeoutMs: 60_000,
       connectTimeoutMs: 60_000,
@@ -402,6 +420,12 @@ export async function sendRoomWhatsAppMessage(
     logRoom('info', instanceKey, 'message.sending', { resolvedJid, source: 'CHATBOT_LIGHT' })
     const result = await sock.sendMessage(resolvedJid, { text: content })
     if (!result?.key.id) return null
+
+    // Cache the sent message so Baileys can answer WhatsApp MD retry requests.
+    // Without this, recipients see "Aguardando mensagem" when the server retries.
+    if (result.message) {
+      roomSentMsgCache.set(result.key.id, result.message as proto.IMessage)
+    }
 
     logRoom('info', instanceKey, 'message.sent', { messageId: result.key.id, resolvedJid, source: 'CHATBOT_LIGHT' })
     return { waMessageId: result.key.id, resolvedJid }

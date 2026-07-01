@@ -413,7 +413,10 @@ export async function sendRoomWhatsAppMessage(
   content: string,
 ): Promise<{ waMessageId: string; resolvedJid: string } | null> {
   const sock = roomSockets.get(instanceKey)
-  if (!sock) return null
+  if (!sock) {
+    logRoom('warn', instanceKey, 'message.no_socket', { jid })
+    return null
+  }
 
   const resolvedJid = normalizeToWhatsAppJid(jid)
   try {
@@ -588,10 +591,16 @@ export async function tryRoomWhatsAppConfirmation(
     const connection = await prisma.roomWhatsAppConnection.findFirst({
       where: { roomId, status: 'CONNECTED' },
     })
-    if (!connection) return false
+    if (!connection) {
+      logRoom('warn', 'room-wa', 'appointment.confirmation.no_connection', { roomId })
+      return false
+    }
 
     const sock = roomSockets.get(connection.instanceKey)
-    if (!sock) return false
+    if (!sock) {
+      logRoom('warn', connection.instanceKey, 'appointment.confirmation.no_socket', { roomId, dbStatus: connection.status })
+      return false
+    }
 
     const room = await prisma.room.findUnique({
       where: { id: connection.roomId },
@@ -658,8 +667,17 @@ export async function tryRoomWhatsAppConfirmation(
 
     // Use sendRoomWhatsAppMessage so the message is normalized (adds 55 CC),
     // cached for WhatsApp MD retry, and properly logged.
+    logRoom('info', connection.instanceKey, 'appointment.confirmation.attempt', {
+      roomId,
+      patientPhone: data.patientPhone,
+      appointmentId: data.appointmentId,
+      isPendingConfirm,
+    })
     const result = await sendRoomWhatsAppMessage(connection.instanceKey, data.patientPhone, content)
-    if (!result) return false
+    if (!result) {
+      logRoom('error', connection.instanceKey, 'appointment.confirmation.send_failed', { roomId, patientPhone: data.patientPhone })
+      return false
+    }
 
     const phone = result.resolvedJid.replace('@s.whatsapp.net', '')
 

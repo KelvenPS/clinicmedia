@@ -717,6 +717,11 @@ router.post('/:id/charge', async (req: AuthRequest, res) => {
       return
     }
 
+    if (appointment.transaction) {
+      res.status(409).json({ message: 'Este agendamento já possui um lançamento financeiro' })
+      return
+    }
+
     const now = new Date()
 
     const [transaction] = await prisma.$transaction([

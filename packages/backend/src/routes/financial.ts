@@ -79,6 +79,9 @@ router.get('/', async (req: AuthRequest, res) => {
             patient: { select: { id: true, name: true } },
           },
         },
+        financialCategory: { select: { id: true, name: true, color: true } },
+        costCenter: { select: { id: true, name: true } },
+        bankAccount: { select: { id: true, name: true } },
       },
       orderBy: { date: 'desc' },
     })
@@ -575,6 +578,144 @@ router.get('/cash-flow', async (req: AuthRequest, res) => {
     }
 
     res.json({ entries, totals })
+  } catch {
+    res.status(500).json({ message: 'Erro interno do servidor' })
+  }
+})
+
+// ─── Financial Categories CRUD ────────────────────────────────────────────────
+
+router.get('/categories', async (req: AuthRequest, res) => {
+  try {
+    const doctorId = req.user!.role === 'DOCTOR' ? req.user!.userId : (req.query.doctorId as string)
+    const categories = await prisma.financialCategory.findMany({
+      where: { doctorId, active: true },
+      orderBy: [{ type: 'asc' }, { name: 'asc' }],
+    })
+    res.json(categories)
+  } catch {
+    res.status(500).json({ message: 'Erro interno do servidor' })
+  }
+})
+
+router.post('/categories', async (req: AuthRequest, res) => {
+  try {
+    const doctorId = req.user!.role === 'DOCTOR' ? req.user!.userId : req.body.doctorId
+    const data = categorySchema.parse(req.body)
+    const category = await prisma.financialCategory.create({ data: { ...data, doctorId } })
+    res.status(201).json(category)
+  } catch (error) {
+    if (error instanceof z.ZodError) return res.status(400).json({ message: 'Dados inválidos', errors: error.errors })
+    res.status(500).json({ message: 'Erro interno do servidor' })
+  }
+})
+
+router.put('/categories/:id', async (req: AuthRequest, res) => {
+  try {
+    const data = categorySchema.partial().parse(req.body)
+    const category = await prisma.financialCategory.update({ where: { id: req.params.id }, data })
+    res.json(category)
+  } catch {
+    res.status(500).json({ message: 'Erro interno do servidor' })
+  }
+})
+
+router.delete('/categories/:id', async (req: AuthRequest, res) => {
+  try {
+    await prisma.financialCategory.update({ where: { id: req.params.id }, data: { active: false } })
+    res.json({ message: 'Categoria desativada' })
+  } catch {
+    res.status(500).json({ message: 'Erro interno do servidor' })
+  }
+})
+
+// ─── Cost Centers CRUD ────────────────────────────────────────────────────────
+
+router.get('/cost-centers', async (req: AuthRequest, res) => {
+  try {
+    const doctorId = req.user!.role === 'DOCTOR' ? req.user!.userId : (req.query.doctorId as string)
+    const centers = await prisma.costCenter.findMany({
+      where: { doctorId, active: true },
+      orderBy: { name: 'asc' },
+    })
+    res.json(centers)
+  } catch {
+    res.status(500).json({ message: 'Erro interno do servidor' })
+  }
+})
+
+router.post('/cost-centers', async (req: AuthRequest, res) => {
+  try {
+    const doctorId = req.user!.role === 'DOCTOR' ? req.user!.userId : req.body.doctorId
+    const data = costCenterSchema.parse(req.body)
+    const center = await prisma.costCenter.create({ data: { ...data, doctorId } })
+    res.status(201).json(center)
+  } catch (error) {
+    if (error instanceof z.ZodError) return res.status(400).json({ message: 'Dados inválidos', errors: error.errors })
+    res.status(500).json({ message: 'Erro interno do servidor' })
+  }
+})
+
+router.put('/cost-centers/:id', async (req: AuthRequest, res) => {
+  try {
+    const data = costCenterSchema.partial().parse(req.body)
+    const center = await prisma.costCenter.update({ where: { id: req.params.id }, data })
+    res.json(center)
+  } catch {
+    res.status(500).json({ message: 'Erro interno do servidor' })
+  }
+})
+
+router.delete('/cost-centers/:id', async (req: AuthRequest, res) => {
+  try {
+    await prisma.costCenter.update({ where: { id: req.params.id }, data: { active: false } })
+    res.json({ message: 'Centro de custo desativado' })
+  } catch {
+    res.status(500).json({ message: 'Erro interno do servidor' })
+  }
+})
+
+// ─── Bank Accounts CRUD ───────────────────────────────────────────────────────
+
+router.get('/bank-accounts', async (req: AuthRequest, res) => {
+  try {
+    const doctorId = req.user!.role === 'DOCTOR' ? req.user!.userId : (req.query.doctorId as string)
+    const accounts = await prisma.bankAccount.findMany({
+      where: { doctorId, active: true },
+      orderBy: { name: 'asc' },
+    })
+    res.json(accounts)
+  } catch {
+    res.status(500).json({ message: 'Erro interno do servidor' })
+  }
+})
+
+router.post('/bank-accounts', async (req: AuthRequest, res) => {
+  try {
+    const doctorId = req.user!.role === 'DOCTOR' ? req.user!.userId : req.body.doctorId
+    const data = bankAccountSchema.parse(req.body)
+    const account = await prisma.bankAccount.create({ data: { ...data, doctorId } })
+    res.status(201).json(account)
+  } catch (error) {
+    if (error instanceof z.ZodError) return res.status(400).json({ message: 'Dados inválidos', errors: error.errors })
+    res.status(500).json({ message: 'Erro interno do servidor' })
+  }
+})
+
+router.put('/bank-accounts/:id', async (req: AuthRequest, res) => {
+  try {
+    const data = bankAccountSchema.partial().parse(req.body)
+    const account = await prisma.bankAccount.update({ where: { id: req.params.id }, data })
+    res.json(account)
+  } catch {
+    res.status(500).json({ message: 'Erro interno do servidor' })
+  }
+})
+
+router.delete('/bank-accounts/:id', async (req: AuthRequest, res) => {
+  try {
+    await prisma.bankAccount.update({ where: { id: req.params.id }, data: { active: false } })
+    res.json({ message: 'Conta bancária desativada' })
   } catch {
     res.status(500).json({ message: 'Erro interno do servidor' })
   }

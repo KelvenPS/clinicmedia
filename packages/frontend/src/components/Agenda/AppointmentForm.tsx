@@ -3,9 +3,10 @@ import { useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { z } from 'zod'
 import { format } from 'date-fns'
-import { Trash2, ArrowRight, Info, RefreshCw, Check, X, MapPin, Search } from 'lucide-react'
+import { Trash2, ArrowRight, Info, RefreshCw, Check, X, MapPin, Search, DollarSign } from 'lucide-react'
 import type { Appointment, User, Patient, AuthUser, AppointmentType, Room } from '../../types'
 import PreRegisterModal from './PreRegisterModal'
+import CobrancaModal from '../Financial/CobrancaModal'
 
 const DURATIONS = [
   { value: 30, label: '30 min' },
@@ -45,6 +46,7 @@ interface Props {
   onSubmit: (data: FormData) => void
   onDelete?: () => void
   onPatientCreated?: (patient: Patient) => void
+  onCharged?: () => void
   loading: boolean
 }
 
@@ -60,6 +62,7 @@ export default function AppointmentForm({
   onSubmit,
   onDelete,
   onPatientCreated,
+  onCharged,
   loading,
 }: Props) {
   const { register, handleSubmit, formState: { errors }, setValue, watch } = useForm<FormData>({
@@ -73,6 +76,8 @@ export default function AppointmentForm({
       roomId: '',
     },
   })
+
+  const [showCobrancaModal, setShowCobrancaModal] = useState(false)
 
   // Returns flow state
   const [wantsReturns, setWantsReturns] = useState<boolean | null>(null)
@@ -566,6 +571,16 @@ export default function AppointmentForm({
       <input {...register('repeatCount')} type="hidden" />
 
       <div className="flex items-center gap-3 pt-2">
+        {appointment && !appointment.billedAt && (
+          <button
+            type="button"
+            onClick={() => setShowCobrancaModal(true)}
+            className="bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-2 rounded-xl font-medium flex items-center gap-2"
+          >
+            <DollarSign className="w-4 h-4" />
+            Cobrar
+          </button>
+        )}
         <button type="submit" disabled={loading} className="btn-primary flex-1">
           {loading ? (
             <span className="flex items-center gap-2">
@@ -592,6 +607,19 @@ export default function AppointmentForm({
       onClose={() => setShowPreRegModal(false)}
       onCreated={handlePatientCreated}
     />
+
+    {appointment && showCobrancaModal && (
+      <CobrancaModal
+        isOpen={showCobrancaModal}
+        onClose={() => setShowCobrancaModal(false)}
+        appointment={appointment}
+        discountPercent={primaryPlan?.healthPlan?.discountPercent ?? 0}
+        onCharged={() => {
+          setShowCobrancaModal(false)
+          onCharged?.()
+        }}
+      />
+    )}
     </>
   )
 }

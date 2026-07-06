@@ -304,6 +304,7 @@ model Appointment {
   notes       String?
   type        String?
   value       Float?
+  billedAt    DateTime?
   reminder24hSent     Boolean           @default(false)
   reminder2hSent      Boolean           @default(false)
   createdAt   DateTime          @default(now())
@@ -364,6 +365,10 @@ model Transaction {
   costCenterId  String?
   bankAccountId String?
   paymentMethod String?           @map("payment_method")
+  paymentMethodId  String?
+  repasseValue     Float?
+  paidAt           DateTime?
+  notes            String?
   reminderSent        Boolean           @default(false)
   overdueReminderSent Boolean           @default(false)
   createdAt     DateTime          @default(now())
@@ -374,6 +379,7 @@ model Transaction {
   financialCategory FinancialCategory? @relation("CategoryTransactions", fields: [categoryId], references: [id])
   costCenter       CostCenter?        @relation("CostCenterTransactions", fields: [costCenterId], references: [id])
   bankAccount      BankAccount?       @relation("BankAccountTransactions", fields: [bankAccountId], references: [id])
+  paymentMethodRef PaymentMethod?     @relation("TransactionPaymentMethod", fields: [paymentMethodId], references: [id])
 
   @@map("TBLTRANSACAO")
 }
@@ -572,6 +578,7 @@ model PaymentMethod {
   updatedAt    DateTime @updatedAt
 
   doctor       User     @relation("DoctorPaymentMethods", fields: [doctorId], references: [id])
+  transactions Transaction[] @relation("TransactionPaymentMethod")
 
   @@map("TBLFORMAPAGAMENTO")
 }

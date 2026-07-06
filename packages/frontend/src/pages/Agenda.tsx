@@ -1206,6 +1206,11 @@ export default function Agenda() {
             qc.invalidateQueries({ queryKey: ['patients'] })
             qc.invalidateQueries({ queryKey: ['pre-registrations-count'] })
           }}
+          onCharged={() => {
+            qc.invalidateQueries({ queryKey: ['appointments'] })
+            qc.invalidateQueries({ queryKey: ['financial'] })
+            toast.success('Consulta cobrada com sucesso!')
+          }}
           loading={saveMutation.isPending}
         />
       </Modal>

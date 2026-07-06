@@ -192,8 +192,18 @@ export default function Layout() {
   const { user, logout } = useAuthStore()
   const navigate = useNavigate()
 
-  const [sidebarCollapsed, setSidebarCollapsed] = useState(false)
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(() => {
+    return localStorage.getItem('clinic_sidebar_collapsed') === 'true'
+  })
   const [mobileOpen, setMobileOpen] = useState(false)
+
+  const toggleSidebar = () => {
+    setSidebarCollapsed(prev => {
+      const next = !prev
+      localStorage.setItem('clinic_sidebar_collapsed', String(next))
+      return next
+    })
+  }
 
   const sidebarWidth = sidebarCollapsed ? 68 : 256
 
@@ -236,7 +246,7 @@ export default function Layout() {
           >
             <Sidebar
               collapsed={sidebarCollapsed}
-              onToggleCollapse={() => setSidebarCollapsed(c => !c)}
+              onToggleCollapse={toggleSidebar}
             />
           </div>
           <div
@@ -246,7 +256,10 @@ export default function Layout() {
                 : 'opacity-0 pointer-events-none translate-x-2'
             }`}
           >
-            <SettingsSidebar />
+            <SettingsSidebar
+              collapsed={sidebarCollapsed}
+              onToggleCollapse={toggleSidebar}
+            />
           </div>
           <div
             className={`absolute inset-0 transition-all duration-300 ${
@@ -255,7 +268,10 @@ export default function Layout() {
                 : 'opacity-0 pointer-events-none translate-x-2'
             }`}
           >
-            <FinanceiroSidebar />
+            <FinanceiroSidebar
+              collapsed={sidebarCollapsed}
+              onToggleCollapse={toggleSidebar}
+            />
           </div>
         </div>
 
@@ -269,9 +285,15 @@ export default function Layout() {
           style={{ width: 256 }}
         >
           {isSettings ? (
-            <SettingsSidebar />
+            <SettingsSidebar
+              collapsed={false}
+              onToggleCollapse={() => setMobileOpen(false)}
+            />
           ) : isFinanceiro ? (
-            <FinanceiroSidebar />
+            <FinanceiroSidebar
+              collapsed={false}
+              onToggleCollapse={() => setMobileOpen(false)}
+            />
           ) : (
             <Sidebar
               collapsed={false}

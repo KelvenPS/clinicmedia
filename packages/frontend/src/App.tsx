@@ -13,6 +13,7 @@ import Receitas from './pages/financeiro/Receitas'
 import Despesas from './pages/financeiro/Despesas'
 import AnaliseReceitas from './pages/financeiro/AnaliseReceitas'
 import AnaliseDespesas from './pages/financeiro/AnaliseDespesas'
+import AnaliseAvancada from './pages/financeiro/AnaliseAvancada'
 import FinanceiroCategorias from './pages/financeiro/Categorias'
 import ContasBancarias from './pages/financeiro/ContasBancarias'
 import CentrosCusto from './pages/financeiro/CentrosCusto'
@@ -79,6 +80,8 @@ export default function App() {
           <Route path="financeiro/despesas" element={<FeatureGate feature="financeiro"><SecretaryGate permission="financeiro"><Despesas /></SecretaryGate></FeatureGate>} />
           <Route path="financeiro/analise-receitas" element={<FeatureGate feature="financeiro"><SecretaryGate permission="financeiro"><AnaliseReceitas /></SecretaryGate></FeatureGate>} />
           <Route path="financeiro/analise-despesas" element={<FeatureGate feature="financeiro"><SecretaryGate permission="financeiro"><AnaliseDespesas /></SecretaryGate></FeatureGate>} />
+          <Route path="financeiro/analise-avancada" element={<ProtectedRoute allowedRoles={['ADMIN', 'DOCTOR']}><FeatureGate feature="financeiro"><AnaliseAvancada /></FeatureGate></ProtectedRoute>} />
+          <Route path="financeiro/formas-pagamento" element={<ProtectedRoute allowedRoles={['ADMIN', 'DOCTOR']}><FeatureGate feature="financeiro"><FormasPagamento /></FeatureGate></ProtectedRoute>} />
           <Route path="financeiro/categorias" element={<ProtectedRoute allowedRoles={['ADMIN', 'DOCTOR']}><FeatureGate feature="financeiro"><FinanceiroCategorias /></FeatureGate></ProtectedRoute>} />
           <Route path="financeiro/contas-bancarias" element={<ProtectedRoute allowedRoles={['ADMIN', 'DOCTOR']}><FeatureGate feature="financeiro"><ContasBancarias /></FeatureGate></ProtectedRoute>} />
           <Route path="financeiro/centros-custo" element={<ProtectedRoute allowedRoles={['ADMIN', 'DOCTOR']}><FeatureGate feature="financeiro"><CentrosCusto /></FeatureGate></ProtectedRoute>} />

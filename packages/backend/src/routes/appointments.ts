@@ -483,7 +483,7 @@ router.put('/:id', async (req: AuthRequest, res) => {
         const discount = plan.healthPlan.discountPercent ?? 0
         const planValue = plan.value ?? plan.healthPlan.defaultValue ?? null
         if (planValue && planValue > 0) {
-          transactionAmount = Math.round(planValue * (1 - discount / 100) * 100) / 100
+          transactionAmount = Math.floor(planValue * (1 - discount / 100) * 100) / 100
         }
       }
     }
@@ -495,7 +495,7 @@ router.put('/:id', async (req: AuthRequest, res) => {
       if (appType?.baseValue) {
         const plan = updated.patient?.patientPlans?.[0]
         const discount = plan?.healthPlan.discountPercent ?? 0
-        transactionAmount = Math.round(appType.baseValue * (1 - discount / 100) * 100) / 100
+        transactionAmount = Math.floor(appType.baseValue * (1 - discount / 100) * 100) / 100
       }
     }
 
@@ -509,34 +509,7 @@ router.put('/:id', async (req: AuthRequest, res) => {
       resolvedAmount: transactionAmount,
     })
 
-    const completingNow = beingCompleted && transactionAmount && transactionAmount > 0
-
-    if (completingNow) {
-      await prisma.$transaction([
-        prisma.transaction.create({
-          data: {
-            doctorId: updated.doctorId,
-            appointmentId: updated.id,
-            type: 'INCOME',
-            amount: transactionAmount!,
-            description: `${updated.type || 'Consulta'} - ${updated.patient.name}`,
-            date: updated.date,
-            status: 'PAID',
-            category: updated.type || 'Consulta',
-          },
-        }),
-        prisma.appointment.update({
-          where: { id },
-          data: { status: 'COMPLETED' }
-        })
-      ])
-      await createNotification(
-        updated.doctorId,
-        'Atendimento concluído',
-        `${updated.type || 'Consulta'} de ${updated.patient.name} — R$ ${transactionAmount!.toFixed(2)} lançado no financeiro`,
-        'SUCCESS',
-        '/financeiro',
-      )
+    if (beingCompleted) {
       fireWebhooks(updated.doctorId, 'appointment.completed', {
         id: updated.id,
         patientName: updated.patient.name,
@@ -567,7 +540,7 @@ router.put('/:id', async (req: AuthRequest, res) => {
       }).catch(() => {})
     }
 
-    if (data.status && !completingNow && data.status !== 'CANCELLED') {
+    if (data.status && !beingCompleted && data.status !== 'CANCELLED') {
       fireWebhooks(updated.doctorId, 'appointment.updated', {
         id: updated.id,
         patientName: updated.patient.name,
@@ -694,6 +667,96 @@ router.get('/stats', async (req: AuthRequest, res) => {
 
     res.json({ todayTotal, todayCompleted, todayScheduled, totalPatients })
   } catch {
+    res.status(500).json({ message: 'Erro interno do servidor' })
+  }
+})
+
+// ─── Charge Endpoint ─────────────────────────────────────────────────────────
+
+const chargeSchema = z.object({
+  amount: z.number().positive('Valor deve ser positivo'),
+  paymentMethodId: z.string().optional(),
+  paymentMethodName: z.string().optional(),
+  repasseValue: z.number().optional(),
+  notes: z.string().optional(),
+  coveredReturnIds: z.array(z.string()).optional(),
+})
+
+router.post('/:id/charge', async (req: AuthRequest, res) => {
+  try {
+    const { id } = req.params
+
+    if (!['DOCTOR', 'ADMIN'].includes(req.user!.role)) {
+      res.status(403).json({ message: 'Acesso negado' })
+      return
+    }
+
+    const body = chargeSchema.parse(req.body)
+
+    const appointment = await prisma.appointment.findUnique({
+      where: { id },
+      include: {
+        patient: { select: { id: true, name: true, phone: true } },
+        doctor:  { select: { id: true, name: true } },
+        transaction: { select: { id: true } },
+      },
+    })
+
+    if (!appointment) {
+      res.status(404).json({ message: 'Agendamento não encontrado' })
+      return
+    }
+
+    if (req.user!.role === 'DOCTOR' && appointment.doctorId !== req.user!.userId) {
+      res.status(403).json({ message: 'Acesso negado' })
+      return
+    }
+
+    if (appointment.billedAt) {
+      res.status(409).json({ message: 'Este agendamento já foi cobrado' })
+      return
+    }
+
+    const now = new Date()
+
+    const [transaction] = await prisma.$transaction([
+      prisma.transaction.create({
+        data: {
+          doctorId:        appointment.doctorId,
+          appointmentId:   appointment.id,
+          type:            'INCOME',
+          amount:          body.amount,
+          repasseValue:    body.repasseValue ?? null,
+          paymentMethodId: body.paymentMethodId ?? null,
+          paymentMethod:   body.paymentMethodName ?? null,
+          description:     `${appointment.type || 'Consulta'} - ${appointment.patient.name}`,
+          date:            now,
+          paidAt:          now,
+          status:          'PAID',
+          category:        appointment.type || 'Consulta',
+          notes:           body.notes ?? null,
+        },
+      }),
+      prisma.appointment.update({
+        where: { id },
+        data:  { billedAt: now },
+      }),
+    ])
+
+    await createNotification(
+      appointment.doctorId,
+      'Cobrança registrada',
+      `${appointment.type || 'Consulta'} de ${appointment.patient.name} — R$ ${body.amount.toFixed(2)} lançado no financeiro`,
+      'SUCCESS',
+      '/financeiro',
+    )
+
+    res.status(201).json({ transaction, appointmentId: appointment.id })
+  } catch (error) {
+    if (error instanceof z.ZodError) {
+      res.status(400).json({ message: 'Dados inválidos', errors: error.errors })
+      return
+    }
     res.status(500).json({ message: 'Erro interno do servidor' })
   }
 })

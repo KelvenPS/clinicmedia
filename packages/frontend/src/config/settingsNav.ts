@@ -11,9 +11,9 @@ import {
   FileText,
   Bell,
   Wallet,
-  Zap,
   Webhook,
   Shield,
+  Sparkles,
 } from 'lucide-react'
 
 export interface SettingsNavItem {
@@ -35,7 +35,7 @@ export const SETTINGS_NAV_ITEMS: SettingsNavItem[] = [
   { to: '/configuracoes/formas-pagamento', icon: Wallet, label: 'Formas de Pagamento', shortLabel: 'Pagamento', roles: ['ADMIN', 'DOCTOR'] },
   { to: '/configuracoes/notificacoes', icon: Bell, label: 'Notificações', shortLabel: 'Alertas', roles: ['ADMIN', 'DOCTOR', 'SECRETARY'] },
   { to: '/configuracoes/integracoes', icon: Webhook, label: 'Integrações', roles: ['ADMIN', 'DOCTOR', 'SECRETARY'], secretaryPermission: 'integracoes' },
-  { to: '/configuracoes/planos', icon: Zap, label: 'Meu Plano', roles: ['ADMIN', 'DOCTOR'] },
+  { to: '/configuracoes/planos', icon: Sparkles, label: 'Meu Plano', roles: ['ADMIN', 'DOCTOR'] },
   { to: '/configuracoes/equipe', icon: Users, label: 'Minha Equipe', shortLabel: 'Equipe', roles: ['DOCTOR'] },
   { to: '/configuracoes/ajuda', icon: HelpCircle, label: 'Ajuda & Suporte', shortLabel: 'Ajuda', roles: ['ADMIN', 'DOCTOR', 'SECRETARY'] },
   { to: '/configuracoes/documentacao', icon: BookOpen, label: 'Documentação', shortLabel: 'Docs', roles: ['ADMIN', 'DOCTOR', 'SECRETARY'] },

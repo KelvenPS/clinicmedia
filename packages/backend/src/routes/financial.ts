@@ -79,9 +79,6 @@ router.get('/', async (req: AuthRequest, res) => {
             patient: { select: { id: true, name: true } },
           },
         },
-        financialCategory: { select: { id: true, name: true, color: true } },
-        costCenter: { select: { id: true, name: true } },
-        bankAccount: { select: { id: true, name: true } },
       },
       orderBy: { date: 'desc' },
     })
@@ -236,6 +233,231 @@ router.get('/analytics', async (req: AuthRequest, res) => {
   }
 })
 
+// ─── Advanced Analytics ───────────────────────────────────────────────────────
+
+router.get('/analytics/by-payment-method', async (req: AuthRequest, res) => {
+  try {
+    const { startDate, endDate, doctorId: qDoctorId } = req.query
+    const doctorId = req.user!.role === 'DOCTOR' ? req.user!.userId : (qDoctorId as string | undefined)
+    if (!doctorId) { res.status(400).json({ message: 'doctorId obrigatório para ADMIN' }); return }
+
+    const start = startDate ? new Date(startDate as string) : new Date(new Date().setDate(1))
+    const end   = endDate   ? new Date(endDate as string)   : new Date()
+
+    const results = await prisma.$queryRaw<Array<{ method: string; total: unknown; count: bigint }>>`
+      SELECT
+        COALESCE("payment_method", 'Não informado') AS "method",
+        SUM(amount)   AS "total",
+        COUNT(*)      AS "count"
+      FROM "TBLTRANSACAO"
+      WHERE "doctorId" = ${doctorId}
+        AND type = 'INCOME'
+        AND status = 'PAID'
+        AND date >= ${start}
+        AND date <= ${end}
+      GROUP BY "payment_method"
+      ORDER BY "total" DESC
+    `
+
+    const rows = results.map(r => ({
+      method: String(r.method),
+      total:  Number(r.total),
+      count:  Number(r.count),
+    }))
+    const grandTotal = rows.reduce((s, r) => s + r.total, 0)
+    const data = rows.map(r => ({
+      ...r,
+      percent: grandTotal > 0 ? Math.round((r.total / grandTotal) * 100) : 0,
+    }))
+
+    res.json(data)
+  } catch {
+    res.status(500).json({ message: 'Erro interno do servidor' })
+  }
+})
+
+router.get('/analytics/by-hour', async (req: AuthRequest, res) => {
+  try {
+    const { startDate, endDate } = req.query
+    const doctorId = req.user!.role === 'DOCTOR' ? req.user!.userId : (req.query.doctorId as string | undefined)
+    if (!doctorId) { res.status(400).json({ message: 'doctorId obrigatório para ADMIN' }); return }
+
+    const start = startDate ? new Date(startDate as string) : new Date(new Date().setDate(1))
+    const end   = endDate   ? new Date(endDate as string)   : new Date()
+
+    const results = await prisma.$queryRaw<Array<{ hour: unknown; total: unknown; count: bigint }>>`
+      SELECT
+        EXTRACT(HOUR FROM date) AS "hour",
+        SUM(amount)             AS "total",
+        COUNT(*)                AS "count"
+      FROM "TBLTRANSACAO"
+      WHERE "doctorId" = ${doctorId}
+        AND type = 'INCOME'
+        AND status = 'PAID'
+        AND date >= ${start}
+        AND date <= ${end}
+      GROUP BY EXTRACT(HOUR FROM date)
+      ORDER BY "hour"
+    `
+
+    const data = results.map(r => {
+      const h = Number(r.hour)
+      return {
+        hour:  h,
+        label: `${String(h).padStart(2, '0')}h`,
+        total: Number(r.total),
+        count: Number(r.count),
+      }
+    })
+
+    res.json(data)
+  } catch {
+    res.status(500).json({ message: 'Erro interno do servidor' })
+  }
+})
+
+router.get('/analytics/by-day-of-week', async (req: AuthRequest, res) => {
+  try {
+    const { startDate, endDate } = req.query
+    const doctorId = req.user!.role === 'DOCTOR' ? req.user!.userId : (req.query.doctorId as string | undefined)
+    if (!doctorId) { res.status(400).json({ message: 'doctorId obrigatório para ADMIN' }); return }
+
+    const start = startDate ? new Date(startDate as string) : new Date(new Date().setDate(1))
+    const end   = endDate   ? new Date(endDate as string)   : new Date()
+
+    const DOW_LABELS = ['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb']
+
+    const results = await prisma.$queryRaw<Array<{ dayOfWeek: unknown; total: unknown; count: bigint }>>`
+      SELECT
+        EXTRACT(DOW FROM date) AS "dayOfWeek",
+        SUM(amount)            AS "total",
+        COUNT(*)               AS "count"
+      FROM "TBLTRANSACAO"
+      WHERE "doctorId" = ${doctorId}
+        AND type = 'INCOME'
+        AND status = 'PAID'
+        AND date >= ${start}
+        AND date <= ${end}
+      GROUP BY EXTRACT(DOW FROM date)
+      ORDER BY "dayOfWeek"
+    `
+
+    const data = results.map(r => {
+      const dow = Number(r.dayOfWeek)
+      return {
+        dayOfWeek: dow,
+        label:     DOW_LABELS[dow] ?? String(dow),
+        total:     Number(r.total),
+        count:     Number(r.count),
+      }
+    })
+
+    res.json(data)
+  } catch {
+    res.status(500).json({ message: 'Erro interno do servidor' })
+  }
+})
+
+router.get('/analytics/by-convenio', async (req: AuthRequest, res) => {
+  try {
+    const { startDate, endDate } = req.query
+    const doctorId = req.user!.role === 'DOCTOR' ? req.user!.userId : (req.query.doctorId as string | undefined)
+    if (!doctorId) { res.status(400).json({ message: 'doctorId obrigatório para ADMIN' }); return }
+
+    const start = startDate ? new Date(startDate as string) : new Date(new Date().setDate(1))
+    const end   = endDate   ? new Date(endDate as string)   : new Date()
+
+    const where: Record<string, unknown> = {
+      doctorId,
+      type: 'INCOME',
+      status: 'PAID',
+      date: { gte: start, lte: end },
+    }
+
+    const transactions = await prisma.transaction.findMany({
+      where,
+      include: {
+        appointment: {
+          include: {
+            patient: {
+              include: {
+                patientPlans: {
+                  take: 1,
+                  include: { healthPlan: { select: { name: true } } },
+                },
+              },
+            },
+          },
+        },
+      },
+    })
+
+    const convenioMap = new Map<string, { total: number; count: number }>()
+    for (const tx of transactions) {
+      const planName = tx.appointment?.patient?.patientPlans?.[0]?.healthPlan?.name ?? 'Particular'
+      const prev = convenioMap.get(planName) ?? { total: 0, count: 0 }
+      convenioMap.set(planName, { total: prev.total + tx.amount, count: prev.count + 1 })
+    }
+
+    const data = Array.from(convenioMap.entries())
+      .map(([convenio, v]) => ({ convenio, ...v }))
+      .sort((a, b) => b.total - a.total)
+
+    res.json(data)
+  } catch {
+    res.status(500).json({ message: 'Erro interno do servidor' })
+  }
+})
+
+router.get('/analytics/by-procedure', async (req: AuthRequest, res) => {
+  try {
+    const { startDate, endDate } = req.query
+    const doctorId = req.user!.role === 'DOCTOR' ? req.user!.userId : (req.query.doctorId as string | undefined)
+    if (!doctorId) { res.status(400).json({ message: 'doctorId obrigatório para ADMIN' }); return }
+
+    const start = startDate ? new Date(startDate as string) : new Date(new Date().setDate(1))
+    const end   = endDate   ? new Date(endDate as string)   : new Date()
+
+    const result = await prisma.transaction.groupBy({
+      by: ['category'],
+      where: {
+        doctorId,
+        type: 'INCOME',
+        status: 'PAID',
+        date: { gte: start, lte: end },
+      },
+      _sum:   { amount: true },
+      _count: { id: true },
+      orderBy: { _sum: { amount: 'desc' } },
+    })
+
+    const data = result.map(r => ({
+      procedure: r.category ?? 'Sem categoria',
+      total:     r._sum.amount ?? 0,
+      count:     r._count.id,
+    }))
+
+    res.json(data)
+  } catch {
+    res.status(500).json({ message: 'Erro interno do servidor' })
+  }
+})
+
+// ─── Payment Methods (proxy for CobrancaModal) ────────────────────────────────
+
+router.get('/payment-methods', async (req: AuthRequest, res) => {
+  try {
+    const doctorId = req.user!.role === 'DOCTOR' ? req.user!.userId : (req.query.doctorId as string)
+    const methods = await prisma.paymentMethod.findMany({
+      where: { doctorId, active: true },
+      orderBy: { name: 'asc' },
+    })
+    res.json(methods)
+  } catch {
+    res.status(500).json({ message: 'Erro interno do servidor' })
+  }
+})
+
 router.post('/', async (req, res) => {
   try {
     const data = transactionSchema.parse(req.body)
@@ -353,144 +575,6 @@ router.get('/cash-flow', async (req: AuthRequest, res) => {
     }
 
     res.json({ entries, totals })
-  } catch {
-    res.status(500).json({ message: 'Erro interno do servidor' })
-  }
-})
-
-// ─── Financial Categories CRUD ────────────────────────────────────────────────
-
-router.get('/categories', async (req: AuthRequest, res) => {
-  try {
-    const doctorId = req.user!.role === 'DOCTOR' ? req.user!.userId : (req.query.doctorId as string)
-    const categories = await prisma.financialCategory.findMany({
-      where: { doctorId, active: true },
-      orderBy: [{ type: 'asc' }, { name: 'asc' }],
-    })
-    res.json(categories)
-  } catch {
-    res.status(500).json({ message: 'Erro interno do servidor' })
-  }
-})
-
-router.post('/categories', async (req: AuthRequest, res) => {
-  try {
-    const doctorId = req.user!.role === 'DOCTOR' ? req.user!.userId : req.body.doctorId
-    const data = categorySchema.parse(req.body)
-    const category = await prisma.financialCategory.create({ data: { ...data, doctorId } })
-    res.status(201).json(category)
-  } catch (error) {
-    if (error instanceof z.ZodError) return res.status(400).json({ message: 'Dados inválidos', errors: error.errors })
-    res.status(500).json({ message: 'Erro interno do servidor' })
-  }
-})
-
-router.put('/categories/:id', async (req: AuthRequest, res) => {
-  try {
-    const data = categorySchema.partial().parse(req.body)
-    const category = await prisma.financialCategory.update({ where: { id: req.params.id }, data })
-    res.json(category)
-  } catch {
-    res.status(500).json({ message: 'Erro interno do servidor' })
-  }
-})
-
-router.delete('/categories/:id', async (req: AuthRequest, res) => {
-  try {
-    await prisma.financialCategory.update({ where: { id: req.params.id }, data: { active: false } })
-    res.json({ message: 'Categoria desativada' })
-  } catch {
-    res.status(500).json({ message: 'Erro interno do servidor' })
-  }
-})
-
-// ─── Cost Centers CRUD ────────────────────────────────────────────────────────
-
-router.get('/cost-centers', async (req: AuthRequest, res) => {
-  try {
-    const doctorId = req.user!.role === 'DOCTOR' ? req.user!.userId : (req.query.doctorId as string)
-    const centers = await prisma.costCenter.findMany({
-      where: { doctorId, active: true },
-      orderBy: { name: 'asc' },
-    })
-    res.json(centers)
-  } catch {
-    res.status(500).json({ message: 'Erro interno do servidor' })
-  }
-})
-
-router.post('/cost-centers', async (req: AuthRequest, res) => {
-  try {
-    const doctorId = req.user!.role === 'DOCTOR' ? req.user!.userId : req.body.doctorId
-    const data = costCenterSchema.parse(req.body)
-    const center = await prisma.costCenter.create({ data: { ...data, doctorId } })
-    res.status(201).json(center)
-  } catch (error) {
-    if (error instanceof z.ZodError) return res.status(400).json({ message: 'Dados inválidos', errors: error.errors })
-    res.status(500).json({ message: 'Erro interno do servidor' })
-  }
-})
-
-router.put('/cost-centers/:id', async (req: AuthRequest, res) => {
-  try {
-    const data = costCenterSchema.partial().parse(req.body)
-    const center = await prisma.costCenter.update({ where: { id: req.params.id }, data })
-    res.json(center)
-  } catch {
-    res.status(500).json({ message: 'Erro interno do servidor' })
-  }
-})
-
-router.delete('/cost-centers/:id', async (req: AuthRequest, res) => {
-  try {
-    await prisma.costCenter.update({ where: { id: req.params.id }, data: { active: false } })
-    res.json({ message: 'Centro de custo desativado' })
-  } catch {
-    res.status(500).json({ message: 'Erro interno do servidor' })
-  }
-})
-
-// ─── Bank Accounts CRUD ───────────────────────────────────────────────────────
-
-router.get('/bank-accounts', async (req: AuthRequest, res) => {
-  try {
-    const doctorId = req.user!.role === 'DOCTOR' ? req.user!.userId : (req.query.doctorId as string)
-    const accounts = await prisma.bankAccount.findMany({
-      where: { doctorId, active: true },
-      orderBy: { name: 'asc' },
-    })
-    res.json(accounts)
-  } catch {
-    res.status(500).json({ message: 'Erro interno do servidor' })
-  }
-})
-
-router.post('/bank-accounts', async (req: AuthRequest, res) => {
-  try {
-    const doctorId = req.user!.role === 'DOCTOR' ? req.user!.userId : req.body.doctorId
-    const data = bankAccountSchema.parse(req.body)
-    const account = await prisma.bankAccount.create({ data: { ...data, doctorId } })
-    res.status(201).json(account)
-  } catch (error) {
-    if (error instanceof z.ZodError) return res.status(400).json({ message: 'Dados inválidos', errors: error.errors })
-    res.status(500).json({ message: 'Erro interno do servidor' })
-  }
-})
-
-router.put('/bank-accounts/:id', async (req: AuthRequest, res) => {
-  try {
-    const data = bankAccountSchema.partial().parse(req.body)
-    const account = await prisma.bankAccount.update({ where: { id: req.params.id }, data })
-    res.json(account)
-  } catch {
-    res.status(500).json({ message: 'Erro interno do servidor' })
-  }
-})
-
-router.delete('/bank-accounts/:id', async (req: AuthRequest, res) => {
-  try {
-    await prisma.bankAccount.update({ where: { id: req.params.id }, data: { active: false } })
-    res.json({ message: 'Conta bancária desativada' })
   } catch {
     res.status(500).json({ message: 'Erro interno do servidor' })
   }

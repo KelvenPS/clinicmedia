@@ -1,7 +1,11 @@
 #!/bin/bash
 # Deploy ClinIQ Pro — git pull + build + up
 # Uso: bash deploy.sh
-# O backend aplica 'prisma db push' automaticamente ao iniciar.
+# O backend executa scripts/migrate.sh ao iniciar:
+#   1. rename-tables.sql (idempotente)
+#   2. baseline automático se for a primeira vez com migrate deploy
+#   3. prisma migrate deploy (aplica apenas migrations novas)
+#   4. node dist/index.js
 
 set -e
 
@@ -25,7 +29,7 @@ echo ""
 echo "[3/3] Reiniciando containers..."
 docker compose up -d --force-recreate
 
-# Aguarda o backend ficar healthy (já aplica db push internamente)
+# Aguarda o backend ficar healthy (aplica migrations via scripts/migrate.sh)
 echo ""
 echo "Aguardando backend..."
 RETRIES=0

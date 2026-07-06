@@ -1,7 +1,6 @@
 import { useState, useEffect } from 'react'
 import { Link } from 'react-router-dom'
 import {
-  Zap,
   Calendar,
   Brain,
   FileText,
@@ -19,7 +18,9 @@ import {
   Shield,
   Clock,
   CreditCard,
+  Sparkles,
 } from 'lucide-react'
+import { ClinicIcon } from '../components/ui/ClinicLogo'
 
 // ─── Navigation ────────────────────────────────────────────────────────────────
 
@@ -56,12 +57,8 @@ function Navbar() {
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
         <div className="flex items-center justify-between h-16 lg:h-18">
           {/* Logo */}
-          <Link to="/" className="flex items-center gap-2 group">
-            <div className="relative">
-              <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-cyan-500 to-blue-600 flex items-center justify-center shadow-lg shadow-cyan-500/30 group-hover:shadow-cyan-500/50 transition-shadow">
-                <Zap size={16} className="text-white fill-white" />
-              </div>
-            </div>
+          <Link to="/" className="flex items-center gap-2.5 group">
+            <ClinicIcon size="sm" />
             <span className="text-xl font-bold bg-gradient-to-r from-cyan-400 to-blue-500 bg-clip-text text-transparent">
               ClinIQ Pro
             </span>
@@ -156,7 +153,7 @@ function Hero() {
       <div className="relative z-10 max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 text-center pt-24 pb-16">
         {/* Badge */}
         <div className="inline-flex items-center gap-2 px-4 py-1.5 rounded-full bg-cyan-500/10 border border-cyan-500/25 text-cyan-400 text-sm font-medium mb-8">
-          <Zap size={14} className="fill-cyan-400" />
+          <Sparkles size={14} className="text-cyan-400" />
           Gestão Clínica Inteligente
         </div>
 
@@ -664,7 +661,7 @@ function CtaBanner() {
 
       <div className="relative z-10 max-w-3xl mx-auto px-4 sm:px-6 lg:px-8 text-center">
         <div className="inline-flex items-center gap-2 px-4 py-1.5 rounded-full bg-cyan-500/10 border border-cyan-500/25 text-cyan-400 text-sm font-medium mb-6">
-          <Zap size={14} className="fill-cyan-400" />
+          <Sparkles size={14} className="text-cyan-400" />
           Comece hoje
         </div>
         <h2 className="text-3xl sm:text-4xl lg:text-5xl font-extrabold text-white mb-4 leading-tight">
@@ -716,10 +713,8 @@ function Footer() {
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-10 mb-12">
           {/* Brand */}
           <div className="lg:col-span-2">
-            <div className="flex items-center gap-2 mb-4">
-              <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-cyan-500 to-blue-600 flex items-center justify-center shadow-lg shadow-cyan-500/30">
-                <Zap size={16} className="text-white fill-white" />
-              </div>
+            <div className="flex items-center gap-2.5 mb-4">
+              <ClinicIcon size="sm" />
               <span className="text-xl font-bold bg-gradient-to-r from-cyan-400 to-blue-500 bg-clip-text text-transparent">
                 ClinIQ Pro
               </span>

@@ -120,11 +120,13 @@ export interface Appointment {
   notes?: string | null
   type?: string | null
   value?: number | null
+  billedAt?: string | null
   createdAt: string
-  patient: { id: string; name: string; phone: string; status?: PatientStatus }
+  patient: { id: string; name: string; phone: string; status?: PatientStatus; patientPlans?: Array<{ healthPlan: { name: string; discountPercent?: number | null } }> }
   doctor: { id: string; name: string; specialty?: string | null; crm?: string | null }
   createdBy?: { id: string; name: string }
   room?: { id: string; name: string; logradouro?: string | null; cidade?: string | null } | null
+  transaction?: { id: string } | null
 }
 
 export interface Transaction {
@@ -137,6 +139,11 @@ export interface Transaction {
   date: string
   status: TransactionStatus
   category?: string | null
+  paymentMethod?: string | null
+  paymentMethodId?: string | null
+  repasseValue?: number | null
+  paidAt?: string | null
+  notes?: string | null
   createdAt: string
   doctor: { id: string; name: string }
   appointment?: { id: string; patient: { id: string; name: string } } | null
@@ -438,4 +445,39 @@ export interface WebhookLog {
   error?: string | null
   duration?: number | null
   createdAt: string
+}
+
+// ── Advanced Financial Analytics ─────────────────────────────────────────────
+
+export interface PaymentMethodAnalytics {
+  method: string
+  total: number
+  count: number
+  percent: number
+}
+
+export interface HourAnalytics {
+  hour: number
+  label: string
+  total: number
+  count: number
+}
+
+export interface DayOfWeekAnalytics {
+  dayOfWeek: number
+  label: string
+  total: number
+  count: number
+}
+
+export interface ConvenioAnalytics {
+  convenio: string
+  total: number
+  count: number
+}
+
+export interface ProcedureAnalytics {
+  procedure: string
+  total: number
+  count: number
 }

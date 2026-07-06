@@ -12,7 +12,6 @@ import {
   Settings,
   ClipboardList,
   Brain,
-  Zap,
   Bot,
   MessageSquare,
   Sparkles,
@@ -29,6 +28,7 @@ import { useQuery } from '@tanstack/react-query'
 import { useAuthStore } from '../store/authStore'
 import { useSecretaryPermissions } from '../hooks/useSecretaryPermissions'
 import api from '../lib/api'
+import ClinicLogo from './ui/ClinicLogo'
 
 const roleLabel: Record<string, string> = {
   ADMIN: 'Administrador',
@@ -145,37 +145,35 @@ export default function Sidebar({ collapsed = false, onToggleCollapse }: Sidebar
         transition: 'width 0.32s cubic-bezier(.22,1,.36,1)',
       }}
     >
-      {/* ── Logo ── */}
-      <div className="px-3 py-4 border-b border-white/8 flex-shrink-0">
-        <div className="flex items-center gap-3 min-w-0">
-          <div
-            className="w-9 h-9 bg-gradient-to-br from-cyan-500 to-blue-600 rounded-xl
-                        flex items-center justify-center shadow-lg shadow-cyan-600/30
-                        flex-shrink-0 transition-transform duration-200 hover:scale-105"
-          >
-            <Zap className="w-5 h-5 text-white" fill="white" />
+      {/* ── Logo & Header ── */}
+      <div className="px-2.5 py-3.5 border-b border-white/8 flex-shrink-0">
+        {!collapsed ? (
+          <div className="flex items-center justify-between min-w-0">
+            <ClinicLogo size="md" />
+            <button
+              onClick={onToggleCollapse}
+              className="w-7 h-7 flex items-center justify-center
+                         text-slate-400 hover:text-white hover:bg-white/10 rounded-lg
+                         transition-all duration-150 flex-shrink-0 ml-1"
+              title="Recolher sidebar"
+            >
+              <PanelLeftClose className="w-4 h-4" />
+            </button>
           </div>
-          <div
-            className="overflow-hidden transition-all duration-300"
-            style={{ opacity: collapsed ? 0 : 1, width: collapsed ? 0 : 'auto', whiteSpace: 'nowrap' }}
-          >
-            <h1 className="text-white font-bold text-base leading-tight tracking-tight">ClinIQ</h1>
-            <p className="text-cyan-400 text-xs font-semibold">Pro</p>
+        ) : (
+          <div className="flex items-center justify-between min-w-0">
+            <ClinicLogo iconOnly size="sm" />
+            <button
+              onClick={onToggleCollapse}
+              className="w-7 h-7 flex items-center justify-center
+                         text-cyan-400 hover:text-white hover:bg-cyan-500/20 rounded-lg
+                         transition-all duration-150 flex-shrink-0"
+              title="Expandir sidebar"
+            >
+              <PanelLeft className="w-4.5 h-4.5" />
+            </button>
           </div>
-          {/* Collapse toggle */}
-          <button
-            onClick={onToggleCollapse}
-            className="ml-auto w-7 h-7 flex items-center justify-center
-                       text-slate-500 hover:text-slate-200 hover:bg-white/10 rounded-lg
-                       transition-all duration-150 flex-shrink-0"
-            title={collapsed ? 'Expandir sidebar' : 'Recolher sidebar'}
-          >
-            {collapsed
-              ? <PanelLeft className="w-4 h-4" />
-              : <PanelLeftClose className="w-4 h-4" />
-            }
-          </button>
-        </div>
+        )}
       </div>
 
       {/* ── Nav ── */}

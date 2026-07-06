@@ -1,8 +1,9 @@
-import { Zap, ArrowLeft, MessageSquare, Clock, ListFilter, Users, ClipboardList, GitBranch, Settings, ChevronDown, UsersRound, WifiOff } from 'lucide-react'
+import { ArrowLeft, MessageSquare, Clock, ListFilter, Users, ClipboardList, GitBranch, Settings, ChevronDown, UsersRound, WifiOff } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import { type ActivePanel, type ConversationCategory, type Conversation, type ChatbotInstance } from '../../types/chatbot'
 import api from '../../lib/api'
+import { ClinicIcon } from '../ui/ClinicLogo'
 
 interface Props {
   activePanel: ActivePanel
@@ -57,9 +58,7 @@ export default function AppSidebar({
       <div className="px-6 py-5 border-b border-white/5 flex-shrink-0">
         <div className="flex items-center justify-between mb-4">
           <div className="flex items-center gap-3">
-            <div className="w-10 h-10 bg-blue-600 rounded-full flex items-center justify-center shadow-lg shadow-blue-600/20">
-              <Zap className="w-5 h-5 text-white" fill="white" />
-            </div>
+            <ClinicIcon size="md" />
             <div>
               <h1 className="text-white font-bold text-sm tracking-wide leading-tight">ChatBot IA</h1>
               <p className="text-slate-500 text-xs font-normal">Plataforma</p>

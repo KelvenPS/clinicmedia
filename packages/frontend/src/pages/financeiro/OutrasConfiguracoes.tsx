@@ -78,10 +78,9 @@ export default function OutrasConfiguracoes() {
             <Repeat className="w-5 h-5 text-blue-600" />
           </div>
           <div>
-            <h3 className="text-sm font-semibold text-blue-900">Repasse Automático</h3>
+            <h3 className="text-sm font-semibold text-blue-900">Lançamento Financeiro</h3>
             <p className="text-sm text-blue-700/80 mt-1 leading-relaxed">
-              O repasse automático é gerado quando um agendamento é marcado como <strong>Concluído</strong> e possui um valor definido.
-              O sistema cria automaticamente uma transação de receita associada ao atendimento.
+              O lançamento financeiro é feito ao clicar em <strong>Cobrar</strong> na consulta. O valor de repasse usa truncamento para manter a precisão: 60,469 → 60,46.
             </p>
             <div className="mt-3 flex items-start gap-2 bg-white/60 rounded-xl p-3 border border-blue-100">
               <Info className="w-4 h-4 text-blue-500 flex-shrink-0 mt-0.5" />

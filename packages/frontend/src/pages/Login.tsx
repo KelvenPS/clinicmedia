@@ -5,11 +5,12 @@ import { zodResolver } from '@hookform/resolvers/zod'
 import { z } from 'zod'
 import {
   Eye, EyeOff, Lock, Mail, AlertCircle, UserPlus, LogIn,
-  Zap, ArrowLeft, User, Phone, Award, KeyRound, X, Send,
+  ArrowLeft, User, Phone, Award, KeyRound, X, Send,
 } from 'lucide-react'
 import toast from 'react-hot-toast'
 import api from '../lib/api'
 import { useAuthStore } from '../store/authStore'
+import { ClinicIcon } from '../components/ui/ClinicLogo'
 
 const SPECIALTIES = [
   { name: 'Psicólogo', certType: 'CRP' },
@@ -154,12 +155,8 @@ export default function Login() {
         </div>
 
         <div className="relative z-10 animate-stagger-1">
-          <div className="flex items-center gap-3 mb-16">
-            <div className="w-12 h-12 bg-gradient-to-br from-cyan-500 to-blue-600 rounded-xl
-                            flex items-center justify-center shadow-lg shadow-cyan-600/30
-                            hover:scale-105 transition-transform duration-200">
-              <Zap className="w-7 h-7 text-white" fill="white" />
-            </div>
+          <div className="flex items-center gap-3.5 mb-16">
+            <ClinicIcon size="lg" />
             <div>
               <h1 className="text-white font-bold text-2xl tracking-tight">
                 ClinIQ <span className="text-cyan-400 font-light">Pro</span>
@@ -209,9 +206,7 @@ export default function Login() {
         <div className="w-full max-w-md animate-stagger-2">
           {/* Mobile logo */}
           <div className="flex items-center gap-3 mb-8 lg:hidden">
-            <div className="w-10 h-10 bg-gradient-to-br from-cyan-500 to-blue-600 rounded-xl flex items-center justify-center">
-              <Zap className="w-6 h-6 text-white" fill="white" />
-            </div>
+            <ClinicIcon size="md" />
             <div>
               <h1 className="text-slate-900 font-bold text-xl">ClinIQ Pro</h1>
               <p className="text-slate-400 text-xs">Gestão Clínica Inteligente</p>

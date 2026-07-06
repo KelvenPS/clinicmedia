@@ -81,6 +81,7 @@ router.get('/', async (req: AuthRequest, res) => {
         doctor: { select: { id: true, name: true, specialty: true, crm: true } },
         createdBy: { select: { id: true, name: true } },
         room: { select: { id: true, name: true, logradouro: true, cidade: true } },
+        transaction: { select: { id: true } },
       },
       orderBy: { date: 'asc' },
     })

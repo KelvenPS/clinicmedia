@@ -571,7 +571,7 @@ export default function AppointmentForm({
       <input {...register('repeatCount')} type="hidden" />
 
       <div className="flex items-center gap-3 pt-2">
-        {appointment && !appointment.billedAt && (
+        {appointment && !appointment.billedAt && !appointment.transaction && (
           <button
             type="button"
             onClick={() => setShowCobrancaModal(true)}

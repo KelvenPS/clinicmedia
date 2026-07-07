@@ -1176,7 +1176,26 @@ export async function restoreSessions(): Promise<void> {
     where: { type: 'CLINICAL_AGENT', status: { in: ['CONNECTED', 'CONNECTING'] } },
   }).catch(() => [] as Awaited<ReturnType<typeof prisma.whatsAppInstance.findMany>>)
 
+  const STALE_NEVER_PAIRED_MS = 24 * 60 * 60 * 1000 // 24h
+
   for (const inst of instances) {
+    // Nunca completou o pareamento (sem telefone salvo) e está parado há mais
+    // de 24h — provavelmente um QR que ninguém escaneou. Sem isso, todo
+    // restart do backend reabre um socket e fica gerando QR novo para sempre.
+    // Não afeta uma tentativa em andamento: force-new-qr atualiza updatedAt.
+    const isStaleNeverPaired = inst.status === 'CONNECTING'
+      && !inst.phoneNumber
+      && (Date.now() - inst.updatedAt.getTime()) > STALE_NEVER_PAIRED_MS
+
+    if (isStaleNeverPaired) {
+      logWA('info', inst.instanceKey, 'restore_sessions.stale_never_paired_disconnecting', { updatedAt: inst.updatedAt.toISOString() })
+      await prisma.whatsAppInstance.update({
+        where: { id: inst.id },
+        data: { status: 'DISCONNECTED', qrCode: null, qrCodeExpiresAt: null },
+      }).catch(() => {})
+      continue
+    }
+
     const sessDir = path.join(SESSIONS_DIR, inst.instanceKey)
     if (fs.existsSync(sessDir)) {
       logWA('info', inst.instanceKey, 'restore_sessions.restoring')

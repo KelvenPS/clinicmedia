@@ -29,8 +29,9 @@ export async function simulateLightMessage(params: {
   doctorId: string
   sessionToken: string
   messageText: string
+  chatbotId?: string
 }): Promise<SimulateResult> {
-  const { doctorId, sessionToken, messageText } = params
+  const { doctorId, sessionToken, messageText, chatbotId } = params
 
   const botMessages: string[] = []
   const collect = (msg: string) => { if (msg) botMessages.push(msg) }
@@ -38,9 +39,11 @@ export async function simulateLightMessage(params: {
   const incomingText = normalizeText(messageText)
   const contactPhone = simPhone(doctorId, sessionToken)
 
-  const instance = await prisma.whatsAppInstance.findFirst({
-    where: { doctorId, type: 'CHATBOT_LIGHT' },
-  })
+  // Sem chatbotId explícito, simula o chatbot padrão da conta (o mais
+  // antigo) — mantém o simulador funcionando para quem só tem 1 chatbot.
+  const instance = chatbotId
+    ? await prisma.whatsAppInstance.findUnique({ where: { chatbotId } })
+    : await prisma.whatsAppInstance.findFirst({ where: { doctorId, type: 'CHATBOT_LIGHT' }, orderBy: { createdAt: 'asc' } })
 
   if (!instance) {
     collect('⚠️ Chatbot Light ainda não tem uma Sala vinculada. Vincule uma Sala em Configurações > Conexão.')
@@ -126,7 +129,9 @@ async function routeNewMessage(params: {
   const innerCollect = (m: string) => { collect(m); botMessages.push(m) }
 
   const fluxos = await prisma.lightFluxo.findMany({
-    where: { doctorId, active: true },
+    where: instance.chatbotId
+      ? { chatbotId: instance.chatbotId, active: true }
+      : { doctorId, chatbotId: null, active: true },
   })
 
   const matchedFlow = fluxos.find(f =>
@@ -160,7 +165,9 @@ async function routeNewMessage(params: {
 
   // Try quick replies
   const quickReply = await prisma.lightQuickReply.findFirst({
-    where: { doctorId, keyword: { equals: incomingText, mode: 'insensitive' }, active: true },
+    where: instance.chatbotId
+      ? { chatbotId: instance.chatbotId, keyword: { equals: incomingText, mode: 'insensitive' }, active: true }
+      : { doctorId, chatbotId: null, keyword: { equals: incomingText, mode: 'insensitive' }, active: true },
   })
 
   if (quickReply) {
@@ -829,7 +836,8 @@ async function processLeadCaptureSimStep(params: {
               status: 'PRE_CADASTRO',
               origin: 'CHATBOT',
               active: true,
-              chatbotSessionId: session.id
+              chatbotSessionId: session.id,
+              leadStatus: 'NOVO'
             }
           })
           patientId = newPatient.id
@@ -844,7 +852,8 @@ async function processLeadCaptureSimStep(params: {
                 notes: `Interesse via WhatsApp. ${firstTimeNote} [SIMULAÇÃO]`,
                 status: 'PRE_CADASTRO',
                 origin: 'CHATBOT',
-                active: true
+                active: true,
+                leadStatus: 'NOVO'
               }
             })
             patientId = newPatient.id

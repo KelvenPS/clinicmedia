@@ -8,6 +8,9 @@ import { simulateLightMessage, resetSimulation } from '../lib/chatbot-light-simu
 import { TEMPLATE_VARIABLE_REGISTRY, resolveContextFromAppointment, TemplateContext } from '../lib/chatbot-light-variables'
 import { triggerLightAutomatedMessage, sendLightMessage } from '../lib/chatbot-light-engine'
 import { getChatbotLightTasks } from '../lib/chatbot-light-tasks'
+import { getChatbotLightReport } from '../lib/chatbot-light-reports'
+import { DEFAULT_BUSINESS_HOURS } from '../lib/chatbot-light-business-hours'
+import { getUnifiedHistory, HistoryEventType, HistoryStatus } from '../lib/chatbot-light-history'
 
 const router = Router()
 router.use(authenticate)
@@ -17,14 +20,19 @@ router.use(requireFeature('chatbot'))
 // "configurar" (chatbot_light_configurar). Ver Fase 3 do plano de refatoração.
 const OPERATE_ROUTES: Array<{ method: string; path: RegExp }> = [
   { method: 'GET',   path: /^\/dashboard$/ },
+  { method: 'GET',   path: /^\/reports$/ },
+  { method: 'GET',   path: /^\/chatbots$/ },
   { method: 'GET',   path: /^\/history$/ },
+  { method: 'GET',   path: /^\/history\/unified$/ },
   { method: 'POST',  path: /^\/history\/[^/]+\/resend$/ },
   { method: 'POST',  path: /^\/test$/ },
   { method: 'GET',   path: /^\/quick-replies$/ },
   { method: 'GET',   path: /^\/pre-schedulings$/ },
+  { method: 'PATCH', path: /^\/pre-schedulings\/[^/]+\/lead-status$/ },
   { method: 'POST',  path: /^\/trigger-appointment$/ },
   { method: 'GET',   path: /^\/tasks$/ },
   { method: 'PATCH', path: /^\/sessions\/[^/]+\/resolve$/ },
+  { method: 'PATCH', path: /^\/sessions\/[^/]+\/status$/ },
   { method: 'POST',  path: /^\/transactions\/[^/]+\/send-reminder$/ },
 ]
 
@@ -96,6 +104,38 @@ router.get('/dashboard', async (req: AuthRequest, res) => {
   }
 })
 
+// ─── Relatório gerencial ────────────────────────────────────────────────────────
+
+const reportQuerySchema = z.object({
+  startDate: z.string(),
+  endDate: z.string(),
+  module: z.string().optional(),
+  status: z.string().optional(),
+  flowId: z.string().optional(),
+})
+
+router.get('/reports', async (req: AuthRequest, res) => {
+  try {
+    const doctorId = await getTargetDoctorId(req)
+    const q = reportQuerySchema.parse(req.query)
+    const report = await getChatbotLightReport(doctorId, {
+      startDate: new Date(q.startDate),
+      endDate: new Date(q.endDate),
+      module: q.module,
+      status: q.status,
+      flowId: q.flowId,
+    })
+    res.json(report)
+  } catch (err) {
+    if (err instanceof z.ZodError) {
+      res.status(400).json({ message: 'Parâmetros de filtro inválidos' })
+      return
+    }
+    console.error('[/chatbot-light/reports]', err)
+    res.status(500).json({ message: 'Erro interno do servidor' })
+  }
+})
+
 // ─── Central de Tarefas ────────────────────────────────────────────────────────
 
 router.get('/tasks', async (req: AuthRequest, res) => {
@@ -109,21 +149,30 @@ router.get('/tasks', async (req: AuthRequest, res) => {
   }
 })
 
+// Sessões pertencem a uma instância (que pertence a um chatbot) — a
+// verificação de propriedade é feita pelo doctorId da instância dona da
+// sessão, não mais "a" instância única do médico (multi-chatbot, jul/2026).
+async function findOwnedSessionInstance(sessionId: string, doctorId: string) {
+  const session = await prisma.lightFlowSession.findUnique({ where: { id: sessionId } })
+  if (!session) return null
+  const instance = await prisma.whatsAppInstance.findUnique({ where: { id: session.instanceId } })
+  if (!instance || instance.doctorId !== doctorId) return null
+  return { session, instance }
+}
+
 router.patch('/sessions/:id/resolve', async (req: AuthRequest, res) => {
   try {
     const doctorId = await getTargetDoctorId(req)
     const { id } = req.params
 
-    const instance = await prisma.whatsAppInstance.findUnique({
-      where: { doctorId_type: { doctorId, type: 'CHATBOT_LIGHT' } },
-    })
-    if (!instance) {
-      res.status(404).json({ message: 'Instância do Chatbot Light não encontrada' })
+    const owned = await findOwnedSessionInstance(id, doctorId)
+    if (!owned) {
+      res.status(404).json({ message: 'Conversa não encontrada' })
       return
     }
 
     const result = await prisma.lightFlowSession.updateMany({
-      where: { id, instanceId: instance.id },
+      where: { id, instanceId: owned.instance.id },
       data: { status: 'COMPLETED' },
     })
     if (result.count === 0) {
@@ -145,6 +194,49 @@ router.patch('/sessions/:id/resolve', async (req: AuthRequest, res) => {
   }
 })
 
+const sessionStatusSchema = z.object({
+  status: z.enum(['CANCELLED', 'TRANSFER']),
+})
+
+router.patch('/sessions/:id/status', async (req: AuthRequest, res) => {
+  try {
+    const doctorId = await getTargetDoctorId(req)
+    const { id } = req.params
+    const { status } = sessionStatusSchema.parse(req.body)
+
+    const owned = await findOwnedSessionInstance(id, doctorId)
+    if (!owned) {
+      res.status(404).json({ message: 'Sessão não encontrada' })
+      return
+    }
+
+    const result = await prisma.lightFlowSession.updateMany({
+      where: { id, instanceId: owned.instance.id },
+      data: { status },
+    })
+    if (result.count === 0) {
+      res.status(404).json({ message: 'Sessão não encontrada' })
+      return
+    }
+
+    await logAudit({
+      userId: req.user!.userId,
+      action: 'CHATBOT_LIGHT_SESSION_STATUS_CHANGED',
+      description: status === 'CANCELLED' ? 'Sessão de chatbot encerrada manualmente' : 'Sessão de chatbot transferida manualmente para atendente',
+      metadata: { doctorId, sessionId: id, status },
+    })
+
+    res.json({ message: status === 'CANCELLED' ? 'Sessão encerrada' : 'Sessão transferida para atendente' })
+  } catch (err) {
+    if (err instanceof z.ZodError) {
+      res.status(400).json({ message: 'Status inválido' })
+      return
+    }
+    console.error('[/chatbot-light/sessions/:id/status]', err)
+    res.status(500).json({ message: 'Erro interno do servidor' })
+  }
+})
+
 router.post('/history/:id/resend', async (req: AuthRequest, res) => {
   try {
     const doctorId = await getTargetDoctorId(req)
@@ -156,15 +248,17 @@ router.post('/history/:id/resend', async (req: AuthRequest, res) => {
       return
     }
 
-    const instance = await prisma.whatsAppInstance.findUnique({
-      where: { doctorId_type: { doctorId, type: 'CHATBOT_LIGHT' } },
-    })
+    // Logs anteriores à migration multi-chatbot não têm chatbotId — caem no
+    // chatbot padrão da conta.
+    const instance = log.chatbotId
+      ? await prisma.whatsAppInstance.findUnique({ where: { chatbotId: log.chatbotId } })
+      : await prisma.whatsAppInstance.findFirst({ where: { doctorId, type: 'CHATBOT_LIGHT' } })
     if (!instance) {
       res.status(400).json({ message: 'WhatsApp não conectado. Vincule uma Sala na aba Conexão.' })
       return
     }
 
-    const ok = await sendLightMessage(instance, log.phone, log.content, log.module, log.triggerEvent ?? undefined, log.recipientName ?? undefined)
+    const ok = await sendLightMessage(instance, log.phone, log.content, log.module, log.triggerEvent ?? undefined, log.recipientName ?? undefined, log.templateId ?? undefined)
 
     await logAudit({
       userId: req.user!.userId,
@@ -227,9 +321,13 @@ router.post('/transactions/:id/send-reminder', async (req: AuthRequest, res) => 
 router.get('/integrations', async (req: AuthRequest, res) => {
   try {
     const doctorId = await getTargetDoctorId(req)
+    const chatbotId = req.query.chatbotId as string | undefined
     const configs = await prisma.lightIntegrationConfig.findMany({
-      where: { doctorId },
-      include: { template: { select: { id: true, name: true, content: true } } },
+      where: chatbotId ? { doctorId, chatbotId } : { doctorId },
+      include: {
+        template: { select: { id: true, name: true, content: true } },
+        chatbot: { select: { id: true, name: true } },
+      },
     })
     res.json(configs)
   } catch {
@@ -246,12 +344,14 @@ router.put('/integrations', async (req: AuthRequest, res) => {
       enabled:       z.boolean(),
       templateId:    z.string().nullable().optional(),
       delayMinutes:  z.number().int().min(0).default(0),
+      chatbotId:     z.string().optional(),
     })
     const data = schema.parse(req.body)
+    const chatbotId = data.chatbotId ?? (await getOrCreateDefaultChatbot(doctorId)).id
 
     const config = await prisma.lightIntegrationConfig.upsert({
       where: {
-        doctorId_module_triggerEvent: { doctorId, module: data.module, triggerEvent: data.triggerEvent },
+        doctorId_chatbotId_module_triggerEvent: { doctorId, chatbotId, module: data.module, triggerEvent: data.triggerEvent },
       },
       update: {
         enabled:      data.enabled,
@@ -260,6 +360,7 @@ router.put('/integrations', async (req: AuthRequest, res) => {
       },
       create: {
         doctorId,
+        chatbotId,
         module:       data.module,
         triggerEvent: data.triggerEvent,
         enabled:      data.enabled,
@@ -414,18 +515,41 @@ router.get('/history', async (req: AuthRequest, res) => {
   }
 })
 
+router.get('/history/unified', async (req: AuthRequest, res) => {
+  try {
+    const doctorId = await getTargetDoctorId(req)
+    const q = req.query
+    const result = await getUnifiedHistory(doctorId, {
+      startDate: q.startDate ? new Date(String(q.startDate)) : undefined,
+      endDate: q.endDate ? new Date(String(q.endDate)) : undefined,
+      status: (q.status && q.status !== 'todos') ? q.status as HistoryStatus : undefined,
+      module: (q.module && q.module !== 'todos') ? String(q.module) : undefined,
+      eventType: (q.eventType && q.eventType !== 'todos') ? q.eventType as HistoryEventType : undefined,
+      chatbotId: q.chatbotId ? String(q.chatbotId) : undefined,
+      search: q.search ? String(q.search) : undefined,
+    })
+    res.json(result)
+  } catch (err) {
+    console.error('[/chatbot-light/history/unified]', err)
+    res.status(500).json({ message: 'Erro interno do servidor' })
+  }
+})
+
 // ─── Test Message ─────────────────────────────────────────────────────────────
 
 router.post('/test', async (req: AuthRequest, res) => {
   try {
     const doctorId = await getTargetDoctorId(req)
     const schema = z.object({
-      phone:   z.string().min(8, 'Telefone obrigatório'),
-      content: z.string().min(1, 'Mensagem obrigatória'),
+      phone:      z.string().min(8, 'Telefone obrigatório'),
+      content:    z.string().min(1, 'Mensagem obrigatória'),
+      templateId: z.string().optional(),
+      chatbotId:  z.string().optional(),
     })
-    const { phone, content } = schema.parse(req.body)
+    const { phone, content, templateId, chatbotId: bodyChatbotId } = schema.parse(req.body)
+    const chatbotId = bodyChatbotId || (await getOrCreateDefaultChatbot(doctorId)).id
 
-    const target = await resolveChatbotLightSendTarget(doctorId)
+    const target = await resolveChatbotLightSendTarget(chatbotId)
     if (!target) {
       res.status(400).json({ message: 'WhatsApp não conectado. Vincule uma Sala na aba Conexão.' })
       return
@@ -450,7 +574,7 @@ router.post('/test', async (req: AuthRequest, res) => {
     const deliveryJid = (phoneCheck?.jid && phoneCheck.exists) ? phoneCheck.jid : resolvedJid
 
     const log = await prisma.lightMessageLog.create({
-      data: { doctorId, phone: normalizedPhone, content, module: 'teste', status: 'PENDING' },
+      data: { doctorId, chatbotId, phone: normalizedPhone, content, module: 'teste', status: 'PENDING', templateId: templateId ?? null },
     })
 
     try {
@@ -532,8 +656,9 @@ const fluxoSchema = z.object({
 router.get('/fluxos', async (req: AuthRequest, res) => {
   try {
     const doctorId = await getTargetDoctorId(req)
+    const chatbotId = req.query.chatbotId as string | undefined
     const fluxos = await prisma.lightFluxo.findMany({
-      where: { doctorId },
+      where: chatbotId ? { doctorId, chatbotId } : { doctorId },
       orderBy: { createdAt: 'desc' },
     })
     res.json(fluxos)
@@ -546,8 +671,9 @@ router.post('/fluxos', async (req: AuthRequest, res) => {
   try {
     const doctorId = await getTargetDoctorId(req)
     const data = fluxoSchema.parse(req.body)
+    const chatbotId = req.body?.chatbotId || (await getOrCreateDefaultChatbot(doctorId)).id
     const fluxo = await prisma.lightFluxo.create({
-      data: { doctorId, ...data, options: data.options as object[] },
+      data: { doctorId, chatbotId, ...data, options: data.options as object[] },
     })
     await logAudit({
       userId: req.user!.userId,
@@ -627,8 +753,9 @@ const quickReplySchema = z.object({
 router.get('/quick-replies', async (req: AuthRequest, res) => {
   try {
     const doctorId = await getTargetDoctorId(req)
+    const chatbotId = req.query.chatbotId as string | undefined
     const replies = await prisma.lightQuickReply.findMany({
-      where: { doctorId },
+      where: chatbotId ? { doctorId, chatbotId } : { doctorId },
       orderBy: { createdAt: 'desc' },
     })
     res.json(replies)
@@ -641,7 +768,8 @@ router.post('/quick-replies', async (req: AuthRequest, res) => {
   try {
     const doctorId = await getTargetDoctorId(req)
     const data = quickReplySchema.parse(req.body)
-    const reply = await prisma.lightQuickReply.create({ data: { doctorId, ...data } })
+    const chatbotId = req.body?.chatbotId || (await getOrCreateDefaultChatbot(doctorId)).id
+    const reply = await prisma.lightQuickReply.create({ data: { doctorId, chatbotId, ...data } })
     await logAudit({
       userId: req.user!.userId,
       action: 'CHATBOT_LIGHT_QUICKREPLY_CREATED',
@@ -714,13 +842,23 @@ router.get('/settings', async (req: AuthRequest, res) => {
   try {
     const doctorId = await getTargetDoctorId(req)
     const settings = await prisma.lightSettings.findUnique({ where: { doctorId } })
-    res.json(settings ?? {
-      enabledScreens: ['agenda', 'pacientes', 'prontuario', 'avaliacao', 'financeiro'],
-      advancedMode: false,
+    res.json({
+      enabledScreens: settings?.enabledScreens ?? ['agenda', 'pacientes', 'prontuario', 'avaliacao', 'financeiro'],
+      advancedMode: settings?.advancedMode ?? false,
+      businessHours: settings?.businessHours ?? DEFAULT_BUSINESS_HOURS,
     })
   } catch {
     res.status(500).json({ message: 'Erro interno do servidor' })
   }
+})
+
+const businessHoursSchema = z.object({
+  enabled: z.boolean(),
+  daysOfWeek: z.array(z.string()),
+  startTime: z.string(),
+  endTime: z.string(),
+  offHoursMessage: z.string(),
+  allowLeadCaptureOffHours: z.boolean(),
 })
 
 router.put('/settings', async (req: AuthRequest, res) => {
@@ -729,6 +867,7 @@ router.put('/settings', async (req: AuthRequest, res) => {
     const schema = z.object({
       enabledScreens: z.array(z.string()).optional(),
       advancedMode: z.boolean().optional(),
+      businessHours: businessHoursSchema.optional(),
     })
     const data = schema.parse(req.body)
 
@@ -789,17 +928,15 @@ router.get('/system-actions/catalog', async (req: AuthRequest, res) => {
   res.json(SYSTEM_ACTION_CATALOG)
 })
 
+async function resolveInstanceForChatbot(doctorId: string, chatbotIdParam?: string) {
+  const chatbotId = chatbotIdParam || (await getOrCreateDefaultChatbot(doctorId)).id
+  return prisma.whatsAppInstance.findUnique({ where: { chatbotId } })
+}
+
 router.get('/system-actions', async (req: AuthRequest, res) => {
   try {
     const doctorId = await getTargetDoctorId(req)
-    const instance = await prisma.whatsAppInstance.findUnique({
-      where: {
-        doctorId_type: {
-          doctorId,
-          type: 'CHATBOT_LIGHT',
-        },
-      },
-    })
+    const instance = await resolveInstanceForChatbot(doctorId, req.query.chatbotId as string | undefined)
     if (!instance) {
       res.json([])
       return
@@ -817,14 +954,7 @@ router.get('/system-actions', async (req: AuthRequest, res) => {
 router.post('/system-actions', async (req: AuthRequest, res) => {
   try {
     const doctorId = await getTargetDoctorId(req)
-    const instance = await prisma.whatsAppInstance.findUnique({
-      where: {
-        doctorId_type: {
-          doctorId,
-          type: 'CHATBOT_LIGHT',
-        },
-      },
-    })
+    const instance = await resolveInstanceForChatbot(doctorId, req.body?.chatbotId)
     if (!instance) {
       res.status(400).json({ message: 'WhatsApp não configurado' })
       return
@@ -1022,14 +1152,18 @@ router.post('/system-actions/:id/test', async (req: AuthRequest, res) => {
 
 // ─── Pre-schedulings (Lead Capture results) ───────────────────────────────────
 
+const LEAD_STATUSES = ['NOVO', 'EM_ANALISE', 'CONVERTIDO', 'DESCARTADO'] as const
+
 router.get('/pre-schedulings', async (req: AuthRequest, res) => {
   try {
     const doctorId = await getTargetDoctorId(req)
+    const leadStatusFilter = req.query.leadStatus as string | undefined
+
     const patients = await prisma.patient.findMany({
       where: {
         doctorId,
         origin: 'CHATBOT',
-        status: { in: ['PRE_CADASTRO', 'ATIVO'] }
+        leadStatus: leadStatusFilter ? leadStatusFilter : { not: null },
       },
       include: {
         chatbotSession: {
@@ -1045,10 +1179,12 @@ router.get('/pre-schedulings', async (req: AuthRequest, res) => {
 
     const result = patients.map(p => ({
       id: p.id,
+      doctorId: p.doctorId,
       name: p.name,
       phone: p.phone,
       notes: p.notes,
       status: p.status,
+      leadStatus: p.leadStatus,
       createdAt: p.createdAt,
       chatbotSession: p.chatbotSession ?? null,
     }))
@@ -1056,6 +1192,47 @@ router.get('/pre-schedulings', async (req: AuthRequest, res) => {
     res.json(result)
   } catch (err) {
     console.error('[/chatbot-light/pre-schedulings]', err)
+    res.status(500).json({ message: 'Erro interno do servidor' })
+  }
+})
+
+router.patch('/pre-schedulings/:id/lead-status', async (req: AuthRequest, res) => {
+  try {
+    const doctorId = await getTargetDoctorId(req)
+    const { id } = req.params
+    const { leadStatus } = z.object({ leadStatus: z.enum(LEAD_STATUSES) }).parse(req.body)
+
+    const patient = await prisma.patient.findFirst({ where: { id, doctorId, origin: 'CHATBOT' } })
+    if (!patient) {
+      res.status(404).json({ message: 'Pré-agendamento não encontrado' })
+      return
+    }
+
+    const data: Record<string, unknown> = { leadStatus }
+    // Convertido em paciente: sai do estado "cadastro pendente" que hoje
+    // trava Prontuário/Avaliações — mesmo efeito de complete-registration.
+    if (leadStatus === 'CONVERTIDO') {
+      data.status = 'ATIVO'
+      data.completedAt = new Date()
+      data.completedByUserId = req.user!.userId
+    }
+
+    const updated = await prisma.patient.update({ where: { id }, data })
+
+    await logAudit({
+      userId: req.user!.userId,
+      action: 'CHATBOT_LIGHT_LEAD_STATUS_CHANGED',
+      description: `Pré-agendamento de ${patient.name} atualizado para ${leadStatus}`,
+      metadata: { doctorId, patientId: id, leadStatus },
+    })
+
+    res.json(updated)
+  } catch (err) {
+    if (err instanceof z.ZodError) {
+      res.status(400).json({ message: 'Status inválido' })
+      return
+    }
+    console.error('[/chatbot-light/pre-schedulings/:id/lead-status]', err)
     res.status(500).json({ message: 'Erro interno do servidor' })
   }
 })
@@ -1086,40 +1263,51 @@ router.get('/audit', async (req: AuthRequest, res) => {
   }
 })
 
-// ─── WhatsApp Instance Management (Chatbot Light) ──────────────────────────
+// ─── Chatbots (multi-chatbot, jul/2026) ─────────────────────────────────────
 //
-// O Chatbot Light não possui mais conexão própria (QR code/Baileys). Ele usa
-// exclusivamente a conexão WhatsApp já estabelecida em uma Sala, evitando
-// duplicidade. O médico vincula uma Sala em LightSettings.boundRoomId, e o
-// status/telefone exibidos aqui refletem a RoomWhatsAppConnection daquela sala.
+// Cada médico pode ter vários "chatbots" (LightChatbot), cada um com sua
+// própria sala/número de WhatsApp. O Chatbot Light não tem conexão própria
+// (QR code/Baileys) — cada chatbot usa a conexão já estabelecida em uma
+// Sala (RoomWhatsAppConnection), vinculada via LightChatbot.boundRoomId.
+//
+// Retrocompatibilidade: toda conta que já usava Chatbot Light antes desta
+// mudança ganhou um "Chatbot Principal" na migration (com a sala que já
+// tinha vinculada). As rotas legadas /instance* abaixo continuam existindo
+// e operam sobre esse chatbot "padrão" (o mais antigo da conta), resolvido/
+// criado sob demanda por getOrCreateDefaultChatbot — nada quebra para quem
+// nunca criar um segundo chatbot.
 
-async function resolveOrCreateInstance(userId: string) {
-  const existing = await prisma.whatsAppInstance.findUnique({
-    where: {
-      doctorId_type: {
-        doctorId: userId,
-        type: 'CHATBOT_LIGHT',
-      },
-    },
+async function getOrCreateDefaultChatbot(doctorId: string) {
+  const existing = await prisma.lightChatbot.findFirst({
+    where: { doctorId },
+    orderBy: { createdAt: 'asc' },
   })
   if (existing) return existing
-  return prisma.whatsAppInstance.create({
-    data: { doctorId: userId, type: 'CHATBOT_LIGHT', status: 'DISCONNECTED' },
+  return prisma.lightChatbot.create({
+    data: { doctorId, name: 'Chatbot Principal', active: true },
   })
 }
 
-async function resolveBoundConnectionStatus(doctorId: string) {
-  const settings = await prisma.lightSettings.findUnique({
-    where: { doctorId },
+async function resolveOrCreateInstance(chatbotId: string, doctorId: string) {
+  const existing = await prisma.whatsAppInstance.findUnique({ where: { chatbotId } })
+  if (existing) return existing
+  return prisma.whatsAppInstance.create({
+    data: { doctorId, type: 'CHATBOT_LIGHT', status: 'DISCONNECTED', chatbotId },
+  })
+}
+
+async function resolveBoundConnectionStatus(chatbotId: string) {
+  const chatbot = await prisma.lightChatbot.findUnique({
+    where: { id: chatbotId },
     select: { boundRoomId: true },
   })
 
-  if (!settings?.boundRoomId) {
+  if (!chatbot?.boundRoomId) {
     return { status: 'NONE' as const, roomId: null, roomName: null, phoneNumber: null, displayName: null, connectedAt: null }
   }
 
   const room = await prisma.room.findUnique({
-    where: { id: settings.boundRoomId },
+    where: { id: chatbot.boundRoomId },
     select: {
       id: true,
       name: true,
@@ -1149,10 +1337,222 @@ async function resolveBoundConnectionStatus(doctorId: string) {
   }
 }
 
+async function bindChatbotRoom(chatbotId: string, doctorId: string, roomId: string, userId: string) {
+  const room = await prisma.room.findFirst({ where: { id: roomId, doctorId } })
+  if (!room) return { error: 'Sala não encontrada' as const }
+
+  await resolveOrCreateInstance(chatbotId, doctorId)
+  try {
+    await prisma.lightChatbot.update({ where: { id: chatbotId }, data: { boundRoomId: roomId } })
+  } catch (err: any) {
+    if (err?.code === 'P2002') return { error: 'Esta sala já está vinculada a outro chatbot' as const }
+    throw err
+  }
+
+  const merged = await resolveBoundConnectionStatus(chatbotId)
+  await logAudit({
+    userId,
+    roomId,
+    action: 'CHATBOT_LIGHT_ROOM_BOUND',
+    description: `Sala "${room.name}" vinculada ao chatbot`,
+    metadata: { doctorId, chatbotId, roomId },
+  })
+  return { merged }
+}
+
+router.get('/chatbots', async (req: AuthRequest, res: Response) => {
+  try {
+    const doctorId = await getTargetDoctorId(req)
+    const chatbots = await prisma.lightChatbot.findMany({
+      where: { doctorId },
+      orderBy: { createdAt: 'asc' },
+      include: {
+        boundRoom: { select: { id: true, name: true, whatsappConnection: { select: { status: true, phoneNumber: true } } } },
+        _count: { select: { fluxos: true, quickReplies: true, integrations: true } },
+      },
+    })
+    const withLastActivity = await Promise.all(chatbots.map(async cb => {
+      const lastLog = await prisma.lightMessageLog.findFirst({
+        where: { chatbotId: cb.id },
+        orderBy: { createdAt: 'desc' },
+        select: { createdAt: true },
+      })
+      return { ...cb, lastActivityAt: lastLog?.createdAt ?? null }
+    }))
+    res.json(withLastActivity)
+  } catch (err) {
+    console.error('[/chatbot-light/chatbots]', err)
+    res.status(500).json({ message: 'Erro interno do servidor' })
+  }
+})
+
+router.post('/chatbots', async (req: AuthRequest, res: Response) => {
+  try {
+    const doctorId = await getTargetDoctorId(req)
+    const data = z.object({
+      name: z.string().min(2, 'Nome obrigatório'),
+      description: z.string().optional().nullable(),
+      objective: z.string().optional().nullable(),
+    }).parse(req.body)
+
+    const chatbot = await prisma.lightChatbot.create({ data: { doctorId, ...data } })
+    await logAudit({
+      userId: req.user!.userId,
+      action: 'CHATBOT_LIGHT_CHATBOT_CREATED',
+      description: `Chatbot "${chatbot.name}" criado`,
+      metadata: { doctorId, chatbotId: chatbot.id },
+    })
+    res.json(chatbot)
+  } catch (err) {
+    if (err instanceof z.ZodError) {
+      res.status(400).json({ message: 'Dados inválidos', errors: err.errors })
+      return
+    }
+    console.error('[/chatbot-light/chatbots POST]', err)
+    res.status(500).json({ message: 'Erro interno do servidor' })
+  }
+})
+
+router.put('/chatbots/:id', async (req: AuthRequest, res: Response) => {
+  try {
+    const doctorId = await getTargetDoctorId(req)
+    const { id } = req.params
+    const data = z.object({
+      name: z.string().min(2).optional(),
+      description: z.string().optional().nullable(),
+      objective: z.string().optional().nullable(),
+      active: z.boolean().optional(),
+      fallbackQueue: z.string().optional().nullable(),
+    }).parse(req.body)
+
+    const result = await prisma.lightChatbot.updateMany({ where: { id, doctorId }, data })
+    if (result.count === 0) {
+      res.status(404).json({ message: 'Chatbot não encontrado' })
+      return
+    }
+    const chatbot = await prisma.lightChatbot.findUnique({ where: { id } })
+    res.json(chatbot)
+  } catch (err) {
+    if (err instanceof z.ZodError) {
+      res.status(400).json({ message: 'Dados inválidos', errors: err.errors })
+      return
+    }
+    console.error('[/chatbot-light/chatbots/:id PUT]', err)
+    res.status(500).json({ message: 'Erro interno do servidor' })
+  }
+})
+
+router.delete('/chatbots/:id', async (req: AuthRequest, res: Response) => {
+  try {
+    const doctorId = await getTargetDoctorId(req)
+    const { id } = req.params
+
+    const chatbot = await prisma.lightChatbot.findFirst({ where: { id, doctorId } })
+    if (!chatbot) {
+      res.status(404).json({ message: 'Chatbot não encontrado' })
+      return
+    }
+
+    const [fluxos, quickReplies, integrations] = await Promise.all([
+      prisma.lightFluxo.count({ where: { chatbotId: id } }),
+      prisma.lightQuickReply.count({ where: { chatbotId: id } }),
+      prisma.lightIntegrationConfig.count({ where: { chatbotId: id } }),
+    ])
+    if (fluxos + quickReplies + integrations > 0) {
+      res.status(400).json({ message: 'Este chatbot tem fluxos, respostas rápidas ou mensagens automáticas vinculadas — remova-os antes de excluir o chatbot.' })
+      return
+    }
+
+    await prisma.whatsAppInstance.deleteMany({ where: { chatbotId: id } })
+    await prisma.lightChatbot.delete({ where: { id } })
+    await logAudit({
+      userId: req.user!.userId,
+      action: 'CHATBOT_LIGHT_CHATBOT_DELETED',
+      description: `Chatbot "${chatbot.name}" excluído`,
+      metadata: { doctorId, chatbotId: id },
+    })
+    res.json({ message: 'Chatbot excluído' })
+  } catch (err) {
+    console.error('[/chatbot-light/chatbots/:id DELETE]', err)
+    res.status(500).json({ message: 'Erro interno do servidor' })
+  }
+})
+
+router.get('/chatbots/:id/instance', async (req: AuthRequest, res: Response) => {
+  try {
+    const doctorId = await getTargetDoctorId(req)
+    const { id } = req.params
+    const chatbot = await prisma.lightChatbot.findFirst({ where: { id, doctorId } })
+    if (!chatbot) {
+      res.status(404).json({ message: 'Chatbot não encontrado' })
+      return
+    }
+    const merged = await resolveBoundConnectionStatus(id)
+    res.json(merged)
+  } catch {
+    res.status(500).json({ message: 'Erro interno do servidor' })
+  }
+})
+
+router.post('/chatbots/:id/bind-room', async (req: AuthRequest, res: Response) => {
+  try {
+    const doctorId = await getTargetDoctorId(req)
+    const { id } = req.params
+    const { roomId } = z.object({ roomId: z.string().min(1) }).parse(req.body)
+
+    const chatbot = await prisma.lightChatbot.findFirst({ where: { id, doctorId } })
+    if (!chatbot) {
+      res.status(404).json({ message: 'Chatbot não encontrado' })
+      return
+    }
+
+    const result = await bindChatbotRoom(id, doctorId, roomId, req.user!.userId)
+    if ('error' in result) {
+      res.status(400).json({ message: result.error })
+      return
+    }
+    res.json(result.merged)
+  } catch (err) {
+    if (err instanceof z.ZodError) {
+      res.status(400).json({ message: 'Dados inválidos', errors: err.errors })
+      return
+    }
+    console.error('[/chatbot-light/chatbots/:id/bind-room]', err)
+    res.status(500).json({ message: 'Erro ao vincular sala' })
+  }
+})
+
+router.post('/chatbots/:id/unbind-room', async (req: AuthRequest, res: Response) => {
+  try {
+    const doctorId = await getTargetDoctorId(req)
+    const { id } = req.params
+    const result = await prisma.lightChatbot.updateMany({ where: { id, doctorId }, data: { boundRoomId: null } })
+    if (result.count === 0) {
+      res.status(404).json({ message: 'Chatbot não encontrado' })
+      return
+    }
+    await logAudit({
+      userId: req.user!.userId,
+      action: 'CHATBOT_LIGHT_ROOM_UNBOUND',
+      description: 'Sala desvinculada do chatbot',
+      metadata: { doctorId, chatbotId: id },
+    })
+    res.json({ status: 'NONE', roomId: null, roomName: null, phoneNumber: null, displayName: null, connectedAt: null })
+  } catch (err) {
+    console.error('[/chatbot-light/chatbots/:id/unbind-room]', err)
+    res.status(500).json({ message: 'Erro ao desvincular sala' })
+  }
+})
+
+// ─── WhatsApp Instance Management — rotas legadas (single-chatbot) ─────────
+// Operam sobre o chatbot "padrão" da conta (o mais antigo) para quem nunca
+// criou um segundo chatbot — mantém o comportamento de antes intacto.
+
 router.get('/instance', async (req: AuthRequest, res: Response) => {
   try {
     const doctorId = await getTargetDoctorId(req)
-    const merged = await resolveBoundConnectionStatus(doctorId)
+    const chatbot = await getOrCreateDefaultChatbot(doctorId)
+    const merged = await resolveBoundConnectionStatus(chatbot.id)
     res.json(merged)
   } catch {
     res.status(500).json({ message: 'Erro interno do servidor' })
@@ -1162,7 +1562,8 @@ router.get('/instance', async (req: AuthRequest, res: Response) => {
 router.get('/instance/status', async (req: AuthRequest, res: Response) => {
   try {
     const doctorId = await getTargetDoctorId(req)
-    const merged = await resolveBoundConnectionStatus(doctorId)
+    const chatbot = await getOrCreateDefaultChatbot(doctorId)
+    const merged = await resolveBoundConnectionStatus(chatbot.id)
     res.json(merged)
   } catch {
     res.status(500).json({ message: 'Erro interno do servidor' })
@@ -1193,29 +1594,14 @@ router.post('/instance/bind-room', async (req: AuthRequest, res: Response) => {
   try {
     const doctorId = await getTargetDoctorId(req)
     const { roomId } = z.object({ roomId: z.string().min(1) }).parse(req.body)
+    const chatbot = await getOrCreateDefaultChatbot(doctorId)
 
-    const room = await prisma.room.findFirst({ where: { id: roomId, doctorId } })
-    if (!room) {
-      res.status(404).json({ message: 'Sala não encontrada' })
+    const result = await bindChatbotRoom(chatbot.id, doctorId, roomId, req.user!.userId)
+    if ('error' in result) {
+      res.status(400).json({ message: result.error })
       return
     }
-
-    await resolveOrCreateInstance(doctorId)
-    await prisma.lightSettings.upsert({
-      where: { doctorId },
-      create: { doctorId, boundRoomId: roomId },
-      update: { boundRoomId: roomId },
-    })
-
-    const merged = await resolveBoundConnectionStatus(doctorId)
-    await logAudit({
-      userId: req.user!.userId,
-      roomId,
-      action: 'CHATBOT_LIGHT_ROOM_BOUND',
-      description: `Sala "${room.name}" vinculada ao Chatbot Light`,
-      metadata: { doctorId, roomId },
-    })
-    res.json(merged)
+    res.json(result.merged)
   } catch (err) {
     if (err instanceof z.ZodError) {
       res.status(400).json({ message: 'Dados inválidos', errors: err.errors })
@@ -1229,16 +1615,13 @@ router.post('/instance/bind-room', async (req: AuthRequest, res: Response) => {
 router.post('/instance/unbind-room', async (req: AuthRequest, res: Response) => {
   try {
     const doctorId = await getTargetDoctorId(req)
-    await prisma.lightSettings.upsert({
-      where: { doctorId },
-      create: { doctorId, boundRoomId: null },
-      update: { boundRoomId: null },
-    })
+    const chatbot = await getOrCreateDefaultChatbot(doctorId)
+    await prisma.lightChatbot.update({ where: { id: chatbot.id }, data: { boundRoomId: null } })
     await logAudit({
       userId: req.user!.userId,
       action: 'CHATBOT_LIGHT_ROOM_UNBOUND',
       description: 'Sala desvinculada do Chatbot Light',
-      metadata: { doctorId },
+      metadata: { doctorId, chatbotId: chatbot.id },
     })
     res.json({ status: 'NONE', roomId: null, roomName: null, phoneNumber: null, displayName: null, connectedAt: null })
   } catch (err) {
@@ -1338,6 +1721,7 @@ router.post('/trigger-appointment', async (req: AuthRequest, res) => {
 const simulateSchema = z.object({
   sessionToken: z.string().min(1).max(64),
   message: z.string().min(1).max(500),
+  chatbotId: z.string().optional(),
 })
 
 router.post('/simulate', async (req: AuthRequest, res: Response) => {
@@ -1348,8 +1732,8 @@ router.post('/simulate', async (req: AuthRequest, res: Response) => {
       res.status(400).json({ message: 'Dados inválidos', errors: parsed.error.errors })
       return
     }
-    const { sessionToken, message } = parsed.data
-    const result = await simulateLightMessage({ doctorId, sessionToken, messageText: message })
+    const { sessionToken, message, chatbotId } = parsed.data
+    const result = await simulateLightMessage({ doctorId, sessionToken, messageText: message, chatbotId })
     res.json(result)
   } catch (err) {
     console.error('[/chatbot-light/simulate]', err)

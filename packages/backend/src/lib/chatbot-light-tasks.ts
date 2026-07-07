@@ -1,7 +1,9 @@
 import { prisma } from './prisma'
+import { categorizeFailure, FailedReasonCounts } from './chatbot-light-failure-reasons'
 
 // Agrega itens acionáveis do dia a dia do Chatbot Light a partir de dados
-// já existentes (nenhuma tabela nova) — ver Fase 4 do plano de refatoração.
+// já existentes (nenhuma tabela nova) — ver Fase 4 do plano de refatoração,
+// e o redesenho da Central (jul/2026).
 
 export interface TaskItem {
   id: string
@@ -12,9 +14,19 @@ export interface TaskItem {
   actionLabel: string
 }
 
+export interface SessionCardItem {
+  id: string
+  contactPhone: string
+  flowName: string | null
+  currentStepKey: string
+  updatedAt: Date
+}
+
 export interface TasksResult {
-  transfers: TaskItem[]
+  transfers: SessionCardItem[]
+  activeSessions: SessionCardItem[]
   failedMessages: TaskItem[]
+  failedReasonCounts: FailedReasonCounts
   preRegistrations: TaskItem[]
   overduePayments: TaskItem[]
   unconfirmedAppointments: TaskItem[]
@@ -28,14 +40,24 @@ export async function getChatbotLightTasks(doctorId: string): Promise<TasksResul
   const in48h = new Date(now.getTime() + 48 * 60 * 60 * 1000)
   const last7days = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000)
 
-  const instance = await prisma.whatsAppInstance.findUnique({
-    where: { doctorId_type: { doctorId, type: 'CHATBOT_LIGHT' } },
+  // Um médico pode ter vários chatbots (multi-chatbot, jul/2026) — agrega
+  // sessões de todas as instâncias CHATBOT_LIGHT da conta, não só uma.
+  const instances = await prisma.whatsAppInstance.findMany({
+    where: { doctorId, type: 'CHATBOT_LIGHT' },
   })
+  const instanceIds = instances.map(i => i.id)
 
-  const [transferSessions, failedLogs, preRegPatients, overdueTx, unconfirmedAppts] = await Promise.all([
-    instance
+  const [transferSessions, activeSessionRows, failedLogs, allFailedForCount, preRegPatients, overdueTx, unconfirmedAppts] = await Promise.all([
+    instanceIds.length > 0
       ? prisma.lightFlowSession.findMany({
-          where: { instanceId: instance.id, status: 'TRANSFER' },
+          where: { instanceId: { in: instanceIds }, status: 'TRANSFER' },
+          orderBy: { updatedAt: 'desc' },
+          take: TAKE,
+        })
+      : Promise.resolve([]),
+    instanceIds.length > 0
+      ? prisma.lightFlowSession.findMany({
+          where: { instanceId: { in: instanceIds }, status: 'ACTIVE' },
           orderBy: { updatedAt: 'desc' },
           take: TAKE,
         })
@@ -45,8 +67,13 @@ export async function getChatbotLightTasks(doctorId: string): Promise<TasksResul
       orderBy: { createdAt: 'desc' },
       take: TAKE,
     }),
+    prisma.lightMessageLog.findMany({
+      where: { doctorId, status: 'FAILED', createdAt: { gte: last7days } },
+      select: { errorMessage: true },
+      take: 500,
+    }),
     prisma.patient.findMany({
-      where: { doctorId, origin: 'CHATBOT', status: 'PRE_CADASTRO' },
+      where: { doctorId, origin: 'CHATBOT', leadStatus: 'NOVO' },
       orderBy: { createdAt: 'desc' },
       take: TAKE,
     }),
@@ -64,14 +91,28 @@ export async function getChatbotLightTasks(doctorId: string): Promise<TasksResul
     }),
   ])
 
-  const transfers: TaskItem[] = transferSessions.map(s => ({
+  // Nomes dos fluxos referenciados por transferências e sessões ativas —
+  // LightFlowSession.flowId não tem relation no schema, então o join é manual.
+  const flowIds = Array.from(new Set(
+    [...transferSessions, ...activeSessionRows]
+      .map(s => s.flowId)
+      .filter((id): id is string => !!id)
+  ))
+  const flows = flowIds.length > 0
+    ? await prisma.lightFluxo.findMany({ where: { id: { in: flowIds } }, select: { id: true, name: true } })
+    : []
+  const flowNameById = new Map(flows.map(f => [f.id, f.name]))
+
+  const toSessionCard = (s: typeof transferSessions[number]): SessionCardItem => ({
     id: s.id,
-    type: 'TRANSFER' as const,
-    title: 'Conversa transferida para atendente',
-    subtitle: s.contactPhone,
-    createdAt: s.updatedAt,
-    actionLabel: 'Marcar como atendida',
-  }))
+    contactPhone: s.contactPhone,
+    flowName: s.flowId ? flowNameById.get(s.flowId) ?? null : null,
+    currentStepKey: s.currentStepKey,
+    updatedAt: s.updatedAt,
+  })
+
+  const transfers: SessionCardItem[] = transferSessions.map(toSessionCard)
+  const activeSessions: SessionCardItem[] = activeSessionRows.map(toSessionCard)
 
   const failedMessages: TaskItem[] = failedLogs.map(l => ({
     id: l.id,
@@ -81,6 +122,15 @@ export async function getChatbotLightTasks(doctorId: string): Promise<TasksResul
     createdAt: l.createdAt,
     actionLabel: 'Reenviar',
   }))
+
+  const failedReasonCounts: FailedReasonCounts = allFailedForCount.reduce(
+    (acc, l) => {
+      acc[categorizeFailure(l.errorMessage)]++
+      acc.total++
+      return acc
+    },
+    { invalidNumber: 0, disconnected: 0, other: 0, total: 0 } as FailedReasonCounts
+  )
 
   const preRegistrations: TaskItem[] = preRegPatients.map(p => ({
     id: p.id,
@@ -115,7 +165,9 @@ export async function getChatbotLightTasks(doctorId: string): Promise<TasksResul
 
   return {
     transfers,
+    activeSessions,
     failedMessages,
+    failedReasonCounts,
     preRegistrations,
     overduePayments,
     unconfirmedAppointments,

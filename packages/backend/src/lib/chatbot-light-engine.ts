@@ -4,6 +4,7 @@ import { resolveWhatsAppContactIdentity } from './whatsapp'
 import { resolveChatbotLightSendTarget, sendRoomWhatsAppMessage, normalizeToWhatsAppJid, checkPhoneOnWhatsApp } from './room-whatsapp'
 import { processGuidedStep, interpolateTemplate, startLeadCaptureFlow, processLeadCaptureStep } from './chatbot-light-guided-engine'
 import { resolveTemplateVariables, resolveMessageText, TemplateContext } from './chatbot-light-variables'
+import { isWithinBusinessHours, flowHasLeadCapture, BusinessHoursConfig } from './chatbot-light-business-hours'
 
 
 const lightFlowStateCache = new NodeCache({
@@ -18,7 +19,8 @@ export async function sendLightMessage(
   content: string,
   module: string,
   triggerEvent?: string,
-  recipientName?: string
+  recipientName?: string,
+  templateId?: string
 ): Promise<boolean> {
   const jid = normalizeToWhatsAppJid(to)
   const cleanPhone = jid.replace('@s.whatsapp.net', '')
@@ -26,17 +28,19 @@ export async function sendLightMessage(
   const log = await prisma.lightMessageLog.create({
     data: {
       doctorId: instance.doctorId,
+      chatbotId: instance.chatbotId ?? null,
       phone: cleanPhone,
       recipientName: recipientName ?? null,
       content,
       module,
       triggerEvent,
+      templateId: templateId ?? null,
       status: 'PENDING',
     },
   })
 
   try {
-    const target = await resolveChatbotLightSendTarget(instance.doctorId)
+    const target = await resolveChatbotLightSendTarget(instance.chatbotId)
     if (!target) throw new Error('WhatsApp não conectado — vincule uma Sala em Configurações > Conexão')
 
     // Resolve canonical WhatsApp JID so 8-digit vs 9-digit Brazilian numbers are handled correctly.
@@ -575,8 +579,13 @@ export async function handleIncomingLightMessage(params: {
   // 7. Se sessão não existe, tentar bater com gatilhos
   chatbotLightLog('info', socketInstanceKey, 'chatbot_light.flow_search_started', { incomingText })
 
+  // Escopado pelo chatbot da instância — cada chatbot só responde com seus
+  // próprios fluxos (multi-chatbot, jul/2026). Fluxos legados sem chatbotId
+  // (pré-migration) continuam batendo pelo doctorId como fallback.
   const fluxos = await prisma.lightFluxo.findMany({
-    where: { doctorId: instance.doctorId, active: true },
+    where: instance.chatbotId
+      ? { chatbotId: instance.chatbotId, active: true }
+      : { doctorId: instance.doctorId, chatbotId: null, active: true },
   })
 
   const matchedFlow = fluxos.find(f =>
@@ -585,6 +594,23 @@ export async function handleIncomingLightMessage(params: {
 
   if (matchedFlow) {
     chatbotLightLog('info', socketInstanceKey, 'chatbot_light.flow_matched', { flowId: matchedFlow.id, flowName: matchedFlow.name })
+
+    // Horário de funcionamento — fora do horário, fluxos normais são
+    // substituídos pela mensagem configurada, exceto quando o fluxo captura
+    // lead/pré-agendamento e isso foi explicitamente permitido fora do horário.
+    const lightSettings = await prisma.lightSettings.findUnique({
+      where: { doctorId: instance.doctorId },
+      select: { businessHours: true },
+    })
+    const businessHours = lightSettings?.businessHours as BusinessHoursConfig | null
+    if (businessHours?.enabled && !isWithinBusinessHours(businessHours)) {
+      const allowedOffHours = businessHours.allowLeadCaptureOffHours && flowHasLeadCapture(matchedFlow.options)
+      if (!allowedOffHours) {
+        await sendLightMessage(instance, deliveryJid, businessHours.offHoursMessage, 'fluxo_guiado')
+        chatbotLightLog('info', socketInstanceKey, 'chatbot_light.off_hours_blocked', { flowId: matchedFlow.id })
+        return
+      }
+    }
 
     // Cancelar sessões anteriores ativas
     await prisma.lightFlowSession.updateMany({
@@ -630,18 +656,16 @@ export async function handleIncomingLightMessage(params: {
     return
   }
 
-  // 8. Tentar bater com respostas rápidas
+  // 8. Tentar bater com respostas rápidas (mesmo escopo por chatbot acima)
   const quickReply = await prisma.lightQuickReply.findFirst({
-    where: {
-      doctorId: instance.doctorId,
-      keyword: { equals: incomingText, mode: 'insensitive' },
-      active: true,
-    },
+    where: instance.chatbotId
+      ? { chatbotId: instance.chatbotId, keyword: { equals: incomingText, mode: 'insensitive' }, active: true }
+      : { doctorId: instance.doctorId, chatbotId: null, keyword: { equals: incomingText, mode: 'insensitive' }, active: true },
   })
 
   if (quickReply) {
     const text = await resolveMessageText({ text: quickReply.response, templateId: quickReply.templateId }, {}, prisma)
-    await sendLightMessage(instance, deliveryJid, text, 'resposta_rapida')
+    await sendLightMessage(instance, deliveryJid, text, 'resposta_rapida', undefined, undefined, quickReply.templateId ?? undefined)
     return
   }
 
@@ -655,7 +679,10 @@ export async function triggerLightAutomatedMessage(
   contextData: TemplateContext & { patientPhone: string }
 ): Promise<void> {
   try {
-    const config = await prisma.lightIntegrationConfig.findFirst({
+    // Um evento pode ter uma automação configurada em mais de um chatbot da
+    // mesma conta (cada um com seu próprio número) — dispara em todos os que
+    // estiverem ativos e com template válido (multi-chatbot, jul/2026).
+    const configs = await prisma.lightIntegrationConfig.findMany({
       where: {
         doctorId,
         triggerEvent: event,
@@ -666,49 +693,42 @@ export async function triggerLightAutomatedMessage(
       },
     })
 
-    if (!config || !config.template || !config.template.active) {
-      return
-    }
+    for (const config of configs) {
+      if (!config.template || !config.template.active) continue
+      if (!config.chatbotId) continue
 
-    const instance = await prisma.whatsAppInstance.findUnique({
-      where: {
-        doctorId_type: {
-          doctorId,
-          type: 'CHATBOT_LIGHT',
-        },
-      },
-    })
+      const instance = await prisma.whatsAppInstance.findUnique({ where: { chatbotId: config.chatbotId } })
+      if (!instance) continue
 
-    if (!instance) {
-      return
-    }
+      const interpolatedText = resolveTemplateVariables(config.template.content, contextData)
 
-    const interpolatedText = resolveTemplateVariables(config.template.content, contextData)
-
-    const sendFn = async () => {
-      const target = await resolveChatbotLightSendTarget(doctorId)
-      if (!target) {
-        await prisma.lightMessageLog.create({
-          data: {
-            doctorId,
-            phone: normalizeToWhatsAppJid(contextData.patientPhone).replace('@s.whatsapp.net', ''),
-            recipientName: contextData.patientName ?? null,
-            content: interpolatedText,
-            module: config.module,
-            triggerEvent: event,
-            status: 'FAILED',
-            errorMessage: 'WhatsApp desconectado — vincule uma Sala em Configurações > Conexão',
-          },
-        })
-        return
+      const sendFn = async () => {
+        const target = await resolveChatbotLightSendTarget(config.chatbotId!)
+        if (!target) {
+          await prisma.lightMessageLog.create({
+            data: {
+              doctorId,
+              chatbotId: config.chatbotId,
+              phone: normalizeToWhatsAppJid(contextData.patientPhone).replace('@s.whatsapp.net', ''),
+              recipientName: contextData.patientName ?? null,
+              content: interpolatedText,
+              module: config.module,
+              triggerEvent: event,
+              templateId: config.templateId,
+              status: 'FAILED',
+              errorMessage: 'WhatsApp desconectado — vincule uma Sala em Configurações > Conexão',
+            },
+          })
+          return
+        }
+        await sendLightMessage(instance, contextData.patientPhone, interpolatedText, config.module, event, contextData.patientName, config.templateId ?? undefined)
       }
-      await sendLightMessage(instance, contextData.patientPhone, interpolatedText, config.module, event, contextData.patientName)
-    }
 
-    if (config.delayMinutes > 0) {
-      setTimeout(sendFn, config.delayMinutes * 60 * 1000)
-    } else {
-      await sendFn()
+      if (config.delayMinutes > 0) {
+        setTimeout(sendFn, config.delayMinutes * 60 * 1000)
+      } else {
+        await sendFn()
+      }
     }
   } catch (err) {
     console.error('[triggerLightAutomatedMessage] Erro:', err)

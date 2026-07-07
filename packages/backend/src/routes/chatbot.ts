@@ -196,13 +196,8 @@ const upsertSettingsSchema = z.object({
 // ─── Helper: resolve or create instance ──────────────────────────────────────
 
 async function resolveInstance(userId: string) {
-  const instance = await prisma.whatsAppInstance.findUnique({
-    where: {
-      doctorId_type: {
-        doctorId: userId,
-        type: 'CLINICAL_AGENT',
-      },
-    },
+  const instance = await prisma.whatsAppInstance.findFirst({
+    where: { doctorId: userId, type: 'CLINICAL_AGENT' },
   })
   if (!instance) return instance
 
@@ -220,13 +215,8 @@ async function resolveInstance(userId: string) {
 }
 
 async function resolveOrCreateInstance(userId: string) {
-  const existing = await prisma.whatsAppInstance.findUnique({
-    where: {
-      doctorId_type: {
-        doctorId: userId,
-        type: 'CLINICAL_AGENT',
-      },
-    },
+  const existing = await prisma.whatsAppInstance.findFirst({
+    where: { doctorId: userId, type: 'CLINICAL_AGENT' },
   })
   if (existing) return existing
   return prisma.whatsAppInstance.create({
@@ -463,13 +453,8 @@ router.post('/instance', async (req: AuthRequest, res: Response) => {
     const userId = req.user!.userId
     const data = createInstanceSchema.parse(req.body)
 
-    const existing = await prisma.whatsAppInstance.findUnique({
-      where: {
-        doctorId_type: {
-          doctorId: userId,
-          type: 'CLINICAL_AGENT',
-        },
-      },
+    const existing = await prisma.whatsAppInstance.findFirst({
+      where: { doctorId: userId, type: 'CLINICAL_AGENT' },
     })
     if (existing) {
       res.status(409).json({ message: 'Instância já existe. Use a existente ou exclua-a primeiro.' })

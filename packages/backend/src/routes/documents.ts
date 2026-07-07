@@ -184,15 +184,18 @@ router.post('/:id/emit', async (req: AuthRequest, res) => {
       return
     }
 
-    // Verifica instância WhatsApp conectada
-    const instance = await prisma.whatsAppInstance.findUnique({
-      where: { doctorId_type: { doctorId, type: 'CHATBOT_LIGHT' } },
-    })
+    // Verifica instância WhatsApp conectada — usa o chatbot padrão da conta
+    // (mais antigo) já que o envio de documentos não passa por um chatbot
+    // específico.
+    const defaultChatbot = await prisma.lightChatbot.findFirst({ where: { doctorId }, orderBy: { createdAt: 'asc' } })
+    const instance = defaultChatbot
+      ? await prisma.whatsAppInstance.findUnique({ where: { chatbotId: defaultChatbot.id } })
+      : null
     if (!instance) {
       res.status(400).json({ message: 'WhatsApp não configurado. Conecte no menu ChatBot Light → Configurações.' })
       return
     }
-    const target = await resolveChatbotLightSendTarget(doctorId)
+    const target = await resolveChatbotLightSendTarget(instance.chatbotId!)
     if (!target) {
       res.status(400).json({ message: 'WhatsApp desconectado. Verifique a conexão no menu ChatBot Light.' })
       return

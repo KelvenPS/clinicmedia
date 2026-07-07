@@ -1818,7 +1818,8 @@ async function createLeadPatient(
         status: 'PRE_CADASTRO',
         origin: 'CHATBOT',
         active: true,
-        chatbotSessionId: session.id
+        chatbotSessionId: session.id,
+        leadStatus: 'NOVO'
       }
     })
   } catch (err: any) {
@@ -1834,7 +1835,8 @@ async function createLeadPatient(
           notes,
           status: 'PRE_CADASTRO',
           origin: 'CHATBOT',
-          active: true
+          active: true,
+          leadStatus: 'NOVO'
         }
       })
     } else {

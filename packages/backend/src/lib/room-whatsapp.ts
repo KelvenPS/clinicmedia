@@ -73,9 +73,10 @@ const MAX_ROOM_RECONNECT_ATTEMPTS = 5
 
 /**
  * Encaminha mensagens recebidas pela Sala para o motor do Chatbot Light,
- * quando a Sala estiver vinculada como conexão do Chatbot Light do médico
- * (LightSettings.boundRoomId). Reaproveita o mesmo pipeline de persistência
- * de Conversation/Message usado pela conexão própria do Chatbot Light.
+ * quando a Sala estiver vinculada a um chatbot (LightChatbot.boundRoomId —
+ * cada chatbot pode ter sua própria sala/número, multi-chatbot jul/2026).
+ * Reaproveita o mesmo pipeline de persistência de Conversation/Message usado
+ * pela conexão própria do Chatbot Light.
  */
 async function dispatchToChatbotLight(instanceKey: string, msg: WAMessage): Promise<void> {
   const connection = await prisma.roomWhatsAppConnection.findUnique({
@@ -84,14 +85,17 @@ async function dispatchToChatbotLight(instanceKey: string, msg: WAMessage): Prom
   })
   if (!connection) return
 
-  const settings = await prisma.lightSettings.findUnique({
-    where: { doctorId: connection.doctorId },
-    select: { boundRoomId: true },
+  // Uma sala pertence a no máximo 1 chatbot (boundRoomId é @unique) — resolve
+  // diretamente qual chatbot é dono desta sala, sem passar mais por um
+  // "instance único do médico".
+  const chatbot = await prisma.lightChatbot.findUnique({
+    where: { boundRoomId: connection.roomId },
+    select: { id: true, active: true },
   })
-  if (!settings?.boundRoomId || settings.boundRoomId !== connection.roomId) return
+  if (!chatbot || !chatbot.active) return
 
   const instance = await prisma.whatsAppInstance.findUnique({
-    where: { doctorId_type: { doctorId: connection.doctorId, type: 'CHATBOT_LIGHT' } },
+    where: { chatbotId: chatbot.id },
     select: { id: true },
   })
   if (!instance) return
@@ -439,39 +443,40 @@ export async function sendRoomWhatsAppMessage(
 }
 
 /**
- * Resolve a conexão WhatsApp da Sala vinculada ao Chatbot Light de um médico
- * (via LightSettings.boundRoomId). Retorna null se não houver vínculo ou a
- * sala não estiver conectada.
+ * Resolve a conexão WhatsApp da Sala vinculada a um chatbot específico
+ * (via LightChatbot.boundRoomId — cada chatbot tem sua própria sala/número,
+ * multi-chatbot jul/2026). Retorna null se não houver vínculo ou a sala não
+ * estiver conectada.
  */
-export async function resolveChatbotLightBinding(doctorId: string): Promise<{
+export async function resolveChatbotLightBinding(chatbotId: string): Promise<{
   roomId: string
   instanceKey: string
   connected: boolean
 } | null> {
-  const settings = await prisma.lightSettings.findUnique({
-    where: { doctorId },
+  const chatbot = await prisma.lightChatbot.findUnique({
+    where: { id: chatbotId },
     select: { boundRoomId: true },
   })
-  if (!settings?.boundRoomId) return null
+  if (!chatbot?.boundRoomId) return null
 
   const connection = await prisma.roomWhatsAppConnection.findUnique({
-    where: { roomId: settings.boundRoomId },
+    where: { roomId: chatbot.boundRoomId },
   })
   if (!connection) return null
 
   return {
-    roomId: settings.boundRoomId,
+    roomId: chatbot.boundRoomId,
     instanceKey: connection.instanceKey,
     connected: connection.status === 'CONNECTED' && roomSockets.has(connection.instanceKey),
   }
 }
 
 /**
- * Resolve o alvo de envio para mensagens automáticas do Chatbot Light.
+ * Resolve o alvo de envio para mensagens automáticas de um chatbot.
  * Retorna null se não houver Sala vinculada ou a conexão não estiver ativa.
  */
-export async function resolveChatbotLightSendTarget(doctorId: string): Promise<{ instanceKey: string } | null> {
-  const binding = await resolveChatbotLightBinding(doctorId)
+export async function resolveChatbotLightSendTarget(chatbotId: string): Promise<{ instanceKey: string } | null> {
+  const binding = await resolveChatbotLightBinding(chatbotId)
   if (!binding || !binding.connected) return null
   return { instanceKey: binding.instanceKey }
 }
@@ -625,10 +630,15 @@ export async function tryRoomWhatsAppConfirmation(
 
     // 1. Check for active CONFIRM_APPOINTMENT system action (interactive SIM/NÃO)
     try {
-      const instance = await prisma.whatsAppInstance.findUnique({
-        where: { doctorId_type: { doctorId: data.doctorId, type: 'CHATBOT_LIGHT' } },
+      // Resolve o chatbot dono desta sala especificamente (multi-chatbot,
+      // jul/2026) — não "o" chatbot do médico.
+      const chatbot = await prisma.lightChatbot.findUnique({
+        where: { boundRoomId: roomId },
         select: { id: true },
       })
+      const instance = chatbot
+        ? await prisma.whatsAppInstance.findUnique({ where: { chatbotId: chatbot.id }, select: { id: true } })
+        : null
       if (instance) {
         const confirmAction = await prisma.lightSystemActionConfig.findFirst({
           where: { instanceId: instance.id, actionKey: 'CONFIRM_APPOINTMENT', active: true },

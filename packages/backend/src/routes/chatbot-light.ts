@@ -3,23 +3,42 @@ import { z } from 'zod'
 import { prisma } from '../lib/prisma'
 import { authenticate, requireFeature, AuthRequest } from '../middleware/auth'
 import { resolveChatbotLightSendTarget, sendRoomWhatsAppMessage, checkPhoneOnWhatsApp, normalizeToWhatsAppJid, isRoomSessionActive } from '../lib/room-whatsapp'
-import { requireSecretaryPermission, getEffectiveDoctorId } from '../lib/secretaryAccess'
+import { requireSecretaryPermission, getEffectiveDoctorId, logAudit } from '../lib/secretaryAccess'
 import { simulateLightMessage, resetSimulation } from '../lib/chatbot-light-simulator'
 import { TEMPLATE_VARIABLE_REGISTRY, resolveContextFromAppointment, TemplateContext } from '../lib/chatbot-light-variables'
-import { triggerLightAutomatedMessage } from '../lib/chatbot-light-engine'
+import { triggerLightAutomatedMessage, sendLightMessage } from '../lib/chatbot-light-engine'
+import { getChatbotLightTasks } from '../lib/chatbot-light-tasks'
 
 const router = Router()
 router.use(authenticate)
 router.use(requireFeature('chatbot'))
 
-// Permissão de secretária verificada dinamicamente para permitir que acessem status da conexão (/instance) sem a permissão total
+// Rotas de "uso do dia a dia" (chatbot_light_operar) — tudo o resto exige
+// "configurar" (chatbot_light_configurar). Ver Fase 3 do plano de refatoração.
+const OPERATE_ROUTES: Array<{ method: string; path: RegExp }> = [
+  { method: 'GET',   path: /^\/dashboard$/ },
+  { method: 'GET',   path: /^\/history$/ },
+  { method: 'POST',  path: /^\/history\/[^/]+\/resend$/ },
+  { method: 'POST',  path: /^\/test$/ },
+  { method: 'GET',   path: /^\/quick-replies$/ },
+  { method: 'GET',   path: /^\/pre-schedulings$/ },
+  { method: 'POST',  path: /^\/trigger-appointment$/ },
+  { method: 'GET',   path: /^\/tasks$/ },
+  { method: 'PATCH', path: /^\/sessions\/[^/]+\/resolve$/ },
+  { method: 'POST',  path: /^\/transactions\/[^/]+\/send-reminder$/ },
+]
+
+// Permissão de secretária verificada dinamicamente: rotas de status da conexão
+// (/instance) não exigem permissão, rotas de uso diário exigem "operar", e as
+// demais (configuração) exigem "configurar".
 router.use(async (req: AuthRequest, res: Response, next: NextFunction) => {
   const isStatusRoute = req.method === 'GET' && (req.path === '/instance' || req.path === '/instance/status')
   if (isStatusRoute) {
     next()
     return
   }
-  const middleware = requireSecretaryPermission('chatbot_light')
+  const isOperateRoute = OPERATE_ROUTES.some(r => r.method === req.method && r.path.test(req.path))
+  const middleware = requireSecretaryPermission(isOperateRoute ? 'chatbot_light_operar' : 'chatbot_light_configurar')
   await middleware(req, res, next)
 })
 
@@ -77,6 +96,132 @@ router.get('/dashboard', async (req: AuthRequest, res) => {
   }
 })
 
+// ─── Central de Tarefas ────────────────────────────────────────────────────────
+
+router.get('/tasks', async (req: AuthRequest, res) => {
+  try {
+    const doctorId = await getTargetDoctorId(req)
+    const tasks = await getChatbotLightTasks(doctorId)
+    res.json(tasks)
+  } catch (err) {
+    console.error('[/chatbot-light/tasks]', err)
+    res.status(500).json({ message: 'Erro interno do servidor' })
+  }
+})
+
+router.patch('/sessions/:id/resolve', async (req: AuthRequest, res) => {
+  try {
+    const doctorId = await getTargetDoctorId(req)
+    const { id } = req.params
+
+    const instance = await prisma.whatsAppInstance.findUnique({
+      where: { doctorId_type: { doctorId, type: 'CHATBOT_LIGHT' } },
+    })
+    if (!instance) {
+      res.status(404).json({ message: 'Instância do Chatbot Light não encontrada' })
+      return
+    }
+
+    const result = await prisma.lightFlowSession.updateMany({
+      where: { id, instanceId: instance.id },
+      data: { status: 'COMPLETED' },
+    })
+    if (result.count === 0) {
+      res.status(404).json({ message: 'Conversa não encontrada' })
+      return
+    }
+
+    await logAudit({
+      userId: req.user!.userId,
+      action: 'CHATBOT_LIGHT_SESSION_RESOLVED',
+      description: 'Conversa transferida marcada como atendida',
+      metadata: { doctorId, sessionId: id },
+    })
+
+    res.json({ message: 'Conversa marcada como atendida' })
+  } catch (err) {
+    console.error('[/chatbot-light/sessions/:id/resolve]', err)
+    res.status(500).json({ message: 'Erro interno do servidor' })
+  }
+})
+
+router.post('/history/:id/resend', async (req: AuthRequest, res) => {
+  try {
+    const doctorId = await getTargetDoctorId(req)
+    const { id } = req.params
+
+    const log = await prisma.lightMessageLog.findFirst({ where: { id, doctorId } })
+    if (!log) {
+      res.status(404).json({ message: 'Mensagem não encontrada' })
+      return
+    }
+
+    const instance = await prisma.whatsAppInstance.findUnique({
+      where: { doctorId_type: { doctorId, type: 'CHATBOT_LIGHT' } },
+    })
+    if (!instance) {
+      res.status(400).json({ message: 'WhatsApp não conectado. Vincule uma Sala na aba Conexão.' })
+      return
+    }
+
+    const ok = await sendLightMessage(instance, log.phone, log.content, log.module, log.triggerEvent ?? undefined, log.recipientName ?? undefined)
+
+    await logAudit({
+      userId: req.user!.userId,
+      action: 'CHATBOT_LIGHT_MESSAGE_RESENT',
+      description: `Reenvio de mensagem para ${log.recipientName ?? log.phone}`,
+      metadata: { doctorId, originalLogId: id, success: ok },
+    })
+
+    res.json({ success: ok })
+  } catch (err) {
+    console.error('[/chatbot-light/history/:id/resend]', err)
+    res.status(500).json({ message: 'Erro interno do servidor' })
+  }
+})
+
+router.post('/transactions/:id/send-reminder', async (req: AuthRequest, res) => {
+  try {
+    const doctorId = await getTargetDoctorId(req)
+    const { id } = req.params
+
+    const tx = await prisma.transaction.findFirst({
+      where: { id, doctorId },
+      include: { appointment: { include: { patient: true } } },
+    })
+    if (!tx || !tx.appointmentId || !tx.appointment?.patient.phone) {
+      res.status(404).json({ message: 'Cobrança não encontrada ou sem consulta/paciente vinculado' })
+      return
+    }
+
+    const context = await resolveContextFromAppointment(tx.appointmentId, prisma, {
+      paymentValue: String(tx.amount),
+      link: `${process.env.FRONTEND_URL || 'http://localhost:5173'}/pagar/${tx.id}`,
+    })
+    if (!context.patientPhone) {
+      res.status(400).json({ message: 'Paciente sem telefone cadastrado' })
+      return
+    }
+
+    await triggerLightAutomatedMessage(doctorId, 'PAYMENT_REMINDER', {
+      ...context,
+      patientPhone: context.patientPhone,
+    })
+
+    await logAudit({
+      userId: req.user!.userId,
+      action: 'CHATBOT_LIGHT_PAYMENT_REMINDER_SENT',
+      description: `Lembrete de cobrança enviado para ${context.patientName ?? context.patientPhone}`,
+      metadata: { doctorId, transactionId: id },
+    })
+
+    res.json({ sent: true })
+  } catch (err) {
+    console.error('[/chatbot-light/transactions/:id/send-reminder]', err)
+    res.status(500).json({ message: 'Erro interno do servidor' })
+  }
+})
+
 // ─── Integration Configs ──────────────────────────────────────────────────────
 
 router.get('/integrations', async (req: AuthRequest, res) => {
@@ -124,6 +269,13 @@ router.put('/integrations', async (req: AuthRequest, res) => {
       include: { template: { select: { id: true, name: true } } },
     })
 
+    await logAudit({
+      userId: req.user!.userId,
+      action: 'CHATBOT_LIGHT_INTEGRATION_UPDATED',
+      description: `Campanha "${data.module}/${data.triggerEvent}" ${data.enabled ? 'ativada' : 'desativada'}`,
+      metadata: { doctorId, module: data.module, triggerEvent: data.triggerEvent, enabled: data.enabled, templateId: data.templateId ?? null },
+    })
+
     res.json(config)
   } catch (error) {
     if (error instanceof z.ZodError) {
@@ -162,6 +314,12 @@ router.post('/templates', async (req: AuthRequest, res) => {
     const doctorId = await getTargetDoctorId(req)
     const data = templateSchema.parse(req.body)
     const template = await prisma.lightTemplate.create({ data: { doctorId, ...data } })
+    await logAudit({
+      userId: req.user!.userId,
+      action: 'CHATBOT_LIGHT_TEMPLATE_CREATED',
+      description: `Template "${template.name}" criado`,
+      metadata: { doctorId, templateId: template.id },
+    })
     res.status(201).json(template)
   } catch (error) {
     if (error instanceof z.ZodError) {
@@ -189,6 +347,12 @@ router.put('/templates/:id', async (req: AuthRequest, res) => {
     }
 
     const updated = await prisma.lightTemplate.findUnique({ where: { id } })
+    await logAudit({
+      userId: req.user!.userId,
+      action: 'CHATBOT_LIGHT_TEMPLATE_UPDATED',
+      description: `Template "${updated?.name}" atualizado`,
+      metadata: { doctorId, templateId: id },
+    })
     res.json(updated)
   } catch (error) {
     if (error instanceof z.ZodError) {
@@ -204,6 +368,12 @@ router.delete('/templates/:id', async (req: AuthRequest, res) => {
     const doctorId = await getTargetDoctorId(req)
     const { id } = req.params
     await prisma.lightTemplate.deleteMany({ where: { id, doctorId } })
+    await logAudit({
+      userId: req.user!.userId,
+      action: 'CHATBOT_LIGHT_TEMPLATE_DELETED',
+      description: 'Template removido',
+      metadata: { doctorId, templateId: id },
+    })
     res.json({ message: 'Template removido' })
   } catch {
     res.status(500).json({ message: 'Erro interno do servidor' })
@@ -336,6 +506,7 @@ const fluxoSchema = z.object({
     label:        z.string().min(1),
     triggers:     z.string().min(1),
     response:     z.string().min(1),
+    templateId:   z.string().nullable().optional(),
     actionType:   z.enum(['SEND_MESSAGE', 'TRANSFER_QUEUE', 'OPEN_MENU', 'SYSTEM_ACTION', 'END_CHAT', 'START_PLAN_SCHEDULING', 'START_LEAD_CAPTURE']),
     queueId:      z.string().nullable().optional(),
     nextFlowId:   z.string().nullable().optional(),
@@ -378,6 +549,12 @@ router.post('/fluxos', async (req: AuthRequest, res) => {
     const fluxo = await prisma.lightFluxo.create({
       data: { doctorId, ...data, options: data.options as object[] },
     })
+    await logAudit({
+      userId: req.user!.userId,
+      action: 'CHATBOT_LIGHT_FLUXO_CREATED',
+      description: `Fluxo "${fluxo.name}" criado`,
+      metadata: { doctorId, fluxoId: fluxo.id },
+    })
     res.status(201).json(fluxo)
   } catch (error) {
     if (error instanceof z.ZodError) {
@@ -405,6 +582,12 @@ router.put('/fluxos/:id', async (req: AuthRequest, res) => {
     }
 
     const updated = await prisma.lightFluxo.findUnique({ where: { id } })
+    await logAudit({
+      userId: req.user!.userId,
+      action: 'CHATBOT_LIGHT_FLUXO_UPDATED',
+      description: `Fluxo "${updated?.name}" atualizado`,
+      metadata: { doctorId, fluxoId: id },
+    })
     res.json(updated)
   } catch (error) {
     if (error instanceof z.ZodError) {
@@ -420,6 +603,12 @@ router.delete('/fluxos/:id', async (req: AuthRequest, res) => {
     const doctorId = await getTargetDoctorId(req)
     const { id } = req.params
     await prisma.lightFluxo.deleteMany({ where: { id, doctorId } })
+    await logAudit({
+      userId: req.user!.userId,
+      action: 'CHATBOT_LIGHT_FLUXO_DELETED',
+      description: 'Fluxo removido',
+      metadata: { doctorId, fluxoId: id },
+    })
     res.json({ message: 'Fluxo removido' })
   } catch {
     res.status(500).json({ message: 'Erro interno do servidor' })
@@ -429,9 +618,10 @@ router.delete('/fluxos/:id', async (req: AuthRequest, res) => {
 // ─── Quick Replies ────────────────────────────────────────────────────────────
 
 const quickReplySchema = z.object({
-  keyword:  z.string().min(1, 'Palavra-chave obrigatória'),
-  response: z.string().min(1, 'Resposta obrigatória'),
-  active:   z.boolean().default(true),
+  keyword:    z.string().min(1, 'Palavra-chave obrigatória'),
+  response:   z.string().min(1, 'Resposta obrigatória'),
+  templateId: z.string().nullable().optional(),
+  active:     z.boolean().default(true),
 })
 
 router.get('/quick-replies', async (req: AuthRequest, res) => {
@@ -452,6 +642,12 @@ router.post('/quick-replies', async (req: AuthRequest, res) => {
     const doctorId = await getTargetDoctorId(req)
     const data = quickReplySchema.parse(req.body)
     const reply = await prisma.lightQuickReply.create({ data: { doctorId, ...data } })
+    await logAudit({
+      userId: req.user!.userId,
+      action: 'CHATBOT_LIGHT_QUICKREPLY_CREATED',
+      description: `Resposta rápida "${reply.keyword}" criada`,
+      metadata: { doctorId, quickReplyId: reply.id },
+    })
     res.status(201).json(reply)
   } catch (error) {
     if (error instanceof z.ZodError) {
@@ -479,6 +675,12 @@ router.put('/quick-replies/:id', async (req: AuthRequest, res) => {
     }
 
     const updated = await prisma.lightQuickReply.findUnique({ where: { id } })
+    await logAudit({
+      userId: req.user!.userId,
+      action: 'CHATBOT_LIGHT_QUICKREPLY_UPDATED',
+      description: `Resposta rápida "${updated?.keyword}" atualizada`,
+      metadata: { doctorId, quickReplyId: id },
+    })
     res.json(updated)
   } catch (error) {
     if (error instanceof z.ZodError) {
@@ -494,6 +696,12 @@ router.delete('/quick-replies/:id', async (req: AuthRequest, res) => {
     const doctorId = await getTargetDoctorId(req)
     const { id } = req.params
     await prisma.lightQuickReply.deleteMany({ where: { id, doctorId } })
+    await logAudit({
+      userId: req.user!.userId,
+      action: 'CHATBOT_LIGHT_QUICKREPLY_DELETED',
+      description: 'Resposta rápida removida',
+      metadata: { doctorId, quickReplyId: id },
+    })
     res.json({ message: 'Resposta rápida removida' })
   } catch {
     res.status(500).json({ message: 'Erro interno do servidor' })
@@ -508,6 +716,7 @@ router.get('/settings', async (req: AuthRequest, res) => {
     const settings = await prisma.lightSettings.findUnique({ where: { doctorId } })
     res.json(settings ?? {
       enabledScreens: ['agenda', 'pacientes', 'prontuario', 'avaliacao', 'financeiro'],
+      advancedMode: false,
     })
   } catch {
     res.status(500).json({ message: 'Erro interno do servidor' })
@@ -518,14 +727,22 @@ router.put('/settings', async (req: AuthRequest, res) => {
   try {
     const doctorId = await getTargetDoctorId(req)
     const schema = z.object({
-      enabledScreens: z.array(z.string()),
+      enabledScreens: z.array(z.string()).optional(),
+      advancedMode: z.boolean().optional(),
     })
-    const { enabledScreens } = schema.parse(req.body)
+    const data = schema.parse(req.body)
 
     const settings = await prisma.lightSettings.upsert({
       where: { doctorId },
-      update: { enabledScreens },
-      create: { doctorId, enabledScreens },
+      update: data,
+      create: { doctorId, ...data },
+    })
+
+    await logAudit({
+      userId: req.user!.userId,
+      action: 'CHATBOT_LIGHT_SETTINGS_UPDATED',
+      description: 'Configurações do Chatbot Light atualizadas',
+      metadata: { doctorId, ...data },
     })
 
     res.json(settings)
@@ -638,6 +855,12 @@ router.post('/system-actions', async (req: AuthRequest, res) => {
         config: data.config,
       },
     })
+    await logAudit({
+      userId: req.user!.userId,
+      action: 'CHATBOT_LIGHT_SYSTEMACTION_CREATED',
+      description: `Ação do sistema "${config.name}" (${config.actionKey}) criada`,
+      metadata: { doctorId, systemActionConfigId: config.id, actionKey: config.actionKey },
+    })
     res.status(201).json(config)
   } catch (error) {
     if (error instanceof z.ZodError) {
@@ -650,6 +873,7 @@ router.post('/system-actions', async (req: AuthRequest, res) => {
 
 router.put('/system-actions/:id', async (req: AuthRequest, res) => {
   try {
+    const doctorId = await getTargetDoctorId(req)
     const { id } = req.params
     const schema = z.object({
       name: z.string().min(2, 'Nome obrigatório'),
@@ -666,6 +890,12 @@ router.put('/system-actions/:id', async (req: AuthRequest, res) => {
         config: data.config,
       },
     })
+    await logAudit({
+      userId: req.user!.userId,
+      action: 'CHATBOT_LIGHT_SYSTEMACTION_UPDATED',
+      description: `Ação do sistema "${updated.name}" atualizada`,
+      metadata: { doctorId, systemActionConfigId: id },
+    })
     res.json(updated)
   } catch (error) {
     if (error instanceof z.ZodError) {
@@ -678,6 +908,7 @@ router.put('/system-actions/:id', async (req: AuthRequest, res) => {
 
 router.patch('/system-actions/:id/active', async (req: AuthRequest, res) => {
   try {
+    const doctorId = await getTargetDoctorId(req)
     const { id } = req.params
     const schema = z.object({ active: z.boolean() })
     const { active } = schema.parse(req.body)
@@ -685,6 +916,12 @@ router.patch('/system-actions/:id/active', async (req: AuthRequest, res) => {
     const updated = await prisma.lightSystemActionConfig.update({
       where: { id },
       data: { active },
+    })
+    await logAudit({
+      userId: req.user!.userId,
+      action: 'CHATBOT_LIGHT_SYSTEMACTION_TOGGLED',
+      description: `Ação do sistema "${updated.name}" ${active ? 'ativada' : 'desativada'}`,
+      metadata: { doctorId, systemActionConfigId: id, active },
     })
     res.json(updated)
   } catch (error) {
@@ -723,6 +960,12 @@ router.delete('/system-actions/:id', async (req: AuthRequest, res) => {
 
     await prisma.lightSystemActionConfig.delete({
       where: { id },
+    })
+    await logAudit({
+      userId: req.user!.userId,
+      action: 'CHATBOT_LIGHT_SYSTEMACTION_DELETED',
+      description: 'Ação do sistema removida',
+      metadata: { doctorId, systemActionConfigId: id },
     })
     res.json({ message: 'Configuração excluída com sucesso.' })
   } catch {
@@ -813,6 +1056,32 @@ router.get('/pre-schedulings', async (req: AuthRequest, res) => {
     res.json(result)
   } catch (err) {
     console.error('[/chatbot-light/pre-schedulings]', err)
+    res.status(500).json({ message: 'Erro interno do servidor' })
+  }
+})
+
+// ─── Auditoria ─────────────────────────────────────────────────────────────
+
+router.get('/audit', async (req: AuthRequest, res) => {
+  try {
+    const doctorId = await getTargetDoctorId(req)
+    const { page = '1' } = req.query
+    const take = 20
+    const skip = (parseInt(String(page)) - 1) * take
+
+    const where = {
+      action: { startsWith: 'CHATBOT_LIGHT_' },
+      metadata: { path: ['doctorId'], equals: doctorId },
+    }
+
+    const [logs, total] = await Promise.all([
+      prisma.auditLog.findMany({ where, orderBy: { createdAt: 'desc' }, take, skip }),
+      prisma.auditLog.count({ where }),
+    ])
+
+    res.json({ logs, total, page: parseInt(String(page)), pages: Math.ceil(total / take) })
+  } catch (err) {
+    console.error('[/chatbot-light/audit]', err)
     res.status(500).json({ message: 'Erro interno do servidor' })
   }
 })
@@ -939,6 +1208,13 @@ router.post('/instance/bind-room', async (req: AuthRequest, res: Response) => {
     })
 
     const merged = await resolveBoundConnectionStatus(doctorId)
+    await logAudit({
+      userId: req.user!.userId,
+      roomId,
+      action: 'CHATBOT_LIGHT_ROOM_BOUND',
+      description: `Sala "${room.name}" vinculada ao Chatbot Light`,
+      metadata: { doctorId, roomId },
+    })
     res.json(merged)
   } catch (err) {
     if (err instanceof z.ZodError) {
@@ -957,6 +1233,12 @@ router.post('/instance/unbind-room', async (req: AuthRequest, res: Response) => 
       where: { doctorId },
       create: { doctorId, boundRoomId: null },
       update: { boundRoomId: null },
+    })
+    await logAudit({
+      userId: req.user!.userId,
+      action: 'CHATBOT_LIGHT_ROOM_UNBOUND',
+      description: 'Sala desvinculada do Chatbot Light',
+      metadata: { doctorId },
     })
     res.json({ status: 'NONE', roomId: null, roomName: null, phoneNumber: null, displayName: null, connectedAt: null })
   } catch (err) {
@@ -1035,6 +1317,13 @@ router.post('/trigger-appointment', async (req: AuthRequest, res) => {
     await triggerLightAutomatedMessage(doctorId, event, {
       ...context,
       patientPhone: context.patientPhone,
+    })
+
+    await logAudit({
+      userId: req.user!.userId,
+      action: 'CHATBOT_LIGHT_MANUAL_TRIGGER',
+      description: `Disparo manual do evento "${event}" para a consulta`,
+      metadata: { doctorId, appointmentId, event },
     })
 
     res.json({ sent: true, to: context.patientPhone })

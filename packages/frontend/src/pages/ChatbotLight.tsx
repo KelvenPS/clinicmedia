@@ -17,6 +17,7 @@ import toast from 'react-hot-toast'
 import api from '../lib/api'
 import { useAuthStore } from '../store/authStore'
 import Modal from '../components/ui/Modal'
+import { findCampaignPreset } from '../data/lightCampaignPresets'
 
 const generateUUID = () => {
   if (typeof window !== 'undefined' && window.crypto && typeof window.crypto.randomUUID === 'function') {
@@ -30,7 +31,7 @@ const generateUUID = () => {
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
-type Panel = 'relatorio' | 'fluxos' | 'system_actions' | 'mensagens' | 'templates' | 'respostas' | 'historico' | 'configuracoes' | 'pre_agendamentos'
+type Panel = 'central' | 'relatorio' | 'fluxos' | 'system_actions' | 'mensagens' | 'templates' | 'respostas' | 'historico' | 'configuracoes' | 'pre_agendamentos'
 type ConfigTab = 'conexao' | 'teste' | 'telas' | 'simulador'
 type FluxoActionType = 'SEND_MESSAGE' | 'TRANSFER_QUEUE' | 'OPEN_MENU' | 'SYSTEM_ACTION' | 'END_CHAT' | 'START_PLAN_SCHEDULING' | 'START_LEAD_CAPTURE'
 
@@ -121,6 +122,7 @@ interface LightQuickReply {
   id: string
   keyword: string
   response: string
+  templateId: string | null
   active: boolean
   createdAt: string
   updatedAt: string
@@ -212,6 +214,7 @@ const TEMPLATE_VARS: { category: string; label: string; vars: { key: string; des
       { key: '{telefone}',desc: 'Telefone do paciente' },
       { key: '{cpf}',     desc: 'CPF do paciente' },
       { key: '{plano}',   desc: 'Plano de saúde / convênio' },
+      { key: '{carteirinha}', desc: 'Número da carteirinha do convênio' },
     ],
   },
   {
@@ -231,6 +234,9 @@ const TEMPLATE_VARS: { category: string; label: string; vars: { key: string; des
       { key: '{medico}',       desc: 'Nome do profissional' },
       { key: '{especialidade}',desc: 'Especialidade do profissional' },
       { key: '{endereco}',     desc: 'Endereço da sala / clínica' },
+      { key: '{clinica}',      desc: 'Nome da sala / clínica' },
+      { key: '{telefone_clinica}', desc: 'Telefone do WhatsApp da clínica' },
+      { key: '{crm}',          desc: 'CRM/CRP do médico' },
     ],
   },
   {
@@ -385,6 +391,211 @@ function insertAtCursor(
 }
 
 // ─── Relatório panel ──────────────────────────────────────────────────────────
+
+// ─── Central de Tarefas ─────────────────────────────────────────────────────
+
+interface TaskItem {
+  id: string
+  type: 'TRANSFER' | 'FAILED_MESSAGE' | 'PRE_REGISTRATION' | 'OVERDUE_PAYMENT' | 'UNCONFIRMED_APPOINTMENT'
+  title: string
+  subtitle: string
+  createdAt: string
+  actionLabel: string
+}
+
+interface TasksData {
+  transfers: TaskItem[]
+  failedMessages: TaskItem[]
+  preRegistrations: TaskItem[]
+  overduePayments: TaskItem[]
+  unconfirmedAppointments: TaskItem[]
+  totalCount: number
+}
+
+function TaskSection({
+  title, icon: Icon, color, bg, items, onAction, isPending,
+}: {
+  title: string
+  icon: any
+  color: string
+  bg: string
+  items: TaskItem[]
+  onAction: (item: TaskItem) => void
+  isPending: boolean
+}) {
+  if (items.length === 0) return null
+  return (
+    <div className="bg-white rounded-2xl border border-slate-200 shadow-sm">
+      <div className="px-5 py-4 border-b border-slate-100 flex items-center gap-2.5">
+        <div className={`w-8 h-8 ${bg} rounded-lg flex items-center justify-center flex-shrink-0`}>
+          <Icon className={`w-4 h-4 ${color}`} />
+        </div>
+        <h3 className="font-semibold text-slate-900 text-sm">{title}</h3>
+        <span className="ml-auto text-xs font-semibold text-slate-400">{items.length}</span>
+      </div>
+      <div className="divide-y divide-slate-100">
+        {items.map(item => (
+          <div key={item.id} className="px-5 py-3 flex items-center gap-3">
+            <div className="flex-1 min-w-0">
+              <p className="text-sm font-medium text-slate-800 truncate">{item.title}</p>
+              <p className="text-xs text-slate-400 truncate">{item.subtitle}</p>
+            </div>
+            <button
+              onClick={() => onAction(item)}
+              disabled={isPending}
+              className="text-xs px-3 py-1.5 rounded-lg bg-cyan-600 text-white hover:bg-cyan-700 disabled:opacity-50 transition-colors flex-shrink-0"
+            >
+              {item.actionLabel}
+            </button>
+          </div>
+        ))}
+      </div>
+    </div>
+  )
+}
+
+function CentralPanel({ onGoTo }: { onGoTo: (p: Panel) => void }) {
+  const queryClient = useQueryClient()
+
+  const { data: dash, isLoading: dashLoading } = useQuery<DashboardData>({
+    queryKey: ['light-dashboard'],
+    queryFn: () => api.get('/chatbot-light/dashboard').then(r => r.data),
+    staleTime: 60_000,
+  })
+
+  const { data: tasks, isLoading: tasksLoading } = useQuery<TasksData>({
+    queryKey: ['chatbot-light-tasks'],
+    queryFn: () => api.get('/chatbot-light/tasks').then(r => r.data),
+    staleTime: 30_000,
+    refetchInterval: 60_000,
+  })
+
+  const invalidateTasks = () => queryClient.invalidateQueries({ queryKey: ['chatbot-light-tasks'] })
+
+  const resolveTransfer = useMutation({
+    mutationFn: (id: string) => api.patch(`/chatbot-light/sessions/${id}/resolve`),
+    onSuccess: () => { toast.success('Conversa marcada como atendida'); invalidateTasks() },
+    onError: () => toast.error('Erro ao marcar conversa'),
+  })
+
+  const resendMessage = useMutation({
+    mutationFn: (id: string) => api.post(`/chatbot-light/history/${id}/resend`),
+    onSuccess: (r) => {
+      if (r.data?.success) { toast.success('Mensagem reenviada'); invalidateTasks() }
+      else toast.error('Falha ao reenviar')
+    },
+    onError: () => toast.error('Erro ao reenviar mensagem'),
+  })
+
+  const sendPaymentReminder = useMutation({
+    mutationFn: (id: string) => api.post(`/chatbot-light/transactions/${id}/send-reminder`),
+    onSuccess: () => { toast.success('Lembrete de cobrança enviado'); invalidateTasks() },
+    onError: (e: any) => toast.error(e?.response?.data?.message || 'Erro ao enviar cobrança'),
+  })
+
+  const confirmAppointment = useMutation({
+    mutationFn: (id: string) => api.put(`/appointments/${id}`, { status: 'CONFIRMED' }),
+    onSuccess: () => { toast.success('Consulta confirmada'); invalidateTasks() },
+    onError: () => toast.error('Erro ao confirmar consulta'),
+  })
+
+  if (dashLoading || tasksLoading) {
+    return (
+      <div className="flex items-center justify-center py-20">
+        <Loader2 className="w-6 h-6 animate-spin text-cyan-500" />
+      </div>
+    )
+  }
+
+  const d = dash!
+  const t = tasks!
+  const isPending = resolveTransfer.isPending || resendMessage.isPending || sendPaymentReminder.isPending || confirmAppointment.isPending
+
+  const stats = [
+    { label: 'Enviadas (mês)',  value: d.total,              icon: Send,         color: 'text-blue-600',    bg: 'bg-blue-50' },
+    { label: 'Taxa de entrega', value: `${d.deliveryRate}%`, icon: Zap,          color: 'text-cyan-600',    bg: 'bg-cyan-50' },
+    { label: 'Falhas',          value: d.rejected + d.failed,icon: XCircle,      color: 'text-red-600',     bg: 'bg-red-50' },
+    { label: 'Pendências agora',value: t.totalCount,         icon: AlertCircle,  color: 'text-amber-600',   bg: 'bg-amber-50' },
+  ]
+
+  return (
+    <div className="p-6 space-y-6">
+      <div>
+        <h2 className="text-xl font-bold text-slate-900">Central</h2>
+        <p className="text-sm text-slate-500 mt-0.5">O que precisa da sua atenção agora</p>
+      </div>
+
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+        {stats.map(({ label, value, icon: Icon, color, bg }) => (
+          <div key={label} className="bg-white rounded-2xl border border-slate-200 p-4 shadow-sm">
+            <div className={`w-10 h-10 ${bg} rounded-xl flex items-center justify-center mb-3`}>
+              <Icon className={`w-5 h-5 ${color}`} />
+            </div>
+            <p className="text-2xl font-bold text-slate-900">{value}</p>
+            <p className="text-xs text-slate-500 mt-0.5">{label}</p>
+          </div>
+        ))}
+      </div>
+
+      {t.totalCount === 0 ? (
+        <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-10 text-center">
+          <CheckCircle2 className="w-8 h-8 text-emerald-500 mx-auto mb-2" />
+          <p className="text-sm text-slate-500">Nenhuma pendência no momento. Tudo em dia!</p>
+        </div>
+      ) : (
+        <div className="space-y-4">
+          <TaskSection
+            title="Conversas transferidas para atendente" icon={PhoneCall} color="text-purple-600" bg="bg-purple-50"
+            items={t.transfers} isPending={isPending}
+            onAction={(item) => resolveTransfer.mutate(item.id)}
+          />
+          <TaskSection
+            title="Mensagens que falharam" icon={XCircle} color="text-red-600" bg="bg-red-50"
+            items={t.failedMessages} isPending={isPending}
+            onAction={(item) => resendMessage.mutate(item.id)}
+          />
+          <TaskSection
+            title="Consultas próximas sem confirmação" icon={CalendarClock} color="text-blue-600" bg="bg-blue-50"
+            items={t.unconfirmedAppointments} isPending={isPending}
+            onAction={(item) => confirmAppointment.mutate(item.id)}
+          />
+          <TaskSection
+            title="Cobranças vencidas" icon={DollarSign} color="text-amber-600" bg="bg-amber-50"
+            items={t.overduePayments} isPending={isPending}
+            onAction={(item) => sendPaymentReminder.mutate(item.id)}
+          />
+          {t.preRegistrations.length > 0 && (
+            <div className="bg-white rounded-2xl border border-slate-200 shadow-sm">
+              <div className="px-5 py-4 border-b border-slate-100 flex items-center gap-2.5">
+                <div className="w-8 h-8 bg-emerald-50 rounded-lg flex items-center justify-center flex-shrink-0">
+                  <UserCheck className="w-4 h-4 text-emerald-600" />
+                </div>
+                <h3 className="font-semibold text-slate-900 text-sm">Pré-agendamentos parados</h3>
+                <span className="ml-auto text-xs font-semibold text-slate-400">{t.preRegistrations.length}</span>
+              </div>
+              <div className="divide-y divide-slate-100">
+                {t.preRegistrations.map(item => (
+                  <div key={item.id} className="px-5 py-3 flex items-center gap-3">
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm font-medium text-slate-800 truncate">{item.title}</p>
+                      <p className="text-xs text-slate-400 truncate">{item.subtitle}</p>
+                    </div>
+                    <button
+                      onClick={() => onGoTo('pre_agendamentos')}
+                      className="text-xs px-3 py-1.5 rounded-lg bg-cyan-600 text-white hover:bg-cyan-700 transition-colors flex-shrink-0"
+                    >
+                      {item.actionLabel}
+                    </button>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  )
+}
 
 function RelatorioPanel({ onGoTo }: { onGoTo: (p: Panel) => void }) {
   const { data, isLoading } = useQuery<DashboardData>({
@@ -1345,6 +1556,25 @@ function MensagensPanel() {
     queryFn:  () => api.get('/chatbot-light/integrations').then(r => r.data),
   })
 
+  const activatePresetMutation = useMutation({
+    mutationFn: async ({ module, triggerEvent }: { module: string; triggerEvent: string }) => {
+      const preset = findCampaignPreset(module, triggerEvent)
+      if (!preset) throw new Error('Sem texto pronto para este evento')
+      const template = await api.post('/chatbot-light/templates', {
+        name: preset.name, category: preset.category, content: preset.content, variables: [], active: true,
+      }).then(r => r.data)
+      return api.put('/chatbot-light/integrations', {
+        module, triggerEvent, enabled: true, templateId: template.id, delayMinutes: 0,
+      }).then(r => r.data)
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['light-integrations'] })
+      qc.invalidateQueries({ queryKey: ['light-templates'] })
+      toast.success('Campanha ativada com texto pronto — edite quando quiser em Modo Avançado > Templates')
+    },
+    onError: () => toast.error('Erro ao ativar campanha'),
+  })
+
   const { data: templates = [] } = useQuery<LightTemplate[]>({
     queryKey: ['light-templates'],
     queryFn:  () => api.get('/chatbot-light/templates').then(r => r.data),
@@ -1381,8 +1611,8 @@ function MensagensPanel() {
   return (
     <div className="p-6 space-y-6">
       <div>
-        <h2 className="text-xl font-bold text-slate-900">Mensagens Automáticas</h2>
-        <p className="text-sm text-slate-500 mt-0.5">Disparos iniciados pelo sistema — a clínica envia primeiro</p>
+        <h2 className="text-xl font-bold text-slate-900">Campanhas</h2>
+        <p className="text-sm text-slate-500 mt-0.5">Disparos automáticos por evento — ative com um texto pronto ou escolha um template seu</p>
       </div>
 
       {/* Status de conexão WhatsApp */}
@@ -1412,9 +1642,9 @@ function MensagensPanel() {
       </div>
 
       {templates.length === 0 && (
-        <div className="bg-amber-50 border border-amber-200 rounded-xl px-4 py-3 flex items-center gap-2 text-sm text-amber-700">
+        <div className="bg-cyan-50 border border-cyan-200 rounded-xl px-4 py-3 flex items-center gap-2 text-sm text-cyan-700">
           <AlertCircle className="w-4 h-4 flex-shrink-0" />
-          Crie templates de mensagem em <strong>Templates</strong> antes de ativar as integrações.
+          Clique em <strong>Usar texto pronto</strong> em qualquer campanha abaixo para ativá-la já com um texto sugerido — você pode editar depois.
         </div>
       )}
 
@@ -1465,6 +1695,15 @@ function MensagensPanel() {
                             <p className="text-xs text-slate-500 mt-0.5 truncate">Template: {cfg.template.name}</p>
                           )}
                         </div>
+                        {!selectedTemplate && findCampaignPreset(mod.key, trigger.event) && (
+                          <button
+                            onClick={() => activatePresetMutation.mutate({ module: mod.key, triggerEvent: trigger.event })}
+                            disabled={activatePresetMutation.isPending}
+                            className="text-xs px-2.5 py-1.5 rounded-lg border border-cyan-200 text-cyan-700 bg-cyan-50 hover:bg-cyan-100 disabled:opacity-50 transition-colors flex-shrink-0 whitespace-nowrap"
+                          >
+                            Usar texto pronto
+                          </button>
+                        )}
                         <Toggle
                           enabled={isEnabled}
                           onToggle={() => saveMutation.mutate({
@@ -1728,7 +1967,7 @@ function RespostasPanel() {
   const qc = useQueryClient()
   const [modalOpen, setModalOpen] = useState(false)
   const [editing, setEditing]     = useState<LightQuickReply | null>(null)
-  const [form, setForm]           = useState({ keyword: '', response: '', active: true })
+  const [form, setForm]           = useState({ keyword: '', response: '', templateId: '', active: true })
   const [formErrors, setFormErrors] = useState<Record<string, string>>({})
 
   const { data: replies = [], isLoading } = useQuery<LightQuickReply[]>({
@@ -1736,16 +1975,21 @@ function RespostasPanel() {
     queryFn:  () => api.get('/chatbot-light/quick-replies').then(r => r.data),
   })
 
+  const { data: templates = [] } = useQuery<LightTemplate[]>({
+    queryKey: ['light-templates'],
+    queryFn:  () => api.get('/chatbot-light/templates').then(r => r.data),
+  })
+
   const openNew = () => {
     setEditing(null)
-    setForm({ keyword: '', response: '', active: true })
+    setForm({ keyword: '', response: '', templateId: '', active: true })
     setFormErrors({})
     setModalOpen(true)
   }
 
   const openEdit = (r: LightQuickReply) => {
     setEditing(r)
-    setForm({ keyword: r.keyword, response: r.response, active: r.active })
+    setForm({ keyword: r.keyword, response: r.response, templateId: r.templateId ?? '', active: r.active })
     setFormErrors({})
     setModalOpen(true)
   }
@@ -1785,7 +2029,7 @@ function RespostasPanel() {
 
   const handleSave = () => {
     if (!validate()) return
-    saveMutation.mutate(form)
+    saveMutation.mutate({ ...form, templateId: form.templateId || null })
   }
 
   return (
@@ -1879,11 +2123,32 @@ function RespostasPanel() {
             {formErrors.keyword && <p className="text-xs text-red-500 mt-1">{formErrors.keyword}</p>}
           </div>
 
+          {templates.length > 0 && (
+            <div>
+              <label className="label">Usar template existente (opcional)</label>
+              <select
+                value={form.templateId}
+                onChange={e => {
+                  const templateId = e.target.value
+                  const template = templates.find(t => t.id === templateId)
+                  setForm(p => ({ ...p, templateId, response: template ? template.content : p.response }))
+                }}
+                className="input-field text-sm"
+              >
+                <option value="">— Texto livre abaixo —</option>
+                {templates.filter(t => t.active).map(t => (
+                  <option key={t.id} value={t.id}>{t.name}</option>
+                ))}
+              </select>
+              <p className="text-xs text-slate-400 mt-1">Selecionar um template preenche o texto abaixo — você ainda pode editá-lo.</p>
+            </div>
+          )}
+
           <div>
             <label className="label">Resposta *</label>
             <textarea
               value={form.response}
-              onChange={e => setForm(p => ({ ...p, response: e.target.value }))}
+              onChange={e => setForm(p => ({ ...p, response: e.target.value, templateId: '' }))}
               rows={4}
               className="input-field resize-none text-sm"
               placeholder="Nossa clínica fica na Av. Brasil, 1234 — sala 501. Funcionamos de segunda a sexta, das 8h às 18h."
@@ -3677,16 +3942,27 @@ function TesteTab() {
 function TelasTab() {
   const qc = useQueryClient()
 
-  const { data: settings } = useQuery<{ enabledScreens: string[] }>({
+  const { data: settings } = useQuery<{ enabledScreens: string[]; advancedMode?: boolean }>({
     queryKey: ['light-settings'],
     queryFn:  () => api.get('/chatbot-light/settings').then(r => r.data),
   })
 
   const enabledScreens = settings?.enabledScreens ?? ['agenda', 'pacientes', 'prontuario', 'avaliacao', 'financeiro']
+  const advancedMode = settings?.advancedMode ?? false
 
   const saveMutation = useMutation({
     mutationFn: (screens: string[]) =>
       api.put('/chatbot-light/settings', { enabledScreens: screens }).then(r => r.data),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['light-settings'] })
+      toast.success('Configurações salvas')
+    },
+    onError: () => toast.error('Erro ao salvar'),
+  })
+
+  const saveAdvancedMutation = useMutation({
+    mutationFn: (value: boolean) =>
+      api.put('/chatbot-light/settings', { advancedMode: value }).then(r => r.data),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['light-settings'] })
       toast.success('Configurações salvas')
@@ -3738,6 +4014,25 @@ function TelasTab() {
       <p className="text-xs text-slate-400">
         Desativar um módulo não remove as configurações existentes, apenas oculta as automações da tela Mensagens.
       </p>
+
+      <div>
+        <h3 className="font-semibold text-slate-900">Modo Avançado</h3>
+        <p className="text-sm text-slate-500 mt-0.5">
+          Exibe no menu os painéis técnicos (Fluxos, Ações do Sistema, Simulador, Auditoria).
+          Nada é apagado ao desativar — os dados continuam salvos.
+        </p>
+      </div>
+      <div className="bg-white rounded-2xl border border-slate-200 shadow-sm flex items-center gap-4 px-5 py-4">
+        <div className="flex-1">
+          <p className="text-sm font-medium text-slate-800">Painéis avançados</p>
+          <p className="text-xs text-slate-400">Recomendado apenas para quem já domina o Chatbot Light</p>
+        </div>
+        <Toggle
+          enabled={advancedMode}
+          onToggle={() => saveAdvancedMutation.mutate(!advancedMode)}
+          disabled={saveAdvancedMutation.isPending}
+        />
+      </div>
     </div>
   )
 }
@@ -4309,7 +4604,7 @@ function SidebarConnectionStatus() {
 
 export default function ChatbotLight() {
   const { user } = useAuthStore()
-  const [panel, setPanel]         = useState<Panel>('relatorio')
+  const [panel, setPanel]         = useState<Panel>('central')
   const [configTab, setConfigTab] = useState<ConfigTab>('conexao')
 
   // Badge de pendentes nos pré-agendamentos
@@ -4320,6 +4615,13 @@ export default function ChatbotLight() {
     refetchInterval: 120_000,
   })
   const pendingLeadsCount = preLeads.filter(l => l.status === 'PRE_CADASTRO').length
+
+  const { data: lightSettings } = useQuery<{ enabledScreens: string[]; advancedMode?: boolean }>({
+    queryKey: ['light-settings'],
+    queryFn:  () => api.get('/chatbot-light/settings').then(r => r.data),
+    staleTime: 60_000,
+  })
+  const advancedMode = lightSettings?.advancedMode ?? false
 
   const goTo = (p: Panel) => {
     setPanel(p)
@@ -4354,11 +4656,9 @@ export default function ChatbotLight() {
         <nav className="flex-1 px-3 py-4 space-y-1 overflow-y-auto scrollbar-none">
           <p className="text-xs font-semibold text-slate-500 uppercase tracking-widest px-3 mb-2">Menu</p>
 
+          <SideNavBtn panel="central"         current={panel} onClick={goTo} icon={AlertCircle}  label="Central" />
           <SideNavBtn panel="relatorio"       current={panel} onClick={goTo} icon={BarChart3}    label="Relatório" />
-          <SideNavBtn panel="fluxos"          current={panel} onClick={goTo} icon={GitBranch}    label="Fluxos" />
-          <SideNavBtn panel="system_actions"  current={panel} onClick={goTo} icon={Zap}          label="Ações do Sistema" />
-          <SideNavBtn panel="mensagens"       current={panel} onClick={goTo} icon={MessageSquare} label="Mensagens Automáticas" />
-          <SideNavBtn panel="templates"       current={panel} onClick={goTo} icon={FileText}     label="Templates" />
+          <SideNavBtn panel="mensagens"       current={panel} onClick={goTo} icon={MessageSquare} label="Campanhas" />
           <SideNavBtn panel="respostas"       current={panel} onClick={goTo} icon={Reply}        label="Respostas Rápidas" />
           <SideNavBtn panel="historico"       current={panel} onClick={goTo} icon={History}      label="Histórico" />
           <SideNavBtn
@@ -4374,6 +4674,15 @@ export default function ChatbotLight() {
             ) : undefined}
           />
           <SideNavBtn panel="configuracoes"   current={panel} onClick={goTo} icon={Settings}     label="Configurações" />
+
+          {advancedMode && (
+            <>
+              <p className="text-xs font-semibold text-slate-500 uppercase tracking-widest px-3 mb-2 mt-5">Modo avançado</p>
+              <SideNavBtn panel="fluxos"          current={panel} onClick={goTo} icon={GitBranch}    label="Fluxos" />
+              <SideNavBtn panel="system_actions"  current={panel} onClick={goTo} icon={Zap}          label="Ações do Sistema" />
+              <SideNavBtn panel="templates"       current={panel} onClick={goTo} icon={FileText}     label="Templates" />
+            </>
+          )}
         </nav>
 
         {/* WhatsApp connection status */}
@@ -4395,6 +4704,7 @@ export default function ChatbotLight() {
 
       {/* ── Main content ── */}
       <main className="flex-1 overflow-y-auto bg-slate-50">
+        {panel === 'central'           && <CentralPanel onGoTo={goTo} />}
         {panel === 'relatorio'         && <RelatorioPanel onGoTo={goTo} />}
         {panel === 'fluxos'            && <FluxosPanel />}
         {panel === 'system_actions'    && <SystemActionsPanel />}

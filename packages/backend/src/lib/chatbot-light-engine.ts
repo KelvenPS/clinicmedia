@@ -3,7 +3,7 @@ import { prisma } from './prisma'
 import { resolveWhatsAppContactIdentity } from './whatsapp'
 import { resolveChatbotLightSendTarget, sendRoomWhatsAppMessage, normalizeToWhatsAppJid, checkPhoneOnWhatsApp } from './room-whatsapp'
 import { processGuidedStep, interpolateTemplate, startLeadCaptureFlow, processLeadCaptureStep } from './chatbot-light-guided-engine'
-import { resolveTemplateVariables, TemplateContext } from './chatbot-light-variables'
+import { resolveTemplateVariables, resolveMessageText, TemplateContext } from './chatbot-light-variables'
 
 
 const lightFlowStateCache = new NodeCache({
@@ -359,7 +359,7 @@ export async function handleIncomingLightMessage(params: {
             })
 
             const actionType = matchedOption.actionType
-            const response = matchedOption.response ?? ''
+            const response = await resolveMessageText({ text: matchedOption.response, templateId: matchedOption.templateId }, {}, prisma)
 
             if (actionType === 'START_LEAD_CAPTURE') {
               // Lead capture direto (sem LightSystemActionConfig vinculado)
@@ -640,7 +640,8 @@ export async function handleIncomingLightMessage(params: {
   })
 
   if (quickReply) {
-    await sendLightMessage(instance, deliveryJid, quickReply.response, 'resposta_rapida')
+    const text = await resolveMessageText({ text: quickReply.response, templateId: quickReply.templateId }, {}, prisma)
+    await sendLightMessage(instance, deliveryJid, text, 'resposta_rapida')
     return
   }
 
@@ -786,7 +787,7 @@ export async function checkScheduledReminders() {
         },
       },
       doctor: true,
-      room: true,
+      room: { include: { whatsappConnection: true } },
     },
   })
 
@@ -796,13 +797,17 @@ export async function checkScheduledReminders() {
       patientPhone:      appt.patient.phone,
       patientCpf:        appt.patient.cpf ?? undefined,
       patientPlan:       (appt.patient as any).patientPlans?.[0]?.healthPlan?.name,
+      patientWalletNumber: (appt.patient as any).patientPlans?.[0]?.walletNumber,
       appointmentDate:   schedulerFormatDate(appt.date),
       appointmentTime:   schedulerFormatTime(appt.date),
       appointmentType:   appt.type ?? 'Consulta',
       appointmentStatus: SCHEDULER_STATUS_MAP[appt.status] ?? appt.status,
       doctorName:        appt.doctor.name,
       doctorSpecialty:   (appt.doctor as any).specialty ?? undefined,
+      doctorCrm:         (appt.doctor as any).crm ?? undefined,
       clinicAddress:     buildRoomAddress(appt.room),
+      clinicName:        (appt.room as any)?.name,
+      clinicPhone:       (appt.room as any)?.whatsappConnection?.phoneNumber,
       teleconsultaLink:  (appt.room as any)?.teleconsultaLink,
     })
     await prisma.appointment.update({
@@ -829,7 +834,7 @@ export async function checkScheduledReminders() {
         },
       },
       doctor: true,
-      room: true,
+      room: { include: { whatsappConnection: true } },
     },
   })
 
@@ -839,13 +844,17 @@ export async function checkScheduledReminders() {
       patientPhone:      appt.patient.phone,
       patientCpf:        appt.patient.cpf ?? undefined,
       patientPlan:       (appt.patient as any).patientPlans?.[0]?.healthPlan?.name,
+      patientWalletNumber: (appt.patient as any).patientPlans?.[0]?.walletNumber,
       appointmentDate:   schedulerFormatDate(appt.date),
       appointmentTime:   schedulerFormatTime(appt.date),
       appointmentType:   appt.type ?? 'Consulta',
       appointmentStatus: SCHEDULER_STATUS_MAP[appt.status] ?? appt.status,
       doctorName:        appt.doctor.name,
       doctorSpecialty:   (appt.doctor as any).specialty ?? undefined,
+      doctorCrm:         (appt.doctor as any).crm ?? undefined,
       clinicAddress:     buildRoomAddress(appt.room),
+      clinicName:        (appt.room as any)?.name,
+      clinicPhone:       (appt.room as any)?.whatsappConnection?.phoneNumber,
       teleconsultaLink:  (appt.room as any)?.teleconsultaLink,
     })
     await prisma.appointment.update({
@@ -864,7 +873,12 @@ export async function checkScheduledReminders() {
     include: {
       appointment: {
         include: {
-          patient: true,
+          patient: {
+            include: {
+              patientPlans: { include: { healthPlan: true }, take: 1 },
+            },
+          },
+          room: { include: { whatsappConnection: true } },
         },
       },
       doctor: true,
@@ -876,7 +890,14 @@ export async function checkScheduledReminders() {
       await triggerLightAutomatedMessage(tx.doctorId, 'PAYMENT_OVERDUE', {
         patientName: tx.appointment.patient.name,
         patientPhone: tx.appointment.patient.phone,
+        patientCpf: tx.appointment.patient.cpf ?? undefined,
+        patientPlan: (tx.appointment.patient as any).patientPlans?.[0]?.healthPlan?.name,
+        patientWalletNumber: (tx.appointment.patient as any).patientPlans?.[0]?.walletNumber,
         doctorName: tx.doctor.name,
+        doctorCrm: (tx.doctor as any).crm ?? undefined,
+        clinicName: (tx.appointment as any).room?.name,
+        clinicPhone: (tx.appointment as any).room?.whatsappConnection?.phoneNumber,
+        clinicAddress: buildRoomAddress((tx.appointment as any).room),
         paymentValue: String(tx.amount),
         link: `${process.env.FRONTEND_URL || 'http://localhost:5173'}/pagar/${tx.id}`,
       })

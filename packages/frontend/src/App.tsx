@@ -61,7 +61,7 @@ export default function App() {
         <Route path="/" element={isAuthenticated ? <Navigate to="/dashboard" replace /> : <LandingPage />} />
 
         <Route path="/chatbot/agente/*" element={<ProtectedRoute allowedRoles={['ADMIN', 'DOCTOR', 'SECRETARY']}><SecretaryGate permission="chatbot_agente"><ChatbotIA /></SecretaryGate></ProtectedRoute>} />
-        <Route path="/chatbot/light/*" element={<ProtectedRoute allowedRoles={['ADMIN', 'DOCTOR', 'SECRETARY']}><SecretaryGate permission="chatbot_light"><ChatbotLight /></SecretaryGate></ProtectedRoute>} />
+        <Route path="/chatbot/light/*" element={<ProtectedRoute allowedRoles={['ADMIN', 'DOCTOR', 'SECRETARY']}><SecretaryGate permission={['chatbot_light_operar', 'chatbot_light_configurar']}><ChatbotLight /></SecretaryGate></ProtectedRoute>} />
         <Route path="/chatbot" element={<Navigate to="/chatbot/light" replace />} />
         <Route path="/chatbot/*" element={<Navigate to="/chatbot/light" replace />} />
 

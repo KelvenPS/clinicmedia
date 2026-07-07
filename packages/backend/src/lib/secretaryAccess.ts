@@ -8,6 +8,8 @@ import { AuthRequest } from '../middleware/auth'
 export const SECRETARY_PERMISSION_KEYS = [
   'financeiro',
   'chatbot_light',
+  'chatbot_light_operar',
+  'chatbot_light_configurar',
   'chatbot_agente',
   'nota_fiscal',
   'teleconsulta',
@@ -43,6 +45,13 @@ export function normalizeSecretaryPermissions(input: unknown): SecretaryPermissi
   if (raw['chatbot'] === true) {
     if (result['chatbot_light'] === undefined) result['chatbot_light'] = true
     if (result['chatbot_agente'] === undefined) result['chatbot_agente'] = true
+  }
+  // Backward compat: old single 'chatbot_light: true' liberava tudo — secretárias já
+  // configuradas continuam com acesso total quando as chaves granulares não foram
+  // definidas explicitamente pelo médico.
+  if (result['chatbot_light'] === true) {
+    if (result['chatbot_light_operar'] === undefined) result['chatbot_light_operar'] = true
+    if (result['chatbot_light_configurar'] === undefined) result['chatbot_light_configurar'] = true
   }
   return result
 }

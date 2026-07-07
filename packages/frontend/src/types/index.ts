@@ -193,7 +193,7 @@ export interface DoctorSecretary {
   doctorId: string
   secretaryId: string
   active: boolean
-  permissions?: Partial<Record<'chatbot' | 'chatbot_light' | 'chatbot_agente' | 'nota_fiscal' | 'teleconsulta' | 'documentos' | 'salas' | 'integracoes' | 'financeiro', boolean>>
+  permissions?: Partial<Record<'chatbot' | 'chatbot_light' | 'chatbot_light_operar' | 'chatbot_light_configurar' | 'chatbot_agente' | 'nota_fiscal' | 'teleconsulta' | 'documentos' | 'salas' | 'integracoes' | 'financeiro', boolean>>
   createdAt: string
   secretary: {
     id: string

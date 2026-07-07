@@ -865,6 +865,7 @@ model LightTemplate {
 
   doctor       User                    @relation("DoctorLightTemplates", fields: [doctorId], references: [id])
   integrations LightIntegrationConfig[]
+  quickReplies LightQuickReply[]
 
   @@index([doctorId])
   @@map("TBLCHATBOTLIGHTTEMPLATE")
@@ -914,6 +915,8 @@ model LightSettings {
   enabledScreens String[] @default(["agenda", "pacientes", "prontuario", "avaliacao", "financeiro"])
   // Sala cuja conexão WhatsApp é usada pelo Chatbot Light — elimina conexão duplicada.
   boundRoomId    String?
+  // Exibe painéis avançados (Fluxos, Ações do Sistema, Simulador, Auditoria) no menu.
+  advancedMode   Boolean  @default(false)
   createdAt      DateTime @default(now())
   updatedAt      DateTime @updatedAt
 
@@ -945,15 +948,19 @@ model LightFluxo {
 }
 
 model LightQuickReply {
-  id        String   @id @default(uuid())
-  doctorId  String
-  keyword   String
-  response  String   @db.Text
-  active    Boolean  @default(true)
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  id         String   @id @default(uuid())
+  doctorId   String
+  keyword    String
+  response   String   @db.Text
+  // Referência opcional a um LightTemplate — quando presente, o texto do
+  // template prevalece sobre `response` na resolução da mensagem enviada.
+  templateId String?
+  active     Boolean  @default(true)
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
 
-  doctor    User     @relation("DoctorLightQuickReplies", fields: [doctorId], references: [id])
+  doctor     User          @relation("DoctorLightQuickReplies", fields: [doctorId], references: [id])
+  template   LightTemplate? @relation(fields: [templateId], references: [id])
 
   @@index([doctorId])
   @@map("TBLCHATBOTLIGHTQUICKREPLY")

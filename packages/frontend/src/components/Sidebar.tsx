@@ -199,7 +199,7 @@ export default function Sidebar({ collapsed = false, onToggleCollapse }: Sidebar
         ))}
 
         {/* ── Automação ── */}
-        {(can('chatbot_light') || can('chatbot_agente')) && (
+        {(can('chatbot_light_operar') || can('chatbot_light_configurar') || can('chatbot_agente')) && (
         <div className={`${collapsed ? 'mt-3 pt-3' : 'mt-5 pt-4'} border-t border-white/8`}>
           {!collapsed && (
             <p className="section-label mb-2">WhatsApp</p>
@@ -208,7 +208,7 @@ export default function Sidebar({ collapsed = false, onToggleCollapse }: Sidebar
           {/* Chatbot — expandable in expanded mode, direct nav in collapsed */}
           {collapsed ? (
             <NavLink
-              to={can('chatbot_light') ? '/chatbot/light' : '/chatbot/agente'}
+              to={(can('chatbot_light_operar') || can('chatbot_light_configurar')) ? '/chatbot/light' : '/chatbot/agente'}
               className={({ isActive: _ }) =>
                 `sidebar-link group tooltip-trigger ${isChatbotRoute ? 'active' : ''}`
               }
@@ -235,7 +235,7 @@ export default function Sidebar({ collapsed = false, onToggleCollapse }: Sidebar
               {/* Sub-items */}
               {chatbotOpen && (
                 <div className="ml-5 mt-1 space-y-0.5 border-l border-white/10 pl-3 pb-1">
-                  {can('chatbot_light') && (
+                  {(can('chatbot_light_operar') || can('chatbot_light_configurar')) && (
                   <NavLink
                     to="/chatbot/light"
                     className={({ isActive }) =>

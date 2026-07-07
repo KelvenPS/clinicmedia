@@ -4,7 +4,8 @@ import { useAuthStore } from '../store/authStore'
 
 export const SECRETARY_PERMISSION_KEYS = [
   'financeiro',
-  'chatbot_light',
+  'chatbot_light_operar',
+  'chatbot_light_configurar',
   'chatbot_agente',
   'nota_fiscal',
   'teleconsulta',
@@ -18,7 +19,8 @@ export type SecretaryPermissions = Partial<Record<SecretaryPermissionKey, boolea
 
 export const SECRETARY_PERMISSION_LABELS: Record<SecretaryPermissionKey, string> = {
   financeiro: 'Financeiro (Painel Financeiro)',
-  chatbot_light: 'Chatbot Light',
+  chatbot_light_operar: 'Chatbot Light — Uso do dia a dia',
+  chatbot_light_configurar: 'Chatbot Light — Configurações e Campanhas',
   chatbot_agente: 'Chatbot Agente Clínico',
   nota_fiscal: 'Nota Fiscal (NFS-e)',
   teleconsulta: 'Teleconsulta',
@@ -44,9 +46,8 @@ export function useSecretaryPermissions() {
 
   const can = (key: SecretaryPermissionKey) => {
     if (!isSecretary) return true
-    // Backward compat: old 'chatbot' permission (stored as JSON) grants both Light and Agente
-    const legacy = (data as Record<string, boolean | undefined>)?.['chatbot']
-    if ((key === 'chatbot_light' || key === 'chatbot_agente') && legacy) return true
+    // O backend (/team/my-permissions) já normaliza chaves legadas
+    // ('chatbot' e 'chatbot_light' antigos) para as chaves granulares atuais.
     return !!data?.[key]
   }
 

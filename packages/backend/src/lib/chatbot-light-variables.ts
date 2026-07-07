@@ -8,6 +8,7 @@ export const TEMPLATE_VARIABLE_REGISTRY = [
   { key: '{telefone}',         label: 'Telefone',                  category: 'paciente',     description: 'Telefone do paciente' },
   { key: '{cpf}',              label: 'CPF',                       category: 'paciente',     description: 'CPF do paciente (mascarado)' },
   { key: '{plano}',            label: 'Plano de saúde',            category: 'paciente',     description: 'Nome do convênio/plano do paciente' },
+  { key: '{carteirinha}',      label: 'Número da carteirinha',      category: 'paciente',     description: 'Número da carteirinha do convênio do paciente' },
   // Consulta
   { key: '{data}',             label: 'Data da consulta',          category: 'consulta',     description: 'Data formatada dd/mm/aaaa' },
   { key: '{hora}',             label: 'Hora da consulta',          category: 'consulta',     description: 'Hora no formato HH:MM' },
@@ -17,6 +18,9 @@ export const TEMPLATE_VARIABLE_REGISTRY = [
   { key: '{medico}',           label: 'Nome do médico',            category: 'clinica',      description: 'Nome completo do profissional' },
   { key: '{especialidade}',    label: 'Especialidade',             category: 'clinica',      description: 'Especialidade do profissional' },
   { key: '{endereco}',         label: 'Endereço',                  category: 'clinica',      description: 'Endereço da sala/clínica' },
+  { key: '{clinica}',          label: 'Nome da clínica/sala',       category: 'clinica',      description: 'Nome da sala/clínica onde a consulta ocorre' },
+  { key: '{telefone_clinica}', label: 'Telefone da clínica',        category: 'clinica',      description: 'Telefone do WhatsApp vinculado à sala' },
+  { key: '{crm}',              label: 'CRM do médico',              category: 'clinica',      description: 'Registro profissional (CRM/CRP) do médico' },
   // Financeiro
   { key: '{valor}',            label: 'Valor',                     category: 'financeiro',   description: 'Valor da consulta em R$' },
   { key: '{forma_pagamento}',  label: 'Forma de pagamento',        category: 'financeiro',   description: 'Ex: PIX, Cartão, Dinheiro' },
@@ -39,6 +43,7 @@ export interface TemplateContext {
   patientPhone?: string
   patientCpf?: string
   patientPlan?: string
+  patientWalletNumber?: string
   // Consulta
   appointmentDate?: string
   appointmentTime?: string
@@ -47,7 +52,10 @@ export interface TemplateContext {
   // Médico / Clínica
   doctorName?: string
   doctorSpecialty?: string
+  doctorCrm?: string
   clinicAddress?: string
+  clinicName?: string
+  clinicPhone?: string
   // Financeiro
   paymentValue?: string
   paymentMethod?: string
@@ -110,6 +118,7 @@ export function resolveTemplateVariables(template: string, ctx: TemplateContext)
     .replace(/\{telefone\}/g,         ctx.patientPhone      ?? '')
     .replace(/\{cpf\}/g,              ctx.patientCpf        ?? '')
     .replace(/\{plano\}/g,            ctx.patientPlan       ?? '')
+    .replace(/\{carteirinha\}/g,      ctx.patientWalletNumber ?? '')
     .replace(/\{data\}/g,             ctx.appointmentDate   ?? '')
     .replace(/\{hora\}/g,             ctx.appointmentTime   ?? '')
     .replace(/\{tipo_atendimento\}/g, ctx.appointmentType   ?? '')
@@ -117,6 +126,9 @@ export function resolveTemplateVariables(template: string, ctx: TemplateContext)
     .replace(/\{medico\}/g,           ctx.doctorName        ?? '')
     .replace(/\{especialidade\}/g,    ctx.doctorSpecialty   ?? '')
     .replace(/\{endereco\}/g,         ctx.clinicAddress     ?? '')
+    .replace(/\{clinica\}/g,          ctx.clinicName        ?? '')
+    .replace(/\{telefone_clinica\}/g, ctx.clinicPhone       ?? '')
+    .replace(/\{crm\}/g,              ctx.doctorCrm         ?? '')
     .replace(/\{valor\}/g,            ctx.paymentValue      ?? '')
     .replace(/\{forma_pagamento\}/g,  ctx.paymentMethod     ?? '')
     .replace(/\{nf\}/g,               ctx.nfLink ?? ctx.nfNumber ?? '')
@@ -149,7 +161,7 @@ export async function resolveContextFromAppointment(
         },
       },
       doctor: true,
-      room: true,
+      room: { include: { whatsappConnection: true } },
     },
   })
 
@@ -171,16 +183,42 @@ export async function resolveContextFromAppointment(
     patientPhone:      patient?.phone                               ?? undefined,
     patientCpf:        maskedCpf,
     patientPlan:       patient?.patientPlans?.[0]?.healthPlan?.name ?? undefined,
+    patientWalletNumber: patient?.patientPlans?.[0]?.walletNumber   ?? undefined,
     appointmentDate:   formatDatePtBR(appt.date),
     appointmentTime:   formatTimePtBR(appt.date),
     appointmentType:   (appt.type as string | null | undefined)     ?? 'Consulta',
     appointmentStatus: APPOINTMENT_STATUS_MAP[(appt.status as string) ?? ''] ?? (appt.status as string | undefined),
     doctorName:        doctor?.name                                 ?? undefined,
     doctorSpecialty:   doctor?.specialty                            ?? undefined,
+    doctorCrm:         doctor?.crm                                  ?? undefined,
     clinicAddress:     buildRoomAddress(room),
+    clinicName:        room?.name                                   ?? undefined,
+    clinicPhone:       room?.whatsappConnection?.phoneNumber        ?? undefined,
     teleconsultaLink:  room?.teleconsultaLink                       ?? undefined,
     prontuarioLink:    `${frontendUrl}/prontuario`,
   }
 
   return { ...base, ...extras }
+}
+
+// ─── Resolução unificada de texto de mensagem ────────────────────────────────
+
+/**
+ * Ponto único de resolução de texto usado por Fluxos, Respostas Rápidas e
+ * Ações do Sistema: se `templateId` estiver definido e o template existir e
+ * estiver ativo, o conteúdo do template prevalece; caso contrário usa `text`
+ * (texto livre salvo diretamente no fluxo/resposta/ação) como fallback.
+ */
+export async function resolveMessageText(
+  source: { text?: string | null; templateId?: string | null },
+  ctx: TemplateContext,
+  prisma: PrismaClient
+): Promise<string> {
+  if (source.templateId) {
+    const template = await prisma.lightTemplate.findUnique({ where: { id: source.templateId } })
+    if (template && template.active) {
+      return resolveTemplateVariables(template.content, ctx)
+    }
+  }
+  return resolveTemplateVariables(source.text ?? '', ctx)
 }

@@ -30,7 +30,9 @@
       "Skill(dataviz)",
       "Skill(dataviz:*)",
       "Bash(grep -n 'completingNow\\\\|beingCompleted\\\\|prisma\\\\.$transaction' /Users/kelvenpereiradasilva/Documents/Programaçao/clinicmedia/packages/backend/src/routes/appointments.ts)",
-      "Bash(grep -c \"IF NOT EXISTS\\\\|DO \\\\$\\\\$\\\\|EXCEPTION\" /Users/kelvenpereiradasilva/Documents/Programaçao/clinicmedia/packages/backend/prisma/migrations/20260608171341_init/migration.sql)"
+      "Bash(grep -c \"IF NOT EXISTS\\\\|DO \\\\$\\\\$\\\\|EXCEPTION\" /Users/kelvenpereiradasilva/Documents/Programaçao/clinicmedia/packages/backend/prisma/migrations/20260608171341_init/migration.sql)",
+      "Bash(node_modules/.bin/tsc --noEmit -p tsconfig.json)",
+      "Bash(DATABASE_URL=\"postgresql://user:pass@localhost:5432/db\" npx prisma validate)"
     ],
     "additionalDirectories": [
       "c:\\clinicmedia\\packages\\backend\\prisma\\migrations"

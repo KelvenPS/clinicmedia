@@ -55,6 +55,14 @@ async function getTargetDoctorId(req: AuthRequest): Promise<string> {
   return effectiveId ?? req.user!.userId
 }
 
+// Todo `chatbotId` recebido do cliente (body/query) precisa passar por aqui antes
+// de ser usado — sem isso, um médico autenticado poderia agir sobre o chatbot de
+// outra clínica só sabendo o UUID (enviar mensagem, plantar fluxo, ler config).
+async function ownedChatbotId(doctorId: string, chatbotId: string): Promise<string | null> {
+  const chatbot = await prisma.lightChatbot.findFirst({ where: { id: chatbotId, doctorId }, select: { id: true } })
+  return chatbot?.id ?? null
+}
+
 // ─── Dashboard ────────────────────────────────────────────────────────────────
 
 router.get('/dashboard', async (req: AuthRequest, res) => {
@@ -347,7 +355,13 @@ router.put('/integrations', async (req: AuthRequest, res) => {
       chatbotId:     z.string().optional(),
     })
     const data = schema.parse(req.body)
-    const chatbotId = data.chatbotId ?? (await getOrCreateDefaultChatbot(doctorId)).id
+    const chatbotId = data.chatbotId
+      ? await ownedChatbotId(doctorId, data.chatbotId)
+      : (await getOrCreateDefaultChatbot(doctorId)).id
+    if (!chatbotId) {
+      res.status(404).json({ message: 'Chatbot não encontrado' })
+      return
+    }
 
     const config = await prisma.lightIntegrationConfig.upsert({
       where: {
@@ -547,7 +561,13 @@ router.post('/test', async (req: AuthRequest, res) => {
       chatbotId:  z.string().optional(),
     })
     const { phone, content, templateId, chatbotId: bodyChatbotId } = schema.parse(req.body)
-    const chatbotId = bodyChatbotId || (await getOrCreateDefaultChatbot(doctorId)).id
+    const chatbotId = bodyChatbotId
+      ? await ownedChatbotId(doctorId, bodyChatbotId)
+      : (await getOrCreateDefaultChatbot(doctorId)).id
+    if (!chatbotId) {
+      res.status(404).json({ message: 'Chatbot não encontrado' })
+      return
+    }
 
     const target = await resolveChatbotLightSendTarget(chatbotId)
     if (!target) {
@@ -671,7 +691,13 @@ router.post('/fluxos', async (req: AuthRequest, res) => {
   try {
     const doctorId = await getTargetDoctorId(req)
     const data = fluxoSchema.parse(req.body)
-    const chatbotId = req.body?.chatbotId || (await getOrCreateDefaultChatbot(doctorId)).id
+    const chatbotId = req.body?.chatbotId
+      ? await ownedChatbotId(doctorId, req.body.chatbotId)
+      : (await getOrCreateDefaultChatbot(doctorId)).id
+    if (!chatbotId) {
+      res.status(404).json({ message: 'Chatbot não encontrado' })
+      return
+    }
     const fluxo = await prisma.lightFluxo.create({
       data: { doctorId, chatbotId, ...data, options: data.options as object[] },
     })
@@ -768,7 +794,13 @@ router.post('/quick-replies', async (req: AuthRequest, res) => {
   try {
     const doctorId = await getTargetDoctorId(req)
     const data = quickReplySchema.parse(req.body)
-    const chatbotId = req.body?.chatbotId || (await getOrCreateDefaultChatbot(doctorId)).id
+    const chatbotId = req.body?.chatbotId
+      ? await ownedChatbotId(doctorId, req.body.chatbotId)
+      : (await getOrCreateDefaultChatbot(doctorId)).id
+    if (!chatbotId) {
+      res.status(404).json({ message: 'Chatbot não encontrado' })
+      return
+    }
     const reply = await prisma.lightQuickReply.create({ data: { doctorId, chatbotId, ...data } })
     await logAudit({
       userId: req.user!.userId,
@@ -989,8 +1021,22 @@ router.get('/system-actions/catalog', async (req: AuthRequest, res) => {
   res.json(SYSTEM_ACTION_CATALOG)
 })
 
+// LightSystemActionConfig não tem relation Prisma pra WhatsAppInstance (só um
+// instanceId solto) — sem isso, PUT/PATCH/DELETE/test por :id executavam sem
+// checar se a config pertencia ao médico autenticado.
+async function ownedSystemActionConfig(doctorId: string, id: string) {
+  const config = await prisma.lightSystemActionConfig.findUnique({ where: { id } })
+  if (!config) return null
+  const instance = await prisma.whatsAppInstance.findFirst({ where: { id: config.instanceId, doctorId }, select: { id: true } })
+  if (!instance) return null
+  return config
+}
+
 async function resolveInstanceForChatbot(doctorId: string, chatbotIdParam?: string) {
-  const chatbotId = chatbotIdParam || (await getOrCreateDefaultChatbot(doctorId)).id
+  const chatbotId = chatbotIdParam
+    ? await ownedChatbotId(doctorId, chatbotIdParam)
+    : (await getOrCreateDefaultChatbot(doctorId)).id
+  if (!chatbotId) return null
   return prisma.whatsAppInstance.findUnique({ where: { chatbotId } })
 }
 
@@ -1073,6 +1119,12 @@ router.put('/system-actions/:id', async (req: AuthRequest, res) => {
     })
     const data = schema.parse(req.body)
 
+    const existing = await ownedSystemActionConfig(doctorId, id)
+    if (!existing) {
+      res.status(404).json({ message: 'Configuração não encontrada' })
+      return
+    }
+
     const updated = await prisma.lightSystemActionConfig.update({
       where: { id },
       data: {
@@ -1104,6 +1156,12 @@ router.patch('/system-actions/:id/active', async (req: AuthRequest, res) => {
     const schema = z.object({ active: z.boolean() })
     const { active } = schema.parse(req.body)
 
+    const existing = await ownedSystemActionConfig(doctorId, id)
+    if (!existing) {
+      res.status(404).json({ message: 'Configuração não encontrada' })
+      return
+    }
+
     const updated = await prisma.lightSystemActionConfig.update({
       where: { id },
       data: { active },
@@ -1128,6 +1186,12 @@ router.delete('/system-actions/:id', async (req: AuthRequest, res) => {
   try {
     const { id } = req.params
     const doctorId = await getTargetDoctorId(req)
+
+    const existing = await ownedSystemActionConfig(doctorId, id)
+    if (!existing) {
+      res.status(404).json({ message: 'Configuração não encontrada' })
+      return
+    }
 
     // Exclusão segura: verificar se a config está vinculada a algum fluxo ativo
     const fluxos = await prisma.lightFluxo.findMany({
@@ -1168,9 +1232,7 @@ router.post('/system-actions/:id/test', async (req: AuthRequest, res) => {
   try {
     const { id } = req.params
     const doctorId = await getTargetDoctorId(req)
-    const config = await prisma.lightSystemActionConfig.findUnique({
-      where: { id },
-    })
+    const config = await ownedSystemActionConfig(doctorId, id)
     if (!config) {
       res.status(404).json({ message: 'Configuração não encontrada' })
       return

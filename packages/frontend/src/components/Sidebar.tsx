@@ -14,7 +14,6 @@ import {
   Brain,
   Bot,
   MessageSquare,
-  Sparkles,
   Receipt,
   Video,
   Database,
@@ -199,7 +198,7 @@ export default function Sidebar({ collapsed = false, onToggleCollapse }: Sidebar
         ))}
 
         {/* ── Automação ── */}
-        {(can('chatbot_light_operar') || can('chatbot_light_configurar') || can('chatbot_agente')) && (
+        {(can('chatbot_light_operar') || can('chatbot_light_configurar')) && (
         <div className={`${collapsed ? 'mt-3 pt-3' : 'mt-5 pt-4'} border-t border-white/8`}>
           {!collapsed && (
             <p className="section-label mb-2">WhatsApp</p>
@@ -208,7 +207,7 @@ export default function Sidebar({ collapsed = false, onToggleCollapse }: Sidebar
           {/* Chatbot — expandable in expanded mode, direct nav in collapsed */}
           {collapsed ? (
             <NavLink
-              to={(can('chatbot_light_operar') || can('chatbot_light_configurar')) ? '/chatbot/light' : '/chatbot/agente'}
+              to="/chatbot/light"
               className={({ isActive: _ }) =>
                 `sidebar-link group tooltip-trigger ${isChatbotRoute ? 'active' : ''}`
               }
@@ -248,21 +247,6 @@ export default function Sidebar({ collapsed = false, onToggleCollapse }: Sidebar
                   >
                     <MessageSquare className="w-4 h-4 flex-shrink-0" />
                     <span>Chatbot Light</span>
-                  </NavLink>
-                  )}
-                  {can('chatbot_agente') && (
-                  <NavLink
-                    to="/chatbot/agente"
-                    className={({ isActive }) =>
-                      `flex items-center gap-2 px-2.5 py-2 rounded-xl text-sm font-medium transition-all duration-150 ${
-                        isActive
-                          ? 'bg-violet-600/20 text-violet-300 border border-violet-500/20'
-                          : 'text-slate-400 hover:text-white hover:bg-white/6'
-                      }`
-                    }
-                  >
-                    <Sparkles className="w-4 h-4 flex-shrink-0" />
-                    <span>Agente Clínico</span>
                   </NavLink>
                   )}
                 </div>

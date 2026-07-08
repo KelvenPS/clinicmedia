@@ -105,42 +105,42 @@ model User {
   createdAt        DateTime  @default(now())
   updatedAt        DateTime  @updatedAt
 
-  patients             Patient[]                @relation("DoctorPatients")
-  doctorAppointments   Appointment[]            @relation("DoctorAppointments")
-  createdAppointments  Appointment[]            @relation("CreatedByAppointments")
+  patients             Patient[]                   @relation("DoctorPatients")
+  doctorAppointments   Appointment[]               @relation("DoctorAppointments")
+  createdAppointments  Appointment[]               @relation("CreatedByAppointments")
   transactions         Transaction[]
-  medicalRecords       MedicalRecord[]          @relation("DoctorRecords")
-  appointmentBlocks    AppointmentBlock[]       @relation("DoctorBlocks")
-  assessments          Assessment[]             @relation("DoctorAssessments")
-  doctorTeam           DoctorSecretary[]        @relation("DoctorTeam")
-  secretaryOf          DoctorSecretary[]        @relation("SecretaryOf")
-  rooms                Room[]                   @relation("DoctorRooms")
-  roomAssignments      RoomSecretary[]          @relation("SecretaryRooms")
-  documentTemplates    DocumentTemplate[]       @relation("DoctorDocuments")
-  notifications        Notification[]           @relation("UserNotifications")
-  paymentMethods       PaymentMethod[]          @relation("DoctorPaymentMethods")
-  subscription         DoctorSubscription?      @relation("DoctorSubscription")
-  subscriptionPayments SubscriptionPayment[]    @relation("DoctorPayments")
-  integrations         Integration[]            @relation("DoctorIntegrations")
-  whatsappInstances    WhatsAppInstance[]       @relation("DoctorWhatsApp")
-  healthPlans          HealthPlan[]             @relation("DoctorHealthPlans")
-  appointmentTypes     AppointmentType[]        @relation("DoctorAppointmentTypes")
-  sqlLogs              SqlQueryLog[]            @relation("AdminSqlLogs")
-  lightTemplates       LightTemplate[]          @relation("DoctorLightTemplates")
-  lightIntegrations    LightIntegrationConfig[] @relation("DoctorLightIntegrations")
-  lightLogs            LightMessageLog[]        @relation("DoctorLightLogs")
-  lightSettings        LightSettings?           @relation("DoctorLightSettings")
-  lightFluxos          LightFluxo[]             @relation("DoctorLightFluxos")
-  lightQuickReplies    LightQuickReply[]        @relation("DoctorLightQuickReplies")
-  lightChatbots        LightChatbot[]           @relation("DoctorLightChatbots")
-  roomWAConnections    RoomWhatsAppConnection[] @relation("DoctorRoomConnections")
-  roomWAConnectedBy    RoomWhatsAppConnection[] @relation("RoomWAConnectedBy")
-  patientsCreated      Patient[]                @relation("PatientCreatedBy")
-  patientsCompleted    Patient[]                @relation("PatientCompletedBy")
-  financialCategories       FinancialCategory[]          @relation("DoctorFinancialCategories")
-  costCenters               CostCenter[]                 @relation("DoctorCostCenters")
-  bankAccounts              BankAccount[]                @relation("DoctorBankAccounts")
-  lightNotifTemplates       LightNotificationTemplate[]  @relation("DoctorLightNotifTemplates")
+  medicalRecords       MedicalRecord[]             @relation("DoctorRecords")
+  appointmentBlocks    AppointmentBlock[]          @relation("DoctorBlocks")
+  assessments          Assessment[]                @relation("DoctorAssessments")
+  doctorTeam           DoctorSecretary[]           @relation("DoctorTeam")
+  secretaryOf          DoctorSecretary[]           @relation("SecretaryOf")
+  rooms                Room[]                      @relation("DoctorRooms")
+  roomAssignments      RoomSecretary[]             @relation("SecretaryRooms")
+  documentTemplates    DocumentTemplate[]          @relation("DoctorDocuments")
+  notifications        Notification[]              @relation("UserNotifications")
+  paymentMethods       PaymentMethod[]             @relation("DoctorPaymentMethods")
+  subscription         DoctorSubscription?         @relation("DoctorSubscription")
+  subscriptionPayments SubscriptionPayment[]       @relation("DoctorPayments")
+  integrations         Integration[]               @relation("DoctorIntegrations")
+  whatsappInstances    WhatsAppInstance[]          @relation("DoctorWhatsApp")
+  healthPlans          HealthPlan[]                @relation("DoctorHealthPlans")
+  appointmentTypes     AppointmentType[]           @relation("DoctorAppointmentTypes")
+  sqlLogs              SqlQueryLog[]               @relation("AdminSqlLogs")
+  lightTemplates       LightTemplate[]             @relation("DoctorLightTemplates")
+  lightIntegrations    LightIntegrationConfig[]    @relation("DoctorLightIntegrations")
+  lightLogs            LightMessageLog[]           @relation("DoctorLightLogs")
+  lightSettings        LightSettings?              @relation("DoctorLightSettings")
+  lightFluxos          LightFluxo[]                @relation("DoctorLightFluxos")
+  lightQuickReplies    LightQuickReply[]           @relation("DoctorLightQuickReplies")
+  lightChatbots        LightChatbot[]              @relation("DoctorLightChatbots")
+  roomWAConnections    RoomWhatsAppConnection[]    @relation("DoctorRoomConnections")
+  roomWAConnectedBy    RoomWhatsAppConnection[]    @relation("RoomWAConnectedBy")
+  patientsCreated      Patient[]                   @relation("PatientCreatedBy")
+  patientsCompleted    Patient[]                   @relation("PatientCompletedBy")
+  financialCategories  FinancialCategory[]         @relation("DoctorFinancialCategories")
+  costCenters          CostCenter[]                @relation("DoctorCostCenters")
+  bankAccounts         BankAccount[]               @relation("DoctorBankAccounts")
+  lightNotifTemplates  LightNotificationTemplate[] @relation("DoctorLightNotifTemplates")
 
   @@map("TBLUSUARIO")
 }
@@ -710,22 +710,14 @@ enum MessageStatus {
   FAILED
 }
 
-enum FlowTrigger {
-  KEYWORD
-  ALL_MESSAGES
-  FIRST_MESSAGE
-  AFTER_HOURS
-}
-
 enum WhatsAppInstanceType {
   CHATBOT_LIGHT
-  CLINICAL_AGENT
 }
 
 model WhatsAppInstance {
   id                 String               @id @default(uuid())
   doctorId           String
-  type               WhatsAppInstanceType @default(CLINICAL_AGENT)
+  type               WhatsAppInstanceType @default(CHATBOT_LIGHT)
   instanceKey        String               @unique @default(uuid())
   status             InstanceStatus       @default(DISCONNECTED)
   qrCode             String?              @db.Text
@@ -742,16 +734,12 @@ model WhatsAppInstance {
   createdAt          DateTime             @default(now())
   updatedAt          DateTime             @updatedAt
 
-  // Vincula esta instância a um LightChatbot específico (multi-chatbot,
-  // jul/2026). Nulo para CLINICAL_AGENT, que continua 1 por médico
-  // (garantido em código, não mais pela constraint @@unique de baixo).
+  // Vincula esta instância a um LightChatbot específico (multi-chatbot, jul/2026).
   chatbotId String? @unique
 
-  doctor        User             @relation("DoctorWhatsApp", fields: [doctorId], references: [id])
-  chatbot       LightChatbot?    @relation(fields: [chatbotId], references: [id])
+  doctor        User           @relation("DoctorWhatsApp", fields: [doctorId], references: [id])
+  chatbot       LightChatbot?  @relation(fields: [chatbotId], references: [id])
   conversations Conversation[]
-  flows         ChatbotFlow[]
-  settings      ChatbotSettings?
 
   @@map("TBLWHATSAPPINSTANCIA")
 }
@@ -850,42 +838,6 @@ model Message {
   @@index([conversationId])
   @@index([waMessageId])
   @@map("TBLMENSAGEM")
-}
-
-model ChatbotFlow {
-  id           String      @id @default(uuid())
-  instanceId   String
-  name         String
-  description  String?
-  active       Boolean     @default(false)
-  trigger      FlowTrigger @default(KEYWORD)
-  triggerValue String?
-  botType      String      @default("LIGHT")
-  nodes        Json        @default("[]")
-  edges        Json        @default("[]")
-  executions   Int         @default(0)
-  createdAt    DateTime    @default(now())
-  updatedAt    DateTime    @updatedAt
-
-  instance WhatsAppInstance @relation(fields: [instanceId], references: [id], onDelete: Cascade)
-
-  @@index([instanceId])
-  @@map("TBLCHATBOTFLUXO")
-}
-
-model ChatbotTemplate {
-  id          String   @id @default(uuid())
-  name        String
-  description String?
-  category    String
-  icon        String?
-  nodes       Json     @default("[]")
-  edges       Json     @default("[]")
-  isGlobal    Boolean  @default(true)
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
-
-  @@map("TBLCHATBOTMODELO")
 }
 
 // ─── Chatbot Light Module ─────────────────────────────────────────────────────
@@ -1039,30 +991,6 @@ model LightNotificationTemplate {
 
   @@index([doctorId])
   @@map("TBLCHATBOTLIGHTNOTIFTPL")
-}
-
-model ChatbotSettings {
-  id                   String   @id @default(uuid())
-  instanceId           String   @unique
-  welcomeMessage       String?  @db.Text
-  offHoursMessage      String?  @db.Text
-  businessHoursStart   String   @default("08:00")
-  businessHoursEnd     String   @default("18:00")
-  businessDays         String[] @default(["MON", "TUE", "WED", "THU", "FRI"])
-  autoReply            Boolean  @default(true)
-  queueEnabled         Boolean  @default(true)
-  maxQueueSize         Int      @default(10)
-  notificationsEnabled Boolean  @default(true)
-  botType              String   @default("LIGHT")
-  aiSystemPrompt       String?  @db.Text
-  replyGroups          Boolean  @default(true)
-  replyCommunities     Boolean  @default(false)
-  createdAt            DateTime @default(now())
-  updatedAt            DateTime @updatedAt
-
-  instance WhatsAppInstance @relation(fields: [instanceId], references: [id], onDelete: Cascade)
-
-  @@map("TBLCHATBOTCONFIG")
 }
 
 model LightFlowSession {

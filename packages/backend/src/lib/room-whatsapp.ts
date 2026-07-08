@@ -20,7 +20,8 @@ import NodeCache from 'node-cache'
 import { prisma } from './prisma'
 import pino from 'pino'
 import { resolveTemplateVariables, TemplateContext } from './chatbot-light-variables'
-import { handleIncomingMessage } from '../routes/chatbot'
+import { resolveWhatsAppContactIdentity } from './whatsapp'
+import { handleIncomingLightMessage } from './chatbot-light-engine'
 
 const SESSIONS_DIR = path.resolve(process.env.SESSIONS_DIR ?? path.join(process.cwd(), 'sessions'))
 const logger = pino({ level: process.env.WA_LOG_LEVEL || 'warn' })
@@ -70,6 +71,192 @@ const SIM_WORDS = new Set(['sim', 's', '1', 'confirmar', 'confirmo', 'ok', 'quer
 const NAO_WORDS = new Set(['nao', 'n', '2', 'nao quero', 'cancelar', 'recusar', 'nao confirmo', 'nao!', 'nao.'])
 
 const MAX_ROOM_RECONNECT_ATTEMPTS = 5
+
+function toLong(v: unknown): number {
+  if (!v) return 0
+  if (typeof v === 'number') return v
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  if (typeof (v as any).toNumber === 'function') return (v as any).toNumber()
+  return Number(v) || 0
+}
+
+/**
+ * Processa uma mensagem recebida via Baileys: resolve identidade do contato,
+ * grava/atualiza Conversation + Message, notifica o médico e repassa ao motor
+ * do Chatbot Light. Ponto único de ingestão para toda conexão de Sala.
+ */
+async function handleIncomingMessage(instanceId: string, msg: WAMessage): Promise<void> {
+  const remoteJid = msg.key.remoteJid ?? ''
+  const fromMe = msg.key.fromMe ?? false
+  const pushName = msg.pushName ?? ''
+  const mc = msg.message ?? {}
+
+  let content = ''
+  let messageType: 'TEXT' | 'IMAGE' | 'AUDIO' | 'VIDEO' | 'DOCUMENT' | 'STICKER' | 'LOCATION' = 'TEXT'
+  let mediaUrl: string | undefined
+
+  if (mc.conversation) {
+    content = mc.conversation
+  } else if (mc.extendedTextMessage?.text) {
+    content = mc.extendedTextMessage.text
+  } else if (mc.imageMessage) {
+    content = mc.imageMessage.caption ?? ''
+    messageType = 'IMAGE'
+    mediaUrl = mc.imageMessage.url ?? undefined
+  } else if (mc.audioMessage) {
+    content = '[Áudio]'
+    messageType = 'AUDIO'
+  } else if (mc.videoMessage) {
+    content = mc.videoMessage.caption ?? '[Vídeo]'
+    messageType = 'VIDEO'
+  } else if (mc.documentMessage) {
+    content = mc.documentMessage.fileName ?? '[Documento]'
+    messageType = 'DOCUMENT'
+    mediaUrl = mc.documentMessage.url ?? undefined
+  } else if (mc.stickerMessage) {
+    content = '[Sticker]'
+    messageType = 'STICKER'
+  } else if (mc.locationMessage) {
+    const loc = mc.locationMessage
+    content = `[Localização] Lat: ${loc.degreesLatitude}, Lng: ${loc.degreesLongitude}`
+    messageType = 'LOCATION'
+  } else if (mc.buttonsResponseMessage?.selectedButtonId) {
+    content = mc.buttonsResponseMessage.selectedButtonId
+    messageType = 'TEXT'
+  } else if (mc.listResponseMessage?.singleSelectReply?.selectedRowId) {
+    content = mc.listResponseMessage.singleSelectReply.selectedRowId
+    messageType = 'TEXT'
+  } else {
+    return // tipo desconhecido, ignora
+  }
+
+  const identity = await resolveWhatsAppContactIdentity(instanceId, remoteJid, msg)
+  const contactPhone = identity.normalizedPhone || identity.lidJid || remoteJid
+  const isGroup = remoteJid.endsWith('@g.us')
+
+  // Para msgs de grupo: quem enviou (msg.pushName = nome, msg.key.participant = JID do membro)
+  const senderName = pushName || null
+  // O "lastMessageSender" só é relevante em grupos — em privado o contact já é a pessoa
+  const lastMessageSender = isGroup ? senderName : null
+  const instance = await prisma.whatsAppInstance.findUnique({ where: { id: instanceId } })
+  if (!instance) return
+
+  // Categorização: grupos → GRUPOS; individuais → fluxo normal
+  const convCategory = isGroup ? 'GRUPOS' : (fromMe ? 'ATENDIMENTO' : 'AGUARDANDO')
+  const convStatus   = fromMe ? 'OPEN' : (isGroup ? 'OPEN' : 'WAITING')
+
+  let conversation = await prisma.conversation.findFirst({
+    where: { instanceId, contactPhone },
+  })
+
+  const isNew = !conversation
+
+  if (!conversation) {
+    conversation = await prisma.conversation.create({
+      data: {
+        instanceId,
+        contactPhone,
+        // Para grupos: contactName = null aqui (será preenchido durante sync de histórico)
+        // Para privado: contactName = nome do contato (pushName) ou padrão
+        contactName: isGroup ? null : (senderName || (identity.lidJid ? 'Contato WhatsApp' : null)),
+        isGroup,
+        lastMessage: content,
+        lastMessageSender,
+        lastMessageAt: new Date(),
+        unreadCount: fromMe ? 0 : 1,
+        status: convStatus,
+        category: convCategory,
+        remoteJid: identity.remoteJid,
+        deliveryJid: identity.deliveryJid,
+        lidJid: identity.lidJid || null,
+        phoneJid: identity.phoneJid || null,
+        normalizedPhone: identity.normalizedPhone || null
+      },
+    })
+  } else {
+    await prisma.conversation.update({
+      where: { id: conversation.id },
+      data: {
+        lastMessage: content,
+        lastMessageSender,
+        lastMessageAt: new Date(),
+        // Para privados: atualiza nome com pushName. Para grupos: não sobrescreve nome do grupo
+        ...(!isGroup && senderName && { contactName: senderName }),
+        unreadCount: fromMe ? conversation.unreadCount : { increment: 1 },
+        remoteJid: identity.remoteJid,
+        deliveryJid: identity.deliveryJid,
+        lidJid: identity.lidJid || null,
+        phoneJid: identity.phoneJid || null,
+        normalizedPhone: identity.normalizedPhone || null
+      },
+    })
+  }
+
+  // Timestamp real da mensagem WA
+  const msgTimestamp = msg.messageTimestamp
+    ? new Date(toLong(msg.messageTimestamp) * 1000)
+    : new Date()
+
+  // senderName em grupos = pushName (quem enviou no grupo)
+  const senderNameForMsg = isGroup
+    ? (msg.pushName || msg.key.participant?.replace('@s.whatsapp.net', '') || null)
+    : null
+
+  await prisma.message.create({
+    data: {
+      conversationId: conversation.id,
+      waMessageId: msg.key.id ?? null,
+      fromMe,
+      senderName: senderNameForMsg,
+      content,
+      type: messageType,
+      mediaUrl: mediaUrl ?? null,
+      status: fromMe ? 'SENT' : 'DELIVERED',
+      isBot: false,
+      timestamp: msgTimestamp,
+    },
+  }).catch(async (err) => {
+    // Unique constraint on waMessageId — mensagem já existe, ignora
+    if (err?.code === 'P2002') return
+    throw err
+  })
+
+  if (!fromMe && !isGroup) {
+    await prisma.notification.create({
+      data: {
+        userId: instance.doctorId,
+        title: `Nova mensagem de ${pushName || contactPhone}`,
+        message: content.slice(0, 100),
+        type: 'INFO',
+        link: '/chatbot',
+      },
+    }).catch(() => {})
+  }
+
+  logRoom('info', instance.instanceKey, 'whatsapp.message.saved', {
+    messageId: msg.key.id,
+    conversationId: conversation.id,
+    contactPhone,
+  })
+
+  logRoom('info', instance.instanceKey, 'whatsapp.message.light_engine_called', {
+    messageId: msg.key.id,
+    contactPhone,
+  })
+  await handleIncomingLightMessage({
+    socketInstanceKey: instance.instanceKey,
+    whatsappInstanceId: instance.id,
+    conversationId: conversation.id,
+    remoteJid,
+    deliveryJid: identity.deliveryJid,
+    lidJid: identity.lidJid,
+    phoneJid: identity.phoneJid,
+    normalizedPhone: identity.normalizedPhone,
+    messageId: msg.key.id!,
+    messageText: content,
+    msgRaw: msg
+  })
+}
 
 /**
  * Encaminha mensagens recebidas pela Sala para o motor do Chatbot Light,

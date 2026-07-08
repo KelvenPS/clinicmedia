@@ -193,7 +193,7 @@ export interface DoctorSecretary {
   doctorId: string
   secretaryId: string
   active: boolean
-  permissions?: Partial<Record<'chatbot' | 'chatbot_light' | 'chatbot_light_operar' | 'chatbot_light_configurar' | 'chatbot_agente' | 'nota_fiscal' | 'teleconsulta' | 'documentos' | 'salas' | 'integracoes' | 'financeiro', boolean>>
+  permissions?: Partial<Record<'chatbot' | 'chatbot_light' | 'chatbot_light_operar' | 'chatbot_light_configurar' | 'nota_fiscal' | 'teleconsulta' | 'documentos' | 'salas' | 'integracoes' | 'financeiro', boolean>>
   createdAt: string
   secretary: {
     id: string
@@ -355,8 +355,8 @@ export const PLAN_FEATURES: Record<PlanKey, string[]> = {
   PRO:              ['agenda', 'prontuario', 'financeiro'],
   PLUS:             ['agenda', 'prontuario', 'financeiro'],
   CLINIC:           ['agenda', 'prontuario', 'financeiro', 'avaliacoes', 'chatbot'],
-  TELECONSULTA:     ['agenda', 'prontuario', 'financeiro', 'avaliacoes', 'chatbot', 'chatbot_agente', 'teleconsulta'],
-  TELECONSULTA_PRO: ['agenda', 'prontuario', 'financeiro', 'avaliacoes', 'chatbot', 'chatbot_agente', 'teleconsulta', 'teleconsulta_pro'],
+  TELECONSULTA:     ['agenda', 'prontuario', 'financeiro', 'avaliacoes', 'chatbot', 'teleconsulta'],
+  TELECONSULTA_PRO: ['agenda', 'prontuario', 'financeiro', 'avaliacoes', 'chatbot', 'teleconsulta', 'teleconsulta_pro'],
 }
 
 export const PLAN_LIMITS: Record<PlanKey, { rooms: number; secretaries: number; teleconsultas: number }> = {

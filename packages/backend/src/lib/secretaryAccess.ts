@@ -10,7 +10,6 @@ export const SECRETARY_PERMISSION_KEYS = [
   'chatbot_light',
   'chatbot_light_operar',
   'chatbot_light_configurar',
-  'chatbot_agente',
   'nota_fiscal',
   'teleconsulta',
   'documentos',
@@ -41,10 +40,9 @@ export function normalizeSecretaryPermissions(input: unknown): SecretaryPermissi
     const value = raw[key]
     if (typeof value === 'boolean') result[key] = value
   }
-  // Backward compat: old 'chatbot: true' maps to both chatbot_light and chatbot_agente
+  // Backward compat: old 'chatbot: true' mapeava para chatbot_light
   if (raw['chatbot'] === true) {
     if (result['chatbot_light'] === undefined) result['chatbot_light'] = true
-    if (result['chatbot_agente'] === undefined) result['chatbot_agente'] = true
   }
   // Backward compat: old single 'chatbot_light: true' liberava tudo — secretárias já
   // configuradas continuam com acesso total quando as chaves granulares não foram

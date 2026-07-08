@@ -33,7 +33,6 @@ import FormasPagamento from './pages/configuracoes/FormasPagamento'
 import Planos from './pages/configuracoes/Planos'
 import ConfigNotificacoes from './pages/configuracoes/ConfigNotificacoes'
 import Integracoes from './pages/configuracoes/Integracoes'
-import ChatbotIA from './pages/ChatbotIA'
 import ChatbotLight from './pages/ChatbotLight'
 import MinhasSalas from './pages/MinhasSalas'
 import AdminGestao from './pages/AdminGestao'
@@ -60,7 +59,6 @@ export default function App() {
         <Route path="/login" element={isAuthenticated ? <Navigate to="/dashboard" replace /> : <Login />} />
         <Route path="/" element={isAuthenticated ? <Navigate to="/dashboard" replace /> : <LandingPage />} />
 
-        <Route path="/chatbot/agente/*" element={<ProtectedRoute allowedRoles={['ADMIN', 'DOCTOR', 'SECRETARY']}><SecretaryGate permission="chatbot_agente"><ChatbotIA /></SecretaryGate></ProtectedRoute>} />
         <Route path="/chatbot/light/*" element={<ProtectedRoute allowedRoles={['ADMIN', 'DOCTOR', 'SECRETARY']}><SecretaryGate permission={['chatbot_light_operar', 'chatbot_light_configurar']}><ChatbotLight /></SecretaryGate></ProtectedRoute>} />
         <Route path="/chatbot" element={<Navigate to="/chatbot/light" replace />} />
         <Route path="/chatbot/*" element={<Navigate to="/chatbot/light" replace />} />

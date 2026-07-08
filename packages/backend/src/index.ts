@@ -19,10 +19,9 @@ import notificationRoutes from './routes/notifications'
 import paymentMethodRoutes from './routes/payment-methods'
 import subscriptionRoutes from './routes/subscriptions'
 import integrationRoutes from './routes/integrations'
-import chatbotRoutes from './routes/chatbot'
 import chatbotLightRoutes from './routes/chatbot-light'
 import myRoomsRoutes from './routes/my-rooms'
-import { restoreSessions, startHealthWatchdog, runStartupDatabaseCleanup } from './lib/whatsapp'
+import { runStartupDatabaseCleanup } from './lib/whatsapp'
 import { restoreRoomSessions, startRoomHealthWatchdog } from './lib/room-whatsapp'
 import { startLightScheduler } from './lib/chatbot-light-engine'
 import adminRoutes from './routes/admin'
@@ -63,7 +62,6 @@ app.use('/api/notifications', notificationRoutes)
 app.use('/api/payment-methods', paymentMethodRoutes)
 app.use('/api/subscriptions', subscriptionRoutes)
 app.use('/api/integrations', integrationRoutes)
-app.use('/api/chatbot', chatbotRoutes)
 app.use('/api/chatbot-light', chatbotLightRoutes)
 app.use('/api/my/rooms', myRoomsRoutes)
 app.use('/api/admin/sql', adminSqlRoutes)
@@ -105,15 +103,12 @@ app.listen(PORT, () => {
   // Limpeza de dados de inicialização e correção de LIDs antigos de teste
   runStartupDatabaseCleanup()
     .then(() => {
-      // Restaura sessões WhatsApp ativas após restart do servidor
-      restoreSessions().catch(err => console.error('[WA] Erro ao restaurar sessões:', err))
       // Restaura conexões WhatsApp por sala
       restoreRoomSessions().catch(err => console.error('[ROOM_WA] Erro ao restaurar sessões de sala:', err))
     })
     .catch(err => console.error('[WA] Erro na limpeza inicial:', err))
 
   // Inicia watchdog que monitora e restaura sessões WhatsApp que morrem silenciosamente
-  startHealthWatchdog()
   startRoomHealthWatchdog()
 
   // Inicia o scheduler do Chatbot Light para disparar avisos atrasados e lembretes periódicos

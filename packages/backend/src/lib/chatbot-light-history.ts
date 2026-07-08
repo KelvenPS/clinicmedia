@@ -3,7 +3,7 @@ import { prisma } from './prisma'
 // Histórico unificado do Chatbot Light — junta LightMessageLog,
 // LightSystemActionLog, LightFlowSession (eventos terminais) e Patient
 // (origin CHATBOT) numa única linha do tempo, sem criar tabela nova.
-// Não junta `Conversation` (é o inbox do chatbot "grande"/CLINICAL_AGENT,
+// Não junta `Conversation` (é o inbox legado sem tela própria hoje,
 // não é escrito pelo motor do Chatbot Light).
 
 export type HistoryEventType =
@@ -90,11 +90,22 @@ export async function getUnifiedHistory(doctorId: string, filters: HistoryFilter
   const chatbots = await prisma.lightChatbot.findMany({ where: { doctorId }, select: { id: true, name: true } })
   const chatbotNameById = new Map(chatbots.map(c => [c.id, c.name]))
 
+  // LightSystemActionLog e LightFlowSession não têm doctorId próprio (só
+  // instanceId) — sem escopar pelas instâncias do médico aqui, essas duas
+  // fontes vazavam telefone/conteúdo de conversa de TODAS as clínicas do
+  // sistema para qualquer médico autenticado.
+  const doctorInstances = await prisma.whatsAppInstance.findMany({
+    where: { doctorId, ...(filters.chatbotId ? { chatbotId: filters.chatbotId } : {}) },
+    select: { id: true, chatbotId: true },
+  })
+  const doctorInstanceIds = doctorInstances.map(i => i.id)
+  const chatbotIdByInstance = new Map(doctorInstances.map(i => [i.id, i.chatbotId]))
+
   // Cada filtro de "eventType" restringe a fonte relevante — os outros
   // gêneros de evento simplesmente não têm esse conceito.
   const wantsMessages = !filters.eventType || filters.eventType !== 'Ação do sistema' && filters.eventType !== 'Transferência para atendente'
-  const wantsSystemActions = !filters.eventType || filters.eventType === 'Ação do sistema'
-  const wantsSessions = !filters.eventType || filters.eventType === 'Transferência para atendente' || filters.eventType === 'Fluxo de conversa'
+  const wantsSystemActions = (!filters.eventType || filters.eventType === 'Ação do sistema') && doctorInstanceIds.length > 0
+  const wantsSessions = (!filters.eventType || filters.eventType === 'Transferência para atendente' || filters.eventType === 'Fluxo de conversa') && doctorInstanceIds.length > 0
   const wantsLeads = !filters.eventType || filters.eventType === 'Pré-agendamento'
 
   const [messages, systemActionLogs, sessions, leadPatients] = await Promise.all([
@@ -114,6 +125,7 @@ export async function getUnifiedHistory(doctorId: string, filters: HistoryFilter
     wantsSystemActions
       ? prisma.lightSystemActionLog.findMany({
           where: {
+            instanceId: { in: doctorInstanceIds },
             ...(dateWhere ? { createdAt: dateWhere } : {}),
             ...(filters.search ? { contactPhone: { contains: filters.search } } : {}),
           },
@@ -124,6 +136,7 @@ export async function getUnifiedHistory(doctorId: string, filters: HistoryFilter
     wantsSessions
       ? prisma.lightFlowSession.findMany({
           where: {
+            instanceId: { in: doctorInstanceIds },
             status: { in: ['TRANSFER', 'COMPLETED', 'CANCELLED', 'FAILED', 'EXPIRED'] },
             ...(dateWhere ? { updatedAt: dateWhere } : {}),
             ...(filters.search ? { contactPhone: { contains: filters.search } } : {}),
@@ -145,14 +158,6 @@ export async function getUnifiedHistory(doctorId: string, filters: HistoryFilter
         })
       : Promise.resolve([]),
   ])
-
-  // Nomes de fluxo/instância → chatbot para as sessões (mesma técnica manual
-  // de join já usada em chatbot-light-tasks.ts / chatbot-light-reports.ts).
-  const instanceIds = Array.from(new Set(sessions.map(s => s.instanceId)))
-  const instances = instanceIds.length > 0
-    ? await prisma.whatsAppInstance.findMany({ where: { id: { in: instanceIds } }, select: { id: true, chatbotId: true } })
-    : []
-  const chatbotIdByInstance = new Map(instances.map(i => [i.id, i.chatbotId]))
 
   const events: HistoryEvent[] = []
 

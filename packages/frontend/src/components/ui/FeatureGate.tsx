@@ -14,7 +14,6 @@ const FEATURE_LABELS: Record<string, { label: string; minPlan: string; icon: typ
   whatsapp:         { label: 'WhatsApp',              minPlan: 'CLINIC',           icon: Building2 },
   teleconsulta:     { label: 'Teleconsulta',          minPlan: 'TELECONSULTA',     icon: Video },
   teleconsulta_pro: { label: 'Teleconsulta Pro',      minPlan: 'TELECONSULTA_PRO', icon: Video },
-  chatbot_agente:   { label: 'Agente Clínico IA',     minPlan: 'TELECONSULTA',     icon: Video },
 }
 
 interface FeatureGateProps {

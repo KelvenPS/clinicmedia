@@ -41,8 +41,10 @@ export async function simulateLightMessage(params: {
 
   // Sem chatbotId explícito, simula o chatbot padrão da conta (o mais
   // antigo) — mantém o simulador funcionando para quem só tem 1 chatbot.
+  // Com chatbotId explícito, valida que pertence ao médico autenticado antes
+  // de resolver a instância — sem isso, dava pra ler fluxo/template de outra clínica.
   const instance = chatbotId
-    ? await prisma.whatsAppInstance.findUnique({ where: { chatbotId } })
+    ? await prisma.whatsAppInstance.findFirst({ where: { chatbotId, chatbot: { doctorId } } })
     : await prisma.whatsAppInstance.findFirst({ where: { doctorId, type: 'CHATBOT_LIGHT' }, orderBy: { createdAt: 'asc' } })
 
   if (!instance) {

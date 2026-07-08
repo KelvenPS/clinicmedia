@@ -137,9 +137,10 @@ model User {
   roomWAConnectedBy    RoomWhatsAppConnection[] @relation("RoomWAConnectedBy")
   patientsCreated      Patient[]                @relation("PatientCreatedBy")
   patientsCompleted    Patient[]                @relation("PatientCompletedBy")
-  financialCategories  FinancialCategory[]      @relation("DoctorFinancialCategories")
-  costCenters          CostCenter[]             @relation("DoctorCostCenters")
-  bankAccounts         BankAccount[]            @relation("DoctorBankAccounts")
+  financialCategories       FinancialCategory[]          @relation("DoctorFinancialCategories")
+  costCenters               CostCenter[]                 @relation("DoctorCostCenters")
+  bankAccounts              BankAccount[]                @relation("DoctorBankAccounts")
+  lightNotifTemplates       LightNotificationTemplate[]  @relation("DoctorLightNotifTemplates")
 
   @@map("TBLUSUARIO")
 }
@@ -1023,6 +1024,21 @@ model LightQuickReply {
   @@index([doctorId])
   @@index([chatbotId])
   @@map("TBLCHATBOTLIGHTQUICKREPLY")
+}
+
+model LightNotificationTemplate {
+  id        String   @id @default(uuid())
+  doctorId  String
+  name      String
+  message   String   @db.Text
+  active    Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  doctor User @relation("DoctorLightNotifTemplates", fields: [doctorId], references: [id], onDelete: Cascade)
+
+  @@index([doctorId])
+  @@map("TBLCHATBOTLIGHTNOTIFTPL")
 }
 
 model ChatbotSettings {

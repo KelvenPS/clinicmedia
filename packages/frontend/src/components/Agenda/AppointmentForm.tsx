@@ -3,10 +3,11 @@ import { useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { z } from 'zod'
 import { format } from 'date-fns'
-import { Trash2, ArrowRight, Info, RefreshCw, Check, X, MapPin, Search, DollarSign } from 'lucide-react'
+import { Trash2, ArrowRight, Info, RefreshCw, Check, X, MapPin, Search, DollarSign, Bell } from 'lucide-react'
 import type { Appointment, User, Patient, AuthUser, AppointmentType, Room } from '../../types'
 import PreRegisterModal from './PreRegisterModal'
 import CobrancaModal from '../Financial/CobrancaModal'
+import NotificarPacienteModal from './NotificarPacienteModal'
 
 const DURATIONS = [
   { value: 30, label: '30 min' },
@@ -78,6 +79,7 @@ export default function AppointmentForm({
   })
 
   const [showCobrancaModal, setShowCobrancaModal] = useState(false)
+  const [showNotifyModal, setShowNotifyModal] = useState(false)
 
   // Returns flow state
   const [wantsReturns, setWantsReturns] = useState<boolean | null>(null)
@@ -571,6 +573,16 @@ export default function AppointmentForm({
       <input {...register('repeatCount')} type="hidden" />
 
       <div className="flex items-center gap-3 pt-2">
+        {appointment && (
+          <button
+            type="button"
+            onClick={() => setShowNotifyModal(true)}
+            className="bg-cyan-600 hover:bg-cyan-700 text-white px-4 py-2 rounded-xl font-medium flex items-center gap-2"
+          >
+            <Bell className="w-4 h-4" />
+            Notificar
+          </button>
+        )}
         {appointment && !appointment.billedAt && !appointment.transaction && (
           <button
             type="button"
@@ -618,6 +630,15 @@ export default function AppointmentForm({
           setShowCobrancaModal(false)
           onCharged?.()
         }}
+      />
+    )}
+    {appointment && showNotifyModal && (
+      <NotificarPacienteModal
+        isOpen={showNotifyModal}
+        onClose={() => setShowNotifyModal(false)}
+        appointmentId={appointment.id}
+        patientName={appointment.patient.name}
+        patientPhone={appointment.patient.phone ?? undefined}
       />
     )}
     </>

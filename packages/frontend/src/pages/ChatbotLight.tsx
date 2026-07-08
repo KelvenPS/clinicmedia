@@ -18,7 +18,7 @@ import {
   ToggleLeft, ToggleRight, Eye, EyeOff,
   Zap, GitBranch, Reply, X, FileText, Play, RotateCcw,
   Smartphone, Info, CalendarClock, PhoneCall, UserCheck,
-  PauseCircle, Activity, Download,
+  PauseCircle, Activity, Download, Bell,
 } from 'lucide-react'
 import toast from 'react-hot-toast'
 import api from '../lib/api'
@@ -38,7 +38,7 @@ const generateUUID = () => {
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
-type Panel = 'central' | 'relatorio' | 'chatbots' | 'templates' | 'historico' | 'configuracoes' | 'pre_agendamentos'
+type Panel = 'central' | 'relatorio' | 'chatbots' | 'templates' | 'notificacoes' | 'historico' | 'configuracoes' | 'pre_agendamentos'
 type ConfigTab = 'conexao' | 'teste' | 'telas' | 'horario'
 type ChatbotsTab = 'meus' | 'simulador'
 type ChatbotDetailTab = 'visao' | 'fluxos' | 'acoes' | 'respostas' | 'mensagens' | 'simulador' | 'config'
@@ -133,6 +133,15 @@ interface LightQuickReply {
   keyword: string
   response: string
   templateId: string | null
+  active: boolean
+  createdAt: string
+  updatedAt: string
+}
+
+interface LightNotificationTemplate {
+  id: string
+  name: string
+  message: string
   active: boolean
   createdAt: string
   updatedAt: string
@@ -3422,6 +3431,211 @@ function RespostasPanel({ chatbotId }: { chatbotId?: string } = {}) {
   )
 }
 
+// ─── Notificações panel ───────────────────────────────────────────────────────
+
+const NOTIF_VARIABLE_CHIPS = [
+  { key: '{nome}',             label: 'Nome' },
+  { key: '{data}',             label: 'Data' },
+  { key: '{hora}',             label: 'Hora' },
+  { key: '{medico}',           label: 'Médico' },
+  { key: '{clinica}',          label: 'Clínica' },
+  { key: '{tipo_atendimento}', label: 'Tipo' },
+  { key: '{status}',           label: 'Status' },
+  { key: '{valor}',            label: 'Valor' },
+  { key: '{endereco}',         label: 'Endereço' },
+]
+
+function NotificacoesPanel() {
+  const qc = useQueryClient()
+  const [modalOpen, setModalOpen] = useState(false)
+  const [editing, setEditing]     = useState<LightNotificationTemplate | null>(null)
+  const msgRef = useRef<HTMLTextAreaElement>(null)
+
+  const { data: templates = [], isLoading } = useQuery<LightNotificationTemplate[]>({
+    queryKey: ['light-notif-templates'],
+    queryFn:  () => api.get('/chatbot-light/notification-templates').then(r => r.data),
+  })
+
+  const { register, handleSubmit, reset, setValue, watch } = useForm<{ name: string; message: string; active: boolean }>({
+    defaultValues: { name: '', message: '', active: true },
+  })
+  const messageValue = watch('message', '')
+
+  const openNew = () => {
+    setEditing(null)
+    reset({ name: '', message: '', active: true })
+    setModalOpen(true)
+  }
+
+  const openEdit = (t: LightNotificationTemplate) => {
+    setEditing(t)
+    reset({ name: t.name, message: t.message, active: t.active })
+    setModalOpen(true)
+  }
+
+  const insertVariable = (v: string) => {
+    const el = msgRef.current
+    if (!el) { setValue('message', messageValue + v); return }
+    const start = el.selectionStart ?? messageValue.length
+    const end   = el.selectionEnd   ?? messageValue.length
+    const next  = messageValue.slice(0, start) + v + messageValue.slice(end)
+    setValue('message', next)
+    setTimeout(() => { el.focus(); el.setSelectionRange(start + v.length, start + v.length) }, 0)
+  }
+
+  const saveMutation = useMutation({
+    mutationFn: (data: { name: string; message: string; active: boolean }) =>
+      editing
+        ? api.put(`/chatbot-light/notification-templates/${editing.id}`, data).then(r => r.data)
+        : api.post('/chatbot-light/notification-templates', data).then(r => r.data),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['light-notif-templates'] })
+      setModalOpen(false)
+      toast.success(editing ? 'Notificação atualizada' : 'Notificação criada')
+    },
+    onError: () => toast.error('Erro ao salvar'),
+  })
+
+  const deleteMutation = useMutation({
+    mutationFn: (id: string) => api.delete(`/chatbot-light/notification-templates/${id}`),
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ['light-notif-templates'] }); toast.success('Notificação removida') },
+  })
+
+  const toggleMutation = useMutation({
+    mutationFn: ({ id, active }: { id: string; active: boolean }) =>
+      api.put(`/chatbot-light/notification-templates/${id}`, { active }).then(r => r.data),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['light-notif-templates'] }),
+  })
+
+  return (
+    <div className="p-6 space-y-5">
+      <div className="flex items-center justify-between">
+        <div>
+          <h2 className="text-xl font-bold text-slate-900">Notificações</h2>
+          <p className="text-sm text-slate-500 mt-0.5">Templates de mensagem enviados ao agendar uma consulta</p>
+        </div>
+        <button onClick={openNew} className="btn-primary text-sm">
+          <Plus className="w-4 h-4" /> Nova notificação
+        </button>
+      </div>
+
+      <div className="bg-cyan-50 border border-cyan-200 rounded-xl p-4 text-sm text-cyan-800">
+        <p className="font-medium mb-1 flex items-center gap-1.5"><Bell className="w-4 h-4" /> Como funciona</p>
+        <p>Crie templates com variáveis dinâmicas (ex: <code className="bg-cyan-100 px-1 rounded">{'{nome}'}</code>, <code className="bg-cyan-100 px-1 rounded">{'{data}'}</code>). Na agenda, ao abrir um agendamento, clique em <strong>Notificar Paciente</strong> e escolha qual enviar via WhatsApp.</p>
+      </div>
+
+      {isLoading ? (
+        <div className="flex justify-center py-8"><Loader2 className="w-5 h-5 animate-spin text-cyan-500" /></div>
+      ) : templates.length === 0 ? (
+        <div className="bg-white rounded-2xl border border-slate-200 py-16 text-center">
+          <Bell className="w-10 h-10 text-slate-200 mx-auto mb-3" />
+          <p className="text-slate-500 font-medium text-sm mb-1">Nenhuma notificação criada ainda</p>
+          <p className="text-slate-400 text-xs mb-5">Crie templates para enviar ao paciente ao agendar uma consulta.</p>
+          <button onClick={openNew} className="btn-primary text-sm mx-auto">
+            <Plus className="w-4 h-4" /> Criar primeira notificação
+          </button>
+        </div>
+      ) : (
+        <div className="space-y-3">
+          {templates.map(t => (
+            <div key={t.id} className="bg-white rounded-2xl border border-slate-200 shadow-sm p-4">
+              <div className="flex items-start justify-between gap-3">
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-2 mb-1">
+                    <p className="font-semibold text-slate-900 text-sm truncate">{t.name}</p>
+                    <span className={`text-[10px] px-2 py-0.5 rounded-full font-medium ${t.active ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-100 text-slate-500'}`}>
+                      {t.active ? 'Ativo' : 'Inativo'}
+                    </span>
+                  </div>
+                  <p className="text-xs text-slate-500 whitespace-pre-wrap line-clamp-2">{t.message}</p>
+                </div>
+                <div className="flex items-center gap-1.5 flex-shrink-0">
+                  <button
+                    onClick={() => toggleMutation.mutate({ id: t.id, active: !t.active })}
+                    className="p-1.5 rounded-lg hover:bg-slate-100 text-slate-400 hover:text-slate-600 transition-colors"
+                    title={t.active ? 'Desativar' : 'Ativar'}
+                  >
+                    {t.active ? <ToggleRight className="w-4 h-4 text-cyan-500" /> : <ToggleLeft className="w-4 h-4" />}
+                  </button>
+                  <button onClick={() => openEdit(t)} className="p-1.5 rounded-lg hover:bg-slate-100 text-slate-400 hover:text-slate-600 transition-colors">
+                    <Pencil className="w-4 h-4" />
+                  </button>
+                  <button onClick={() => { if (confirm('Remover esta notificação?')) deleteMutation.mutate(t.id) }} className="p-1.5 rounded-lg hover:bg-red-50 text-slate-400 hover:text-red-600 transition-colors">
+                    <Trash2 className="w-4 h-4" />
+                  </button>
+                </div>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      <Modal isOpen={modalOpen} onClose={() => setModalOpen(false)} title={editing ? 'Editar Notificação' : 'Nova Notificação'} size="md">
+        <form onSubmit={handleSubmit(d => saveMutation.mutate(d))} className="space-y-4">
+          <div>
+            <label className="label">Nome da notificação *</label>
+            <input {...register('name', { required: true })} className="input-field" placeholder="Ex: Confirmação de agendamento" />
+          </div>
+          <div>
+            <label className="label">Variáveis disponíveis</label>
+            <div className="flex flex-wrap gap-1.5 mb-2">
+              {NOTIF_VARIABLE_CHIPS.map(v => (
+                <button
+                  key={v.key}
+                  type="button"
+                  onClick={() => insertVariable(v.key)}
+                  className="text-[11px] px-2 py-1 rounded-lg bg-cyan-50 border border-cyan-200 text-cyan-700 hover:bg-cyan-100 font-mono transition-colors"
+                >
+                  {v.key}
+                </button>
+              ))}
+            </div>
+            <label className="label">Mensagem *</label>
+            <textarea
+              {...register('message', { required: true })}
+              ref={(el) => {
+                (register('message').ref as (el: HTMLTextAreaElement | null) => void)(el)
+                ;(msgRef as React.MutableRefObject<HTMLTextAreaElement | null>).current = el
+              }}
+              rows={6}
+              className="input-field resize-none font-mono text-sm"
+              placeholder={`Olá {nome}! Sua consulta foi agendada para {data} às {hora} com {medico}. Local: {clinica}. Qualquer dúvida estamos à disposição!`}
+            />
+            {messageValue && (
+              <div className="mt-2 bg-slate-50 border border-slate-200 rounded-lg p-3">
+                <p className="text-[10px] text-slate-400 mb-1 font-medium uppercase tracking-wide">Pré-visualização</p>
+                <p className="text-xs text-slate-600 whitespace-pre-wrap">
+                  {messageValue
+                    .replace('{nome}', 'João Silva')
+                    .replace('{data}', '15/07/2026')
+                    .replace('{hora}', '14:30')
+                    .replace('{medico}', 'Dr. Carlos')
+                    .replace('{clinica}', 'Clínica Saúde')
+                    .replace('{tipo_atendimento}', 'Consulta')
+                    .replace('{status}', 'Agendado')
+                    .replace('{valor}', 'R$ 180,00')
+                    .replace('{endereco}', 'Rua das Flores, 123')
+                  }
+                </p>
+              </div>
+            )}
+          </div>
+          <div className="flex items-center gap-2">
+            <input type="checkbox" {...register('active')} id="notif-active" className="w-4 h-4 accent-cyan-600" />
+            <label htmlFor="notif-active" className="text-sm text-slate-700">Ativo</label>
+          </div>
+          <div className="flex gap-3 pt-2">
+            <button type="button" onClick={() => setModalOpen(false)} className="btn-ghost flex-1">Cancelar</button>
+            <button type="submit" disabled={saveMutation.isPending} className="btn-primary flex-1">
+              {saveMutation.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : editing ? 'Salvar' : 'Criar'}
+            </button>
+          </div>
+        </form>
+      </Modal>
+    </div>
+  )
+}
+
 // ─── Histórico panel ──────────────────────────────────────────────────────────
 
 type HistoryStatus = 'Enviado' | 'Pendente' | 'Falhou' | 'Rejeitado' | 'Transferido' | 'Concluído' | 'Cancelado' | 'Expirado'
@@ -6222,6 +6436,7 @@ export default function ChatbotLight() {
             ) : undefined}
           />
           <SideNavBtn panel="templates"       current={panel} onClick={goTo} icon={FileText}     label="Templates" />
+          <SideNavBtn panel="notificacoes"    current={panel} onClick={goTo} icon={Bell}          label="Notificações" />
 
           <p className="text-xs font-semibold text-slate-500 uppercase tracking-widest px-3 mb-2 mt-5">Menu</p>
           <SideNavBtn panel="historico"       current={panel} onClick={goTo} icon={History}      label="Histórico" />
@@ -6251,6 +6466,7 @@ export default function ChatbotLight() {
         {panel === 'relatorio'         && <RelatorioPanel onGoTo={goTo} />}
         {panel === 'chatbots'          && <ChatbotsPanel chatbotsTab={chatbotsTab} setChatbotsTab={setChatbotsTab} />}
         {panel === 'templates'         && <TemplatesPanel />}
+        {panel === 'notificacoes'      && <NotificacoesPanel />}
         {panel === 'historico'         && <HistoricoPanel />}
         {panel === 'pre_agendamentos'  && <PreAgendamentosPanel />}
         {panel === 'configuracoes'     && <ConfigPanel configTab={configTab} setConfigTab={setConfigTab} onGoToChatbots={goToChatbots} />}

@@ -836,6 +836,67 @@ router.delete('/quick-replies/:id', async (req: AuthRequest, res) => {
   }
 })
 
+// ─── Notification Templates ───────────────────────────────────────────────────
+
+router.get('/notification-templates', async (req: AuthRequest, res) => {
+  try {
+    const doctorId = await getTargetDoctorId(req)
+    const templates = await prisma.lightNotificationTemplate.findMany({
+      where: { doctorId },
+      orderBy: { createdAt: 'asc' },
+    })
+    res.json(templates)
+  } catch {
+    res.status(500).json({ message: 'Erro interno do servidor' })
+  }
+})
+
+router.post('/notification-templates', async (req: AuthRequest, res) => {
+  try {
+    const doctorId = await getTargetDoctorId(req)
+    const { name, message, active = true } = req.body
+    if (!name || !message) return res.status(400).json({ message: 'name e message são obrigatórios' })
+    const tpl = await prisma.lightNotificationTemplate.create({
+      data: { doctorId, name: String(name), message: String(message), active: Boolean(active) },
+    })
+    res.status(201).json(tpl)
+  } catch {
+    res.status(500).json({ message: 'Erro interno do servidor' })
+  }
+})
+
+router.put('/notification-templates/:id', async (req: AuthRequest, res) => {
+  try {
+    const doctorId = await getTargetDoctorId(req)
+    const { id } = req.params
+    const { name, message, active } = req.body
+    const tpl = await prisma.lightNotificationTemplate.findFirst({ where: { id, doctorId } })
+    if (!tpl) return res.status(404).json({ message: 'Template não encontrado' })
+    const updated = await prisma.lightNotificationTemplate.update({
+      where: { id },
+      data: {
+        ...(name    !== undefined && { name:    String(name) }),
+        ...(message !== undefined && { message: String(message) }),
+        ...(active  !== undefined && { active:  Boolean(active) }),
+      },
+    })
+    res.json(updated)
+  } catch {
+    res.status(500).json({ message: 'Erro interno do servidor' })
+  }
+})
+
+router.delete('/notification-templates/:id', async (req: AuthRequest, res) => {
+  try {
+    const doctorId = await getTargetDoctorId(req)
+    const { id } = req.params
+    await prisma.lightNotificationTemplate.deleteMany({ where: { id, doctorId } })
+    res.json({ message: 'Template removido' })
+  } catch {
+    res.status(500).json({ message: 'Erro interno do servidor' })
+  }
+})
+
 // ─── Settings (enabled screens) ───────────────────────────────────────────────
 
 router.get('/settings', async (req: AuthRequest, res) => {

@@ -5,8 +5,9 @@ import { authenticate, AuthRequest } from '../middleware/auth'
 import { createNotification } from './notifications'
 import { fireWebhooks } from '../lib/webhook'
 
-import { triggerLightAutomatedMessage } from '../lib/chatbot-light-engine'
+import { triggerLightAutomatedMessage, sendLightMessage } from '../lib/chatbot-light-engine'
 import { tryRoomWhatsAppConfirmation } from '../lib/room-whatsapp'
+import { resolveContextFromAppointment, resolveTemplateVariables } from '../lib/chatbot-light-variables'
 
 const BR_TZ = 'America/Sao_Paulo'
 
@@ -774,6 +775,66 @@ router.post('/:id/charge', async (req: AuthRequest, res) => {
       res.status(400).json({ message: 'Dados inválidos', errors: error.errors })
       return
     }
+    res.status(500).json({ message: 'Erro interno do servidor' })
+  }
+})
+
+// ─── Notify Patient via WhatsApp ──────────────────────────────────────────────
+router.post('/:id/notify-patient', async (req: AuthRequest, res) => {
+  try {
+    const { id } = req.params
+    const { templateId } = req.body as { templateId?: string }
+    if (!templateId) {
+      res.status(400).json({ message: 'templateId é obrigatório' })
+      return
+    }
+
+    const appointment = await prisma.appointment.findUnique({
+      where: { id },
+      include: {
+        patient: true,
+        doctor: true,
+        room: { include: { whatsappConnection: true } },
+      },
+    })
+    if (!appointment) {
+      res.status(404).json({ message: 'Agendamento não encontrado' })
+      return
+    }
+
+    const tpl = await prisma.lightNotificationTemplate.findUnique({ where: { id: templateId } })
+    if (!tpl || !tpl.active) {
+      res.status(404).json({ message: 'Template não encontrado ou inativo' })
+      return
+    }
+
+    const patient = appointment.patient as any
+    const phone: string | undefined = patient?.phone
+    if (!phone) {
+      res.status(400).json({ message: 'Paciente não possui telefone cadastrado' })
+      return
+    }
+
+    // Resolve variáveis do template com contexto do agendamento
+    const ctx = await resolveContextFromAppointment(id, prisma)
+    const message = resolveTemplateVariables(tpl.message, ctx)
+
+    // Envia via WhatsApp (usa a sala vinculada ao agendamento; fallback p/ instância do médico)
+    const room = appointment.room as any
+    const instance = room?.whatsappConnection?.instanceKey
+    if (!instance) {
+      res.status(422).json({ message: 'Nenhuma instância WhatsApp vinculada ao consultório' })
+      return
+    }
+
+    const sent = await sendLightMessage(instance, phone, message, 'notification')
+    if (!sent) {
+      res.status(502).json({ message: 'Falha ao enviar mensagem no WhatsApp' })
+      return
+    }
+
+    res.json({ ok: true, phone, message })
+  } catch {
     res.status(500).json({ message: 'Erro interno do servidor' })
   }
 })

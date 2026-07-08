@@ -265,35 +265,24 @@ router.post('/', async (req: AuthRequest, res) => {
     const appointment = created[0]
 
     if (appointment.patient?.phone) {
-      const apptDateStr = appointment.date.toLocaleDateString('pt-BR', { timeZone: BR_TZ })
-      const apptTimeStr = appointment.date.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit', timeZone: BR_TZ })
-      const roomData = appointment.room as any
-      const roomAddressParts = [roomData?.logradouro, roomData?.numero, roomData?.bairro].filter(Boolean)
-      const clinicAddress = roomAddressParts.length > 0 ? roomAddressParts.join(', ') : (roomData?.address ?? undefined)
-      const msgData = {
-        appointmentId: appointment.id,
-        patientName: appointment.patient.name,
+      // Resolve full template context (all variables: {nome}, {data}, {hora},
+      // {medico}, {endereco}, {clinica}, {especialidade}, {valor}, etc.)
+      const apptCtx = await resolveContextFromAppointment(appointment.id, prisma)
+      const fullCtx = {
+        ...apptCtx,
         patientPhone: appointment.patient.phone,
-        appointmentDate: apptDateStr,
-        appointmentTime: apptTimeStr,
-        doctorName: appointment.doctor.name,
         doctorId: appointment.doctorId,
       }
-      // Try room WhatsApp first when appointment is linked to a room
+
+      // Try room WhatsApp first — only sends if an active config is found
       const roomWaSent = appointment.roomId
-        ? await tryRoomWhatsAppConfirmation(appointment.roomId, msgData).catch(() => false)
+        ? await tryRoomWhatsAppConfirmation(appointment.roomId, appointment.id, fullCtx).catch(() => false)
         : false
 
-      // Fall back to chatbot-light if room WA didn't send
+      // Fall back to chatbot-light engine if room WA didn't send
       if (!roomWaSent) {
-        triggerLightAutomatedMessage(appointment.doctorId, 'APPOINTMENT_CONFIRMATION', {
-          patientName: msgData.patientName,
-          patientPhone: msgData.patientPhone,
-          appointmentDate: msgData.appointmentDate,
-          appointmentTime: msgData.appointmentTime,
-          doctorName: msgData.doctorName,
-          clinicAddress,
-        }).catch(err => console.error('[triggerLightAutomatedMessage CONFIRMATION error]', err))
+        triggerLightAutomatedMessage(appointment.doctorId, 'APPOINTMENT_CONFIRMATION', fullCtx)
+          .catch(err => console.error('[triggerLightAutomatedMessage CONFIRMATION error]', err))
       }
     }
 

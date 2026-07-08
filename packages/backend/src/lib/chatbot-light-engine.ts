@@ -812,6 +812,7 @@ export async function checkScheduledReminders() {
   })
 
   for (const appt of appts24h) {
+    const apptValue = (appt as any).value
     await triggerLightAutomatedMessage(appt.doctorId, 'APPOINTMENT_REMINDER_24H', {
       patientName:       appt.patient.name,
       patientPhone:      appt.patient.phone,
@@ -829,6 +830,7 @@ export async function checkScheduledReminders() {
       clinicName:        (appt.room as any)?.name,
       clinicPhone:       (appt.room as any)?.whatsappConnection?.phoneNumber,
       teleconsultaLink:  (appt.room as any)?.teleconsultaLink,
+      paymentValue:      apptValue != null ? `R$ ${Number(apptValue).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : undefined,
     })
     await prisma.appointment.update({
       where: { id: appt.id },
@@ -859,6 +861,7 @@ export async function checkScheduledReminders() {
   })
 
   for (const appt of appts2h) {
+    const apptValue2h = (appt as any).value
     await triggerLightAutomatedMessage(appt.doctorId, 'APPOINTMENT_REMINDER_2H', {
       patientName:       appt.patient.name,
       patientPhone:      appt.patient.phone,
@@ -876,6 +879,7 @@ export async function checkScheduledReminders() {
       clinicName:        (appt.room as any)?.name,
       clinicPhone:       (appt.room as any)?.whatsappConnection?.phoneNumber,
       teleconsultaLink:  (appt.room as any)?.teleconsultaLink,
+      paymentValue:      apptValue2h != null ? `R$ ${Number(apptValue2h).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : undefined,
     })
     await prisma.appointment.update({
       where: { id: appt.id },

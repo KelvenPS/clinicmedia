@@ -196,6 +196,9 @@ export async function resolveContextFromAppointment(
     clinicPhone:       room?.whatsappConnection?.phoneNumber        ?? undefined,
     teleconsultaLink:  room?.teleconsultaLink                       ?? undefined,
     prontuarioLink:    `${frontendUrl}/prontuario`,
+    paymentValue:      (appt as any).value != null
+                         ? `R$ ${Number((appt as any).value).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+                         : undefined,
   }
 
   return { ...base, ...extras }

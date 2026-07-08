@@ -582,15 +582,8 @@ export function startRoomHealthWatchdog(): void {
  */
 export async function tryRoomWhatsAppConfirmation(
   roomId: string,
-  data: {
-    appointmentId: string
-    patientName: string
-    patientPhone: string
-    appointmentDate: string
-    appointmentTime: string
-    doctorName: string
-    doctorId: string
-  }
+  appointmentId: string,
+  ctx: TemplateContext & { patientPhone: string; doctorId: string }
 ): Promise<boolean> {
   try {
     const connection = await prisma.roomWhatsAppConnection.findFirst({
@@ -607,31 +600,12 @@ export async function tryRoomWhatsAppConfirmation(
       return false
     }
 
-    const room = await prisma.room.findUnique({
-      where: { id: connection.roomId },
-      select: { address: true, logradouro: true, numero: true, bairro: true },
-    }).catch(() => null)
-
-    const roomAddressParts = [(room as any)?.logradouro, (room as any)?.numero, (room as any)?.bairro].filter(Boolean)
-    const clinicAddress = roomAddressParts.length > 0 ? roomAddressParts.join(', ') : ((room as any)?.address ?? undefined)
-
-    const ctx: TemplateContext = {
-      patientName: data.patientName,
-      patientPhone: data.patientPhone,
-      appointmentDate: data.appointmentDate,
-      appointmentTime: data.appointmentTime,
-      doctorName: data.doctorName,
-      clinicAddress,
-    }
-
-    let content: string
+    let content = ''
     let isPendingConfirm = false
     let declineContent = ''
 
     // 1. Check for active CONFIRM_APPOINTMENT system action (interactive SIM/NÃO)
     try {
-      // Resolve o chatbot dono desta sala especificamente (multi-chatbot,
-      // jul/2026) — não "o" chatbot do médico.
       const chatbot = await prisma.lightChatbot.findUnique({
         where: { boundRoomId: roomId },
         select: { id: true },
@@ -657,11 +631,11 @@ export async function tryRoomWhatsAppConfirmation(
       }
     } catch { /* non-fatal — fall through to regular template */ }
 
-    // 2. Fall back to APPOINTMENT_CONFIRMATION integration template
-    if (!content!) {
+    // 2. Check for active APPOINTMENT_CONFIRMATION integration template
+    if (!content) {
       try {
         const config = await prisma.lightIntegrationConfig.findFirst({
-          where: { doctorId: data.doctorId, triggerEvent: 'APPOINTMENT_CONFIRMATION', enabled: true },
+          where: { doctorId: ctx.doctorId, triggerEvent: 'APPOINTMENT_CONFIRMATION', enabled: true },
           include: { template: { select: { content: true, active: true } } },
         })
         if (config?.template?.active && config.template.content) {
@@ -670,21 +644,22 @@ export async function tryRoomWhatsAppConfirmation(
       } catch { /* non-fatal */ }
     }
 
-    // 3. Default fallback message
-    if (!content!) {
-      content = `Olá ${data.patientName}! Sua consulta com ${data.doctorName} foi agendada para ${data.appointmentDate} às ${data.appointmentTime}. Até logo!`
+    // 3. No active configuration found — do NOT send anything
+    if (!content) {
+      logRoom('info', connection.instanceKey, 'appointment.confirmation.skipped_no_config', { roomId, appointmentId })
+      return false
     }
 
     // Resolve the canonical WhatsApp JID for the patient's phone.
     // Brazilian numbers may be registered on WhatsApp as 8-digit (old format) even
     // if stored with 9 digits — onWhatsApp() returns the server-side canonical JID
     // so the message is delivered to the right account and not silently dropped.
-    const phoneCheck = await checkPhoneOnWhatsApp(connection.instanceKey, data.patientPhone).catch(() => null)
-    const resolvedPhone = phoneCheck?.jid ?? normalizeToWhatsAppJid(data.patientPhone)
+    const phoneCheck = await checkPhoneOnWhatsApp(connection.instanceKey, ctx.patientPhone).catch(() => null)
+    const resolvedPhone = phoneCheck?.jid ?? normalizeToWhatsAppJid(ctx.patientPhone)
     if (phoneCheck && !phoneCheck.exists) {
       logRoom('warn', connection.instanceKey, 'appointment.confirmation.phone_not_on_whatsapp', {
         roomId,
-        patientPhone: data.patientPhone,
+        patientPhone: ctx.patientPhone,
         resolvedPhone,
       })
       return false
@@ -692,14 +667,14 @@ export async function tryRoomWhatsAppConfirmation(
 
     logRoom('info', connection.instanceKey, 'appointment.confirmation.attempt', {
       roomId,
-      patientPhone: data.patientPhone,
+      patientPhone: ctx.patientPhone,
       resolvedPhone,
-      appointmentId: data.appointmentId,
+      appointmentId,
       isPendingConfirm,
     })
     const result = await sendRoomWhatsAppMessage(connection.instanceKey, resolvedPhone, content)
     if (!result) {
-      logRoom('error', connection.instanceKey, 'appointment.confirmation.send_failed', { roomId, patientPhone: data.patientPhone })
+      logRoom('error', connection.instanceKey, 'appointment.confirmation.send_failed', { roomId, patientPhone: ctx.patientPhone })
       return false
     }
 
@@ -707,9 +682,9 @@ export async function tryRoomWhatsAppConfirmation(
 
     if (isPendingConfirm) {
       registerRoomConfirmationPending(phone, {
-        appointmentId: data.appointmentId,
-        doctorId: data.doctorId,
-        patientName: data.patientName,
+        appointmentId,
+        doctorId: ctx.doctorId,
+        patientName: ctx.patientName ?? '',
         declineContent,
         instanceKey: connection.instanceKey,
       })

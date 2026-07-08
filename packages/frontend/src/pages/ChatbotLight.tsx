@@ -38,10 +38,10 @@ const generateUUID = () => {
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
-type Panel = 'central' | 'relatorio' | 'chatbots' | 'templates' | 'notificacoes' | 'historico' | 'configuracoes' | 'pre_agendamentos'
+type Panel = 'central' | 'relatorio' | 'chatbots' | 'notificacoes' | 'historico' | 'configuracoes' | 'pre_agendamentos'
 type ConfigTab = 'conexao' | 'teste' | 'telas' | 'horario'
 type ChatbotsTab = 'meus' | 'simulador'
-type ChatbotDetailTab = 'visao' | 'fluxos' | 'acoes' | 'respostas' | 'mensagens' | 'simulador' | 'config'
+type ChatbotDetailTab = 'visao' | 'fluxos' | 'acoes' | 'respostas' | 'mensagens' | 'templates' | 'simulador' | 'config'
 type FluxoActionType = 'SEND_MESSAGE' | 'TRANSFER_QUEUE' | 'OPEN_MENU' | 'SYSTEM_ACTION' | 'END_CHAT' | 'START_PLAN_SCHEDULING' | 'START_LEAD_CAPTURE'
 
 interface LightTemplate {
@@ -2014,6 +2014,7 @@ function ChatbotDetailView({
     { key: 'acoes',      label: 'Ações do Sistema' },
     { key: 'respostas',  label: 'Respostas Rápidas' },
     { key: 'mensagens',  label: 'Mensagens Automáticas' },
+    { key: 'templates',  label: 'Templates' },
     { key: 'simulador',  label: 'Simulador' },
     { key: 'config',     label: 'Configurações' },
   ]
@@ -2045,10 +2046,11 @@ function ChatbotDetailView({
       {tab === 'visao'     && <ChatbotVisaoGeralTab chatbot={chatbot} />}
       {tab === 'fluxos'    && <FluxosPanel chatbotId={chatbot.id} />}
       {tab === 'acoes'     && <SystemActionsPanel chatbotId={chatbot.id} />}
-      {tab === 'respostas' && <RespostasPanel chatbotId={chatbot.id} />}
-      {tab === 'mensagens' && <MensagensPanel chatbotId={chatbot.id} />}
-      {tab === 'simulador' && <div className="p-6"><SimuladorTab chatbotId={chatbot.id} /></div>}
-      {tab === 'config'    && <ChatbotConfigTab chatbot={chatbot} />}
+      {tab === 'respostas'  && <RespostasPanel chatbotId={chatbot.id} />}
+      {tab === 'mensagens'  && <MensagensPanel chatbotId={chatbot.id} />}
+      {tab === 'templates'  && <TemplatesPanel />}
+      {tab === 'simulador'  && <div className="p-6"><SimuladorTab chatbotId={chatbot.id} /></div>}
+      {tab === 'config'     && <ChatbotConfigTab chatbot={chatbot} />}
     </div>
   )
 }
@@ -6435,7 +6437,6 @@ export default function ChatbotLight() {
               </span>
             ) : undefined}
           />
-          <SideNavBtn panel="templates"       current={panel} onClick={goTo} icon={FileText}     label="Templates" />
           <SideNavBtn panel="notificacoes"    current={panel} onClick={goTo} icon={Bell}          label="Notificações" />
 
           <p className="text-xs font-semibold text-slate-500 uppercase tracking-widest px-3 mb-2 mt-5">Menu</p>
@@ -6465,7 +6466,6 @@ export default function ChatbotLight() {
         {panel === 'central'           && <CentralPanel onGoTo={goTo} onGoToConfig={goToConfig} onGoToChatbots={goToChatbots} />}
         {panel === 'relatorio'         && <RelatorioPanel onGoTo={goTo} />}
         {panel === 'chatbots'          && <ChatbotsPanel chatbotsTab={chatbotsTab} setChatbotsTab={setChatbotsTab} />}
-        {panel === 'templates'         && <TemplatesPanel />}
         {panel === 'notificacoes'      && <NotificacoesPanel />}
         {panel === 'historico'         && <HistoricoPanel />}
         {panel === 'pre_agendamentos'  && <PreAgendamentosPanel />}

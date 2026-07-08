@@ -5,8 +5,8 @@ import { authenticate, AuthRequest } from '../middleware/auth'
 import { createNotification } from './notifications'
 import { fireWebhooks } from '../lib/webhook'
 
-import { triggerLightAutomatedMessage, sendLightMessage } from '../lib/chatbot-light-engine'
-import { tryRoomWhatsAppConfirmation } from '../lib/room-whatsapp'
+import { triggerLightAutomatedMessage } from '../lib/chatbot-light-engine'
+import { tryRoomWhatsAppConfirmation, sendRoomWhatsAppMessage, checkPhoneOnWhatsApp, normalizeToWhatsAppJid } from '../lib/room-whatsapp'
 import { resolveContextFromAppointment, resolveTemplateVariables } from '../lib/chatbot-light-variables'
 
 const BR_TZ = 'America/Sao_Paulo'
@@ -768,6 +768,28 @@ router.post('/:id/charge', async (req: AuthRequest, res) => {
   }
 })
 
+// ─── Notify Preview (resolve variables without sending) ───────────────────────
+router.get('/:id/notify-preview', async (req: AuthRequest, res) => {
+  try {
+    const { id } = req.params
+    const { templateId } = req.query as { templateId?: string }
+    if (!templateId) {
+      res.status(400).json({ message: 'templateId é obrigatório' })
+      return
+    }
+    const tpl = await prisma.lightNotificationTemplate.findUnique({ where: { id: templateId } })
+    if (!tpl) {
+      res.status(404).json({ message: 'Template não encontrado' })
+      return
+    }
+    const ctx = await resolveContextFromAppointment(id, prisma)
+    const resolved = resolveTemplateVariables(tpl.message, ctx)
+    res.json({ message: resolved })
+  } catch {
+    res.status(500).json({ message: 'Erro interno do servidor' })
+  }
+})
+
 // ─── Notify Patient via WhatsApp ──────────────────────────────────────────────
 router.post('/:id/notify-patient', async (req: AuthRequest, res) => {
   try {
@@ -804,20 +826,28 @@ router.post('/:id/notify-patient', async (req: AuthRequest, res) => {
       return
     }
 
-    // Resolve variáveis do template com contexto do agendamento
+    // Resolve variáveis do template com contexto completo do agendamento
     const ctx = await resolveContextFromAppointment(id, prisma)
     const message = resolveTemplateVariables(tpl.message, ctx)
 
-    // Envia via WhatsApp (usa a sala vinculada ao agendamento; fallback p/ instância do médico)
+    // Envia via sala WhatsApp vinculada ao agendamento
     const room = appointment.room as any
-    const instance = room?.whatsappConnection?.instanceKey
-    if (!instance) {
+    const instanceKey: string | undefined = room?.whatsappConnection?.instanceKey
+    if (!instanceKey) {
       res.status(422).json({ message: 'Nenhuma instância WhatsApp vinculada ao consultório' })
       return
     }
 
-    const sent = await sendLightMessage(instance, phone, message, 'notification')
-    if (!sent) {
+    // Resolve JID canônico (trata 8 vs 9 dígitos brasileiros)
+    const phoneCheck = await checkPhoneOnWhatsApp(instanceKey, phone).catch(() => null)
+    if (phoneCheck && !phoneCheck.exists) {
+      res.status(400).json({ message: 'Número do paciente não está no WhatsApp' })
+      return
+    }
+    const deliveryJid = phoneCheck?.jid ?? normalizeToWhatsAppJid(phone)
+
+    const result = await sendRoomWhatsAppMessage(instanceKey, deliveryJid, message)
+    if (!result) {
       res.status(502).json({ message: 'Falha ao enviar mensagem no WhatsApp' })
       return
     }

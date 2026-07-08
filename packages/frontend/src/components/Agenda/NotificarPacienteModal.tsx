@@ -30,8 +30,16 @@ export default function NotificarPacienteModal({ isOpen, onClose, appointmentId,
     enabled: isOpen,
   })
 
+  // Busca preview com variáveis já resolvidas pelo backend
+  const { data: previewData, isLoading: previewLoading } = useQuery<{ message: string }>({
+    queryKey: ['notify-preview', appointmentId, selectedId],
+    queryFn: () =>
+      api.get(`/appointments/${appointmentId}/notify-preview`, { params: { templateId: selectedId } }).then(r => r.data),
+    enabled: isOpen && !!selectedId,
+    staleTime: 30_000,
+  })
+
   const activeTemplates = templates.filter(t => t.active)
-  const selected = activeTemplates.find(t => t.id === selectedId)
 
   const handleSend = async () => {
     if (!selectedId) {
@@ -88,16 +96,28 @@ export default function NotificarPacienteModal({ isOpen, onClose, appointmentId,
                   <Bell className={`w-3.5 h-3.5 flex-shrink-0 ${selectedId === t.id ? 'text-cyan-600' : 'text-slate-400'}`} />
                   <span className={`text-sm font-semibold ${selectedId === t.id ? 'text-cyan-800' : 'text-slate-800'}`}>{t.name}</span>
                 </div>
-                <p className="text-xs text-slate-500 line-clamp-2 pl-5">{t.message}</p>
+                <p className="text-xs text-slate-400 line-clamp-1 pl-5 font-mono">{t.message}</p>
               </button>
             ))}
           </div>
         )}
 
-        {selected && (
-          <div className="bg-slate-50 border border-slate-200 rounded-xl p-3">
-            <p className="text-[10px] text-slate-400 mb-1 font-semibold uppercase tracking-wide">Pré-visualização</p>
-            <p className="text-xs text-slate-600 whitespace-pre-wrap">{selected.message}</p>
+        {/* Preview com variáveis reais resolvidas pelo backend */}
+        {selectedId && (
+          <div className="bg-slate-50 border border-slate-200 rounded-xl overflow-hidden">
+            <div className="px-3 py-2 border-b border-slate-200 flex items-center justify-between">
+              <p className="text-[10px] text-slate-400 font-semibold uppercase tracking-wide">Pré-visualização</p>
+              {previewLoading && <Loader2 className="w-3 h-3 animate-spin text-slate-400" />}
+            </div>
+            <div className="p-3">
+              {previewLoading ? (
+                <p className="text-xs text-slate-400 italic">Carregando...</p>
+              ) : (
+                <p className="text-sm text-slate-700 whitespace-pre-wrap leading-relaxed">
+                  {previewData?.message ?? '—'}
+                </p>
+              )}
+            </div>
           </div>
         )}
 

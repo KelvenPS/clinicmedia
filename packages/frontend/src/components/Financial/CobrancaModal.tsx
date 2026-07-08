@@ -126,13 +126,21 @@ export default function CobrancaModal({
           />
         </div>
 
-        {/* Repasse calculado */}
+        {/* Breakdown repasse — mostra sempre que há desconto configurado */}
         {discountPercent > 0 && (
-          <div className="flex items-center justify-between px-4 py-3 bg-emerald-50 border border-emerald-200 rounded-xl">
-            <span className="text-sm text-emerald-700">
-              Repasse médico ({100 - discountPercent}%)
-            </span>
-            <span className="text-base font-bold text-emerald-800">{currency(repasseValue)}</span>
+          <div className="rounded-xl border border-slate-200 overflow-hidden text-sm">
+            <div className="flex items-center justify-between px-4 py-2.5 bg-slate-50">
+              <span className="text-slate-500">Valor do paciente</span>
+              <span className="font-medium text-slate-700">{currency(valor)}</span>
+            </div>
+            <div className="flex items-center justify-between px-4 py-2.5 bg-slate-50 border-t border-slate-200">
+              <span className="text-slate-500">Comissão clínica ({discountPercent}%)</span>
+              <span className="font-medium text-red-600">−{currency(valor - repasseValue)}</span>
+            </div>
+            <div className="flex items-center justify-between px-4 py-3 bg-emerald-50 border-t border-emerald-200">
+              <span className="text-emerald-700 font-semibold">Repasse médico ({100 - discountPercent}%)</span>
+              <span className="text-base font-bold text-emerald-800">{currency(repasseValue)}</span>
+            </div>
           </div>
         )}
 
@@ -181,7 +189,7 @@ export default function CobrancaModal({
           ) : (
             <>
               <DollarSign className="w-4 h-4" />
-              Lançar no Financeiro — {currency(valor)}
+              Lançar no Financeiro — {currency(discountPercent > 0 ? repasseValue : valor)}
             </>
           )}
         </button>

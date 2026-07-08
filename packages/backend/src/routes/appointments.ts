@@ -725,17 +725,28 @@ router.post('/:id/charge', async (req: AuthRequest, res) => {
 
     const now = new Date()
 
+    // The transaction amount is the repasse (doctor's net income).
+    // body.amount is the gross value paid by the patient (kept in description for reference).
+    const grossAmount = body.amount
+    const netAmount = (body.repasseValue != null && body.repasseValue > 0 && body.repasseValue < grossAmount)
+      ? body.repasseValue
+      : grossAmount
+
+    const description = netAmount < grossAmount
+      ? `${appointment.type || 'Consulta'} - ${appointment.patient.name} (bruto: R$ ${grossAmount.toFixed(2)})`
+      : `${appointment.type || 'Consulta'} - ${appointment.patient.name}`
+
     const [transaction] = await prisma.$transaction([
       prisma.transaction.create({
         data: {
           doctorId:        appointment.doctorId,
           appointmentId:   appointment.id,
           type:            'INCOME',
-          amount:          body.amount,
+          amount:          netAmount,
           repasseValue:    body.repasseValue ?? null,
           paymentMethodId: body.paymentMethodId ?? null,
           paymentMethod:   body.paymentMethodName ?? null,
-          description:     `${appointment.type || 'Consulta'} - ${appointment.patient.name}`,
+          description,
           date:            now,
           paidAt:          now,
           status:          'PAID',
@@ -752,7 +763,7 @@ router.post('/:id/charge', async (req: AuthRequest, res) => {
     await createNotification(
       appointment.doctorId,
       'Cobrança registrada',
-      `${appointment.type || 'Consulta'} de ${appointment.patient.name} — R$ ${body.amount.toFixed(2)} lançado no financeiro`,
+      `${appointment.type || 'Consulta'} de ${appointment.patient.name} — R$ ${netAmount.toFixed(2)} lançado no financeiro`,
       'SUCCESS',
       '/financeiro',
     )

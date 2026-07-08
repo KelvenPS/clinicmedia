@@ -38,7 +38,7 @@ const generateUUID = () => {
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
-type Panel = 'central' | 'relatorio' | 'chatbots' | 'mensagens' | 'templates' | 'respostas' | 'historico' | 'configuracoes' | 'pre_agendamentos'
+type Panel = 'central' | 'relatorio' | 'chatbots' | 'templates' | 'historico' | 'configuracoes' | 'pre_agendamentos'
 type ConfigTab = 'conexao' | 'teste' | 'telas' | 'horario'
 type ChatbotsTab = 'meus' | 'simulador'
 type ChatbotDetailTab = 'visao' | 'fluxos' | 'acoes' | 'respostas' | 'mensagens' | 'simulador' | 'config'
@@ -915,7 +915,7 @@ function CentralPanel({
                         <p className="text-xs text-amber-600 truncate">Template não configurado</p>
                       </div>
                       <button
-                        onClick={() => onGoTo('mensagens')}
+                        onClick={() => onGoTo('chatbots')}
                         className="text-xs px-3 py-1.5 rounded-lg bg-cyan-600 text-white hover:bg-cyan-700 transition-colors flex-shrink-0"
                       >
                         Corrigir
@@ -997,8 +997,6 @@ function CentralPanel({
         <h3 className="font-semibold text-slate-900 text-sm mb-3">Ações rápidas</h3>
         <div className="flex flex-wrap gap-2">
           <button onClick={() => onGoToChatbots('meus')} className="text-xs px-3 py-1.5 rounded-lg border border-slate-200 text-slate-600 hover:bg-slate-50 transition-colors">Criar chatbot</button>
-          <button onClick={() => onGoTo('mensagens')} className="text-xs px-3 py-1.5 rounded-lg border border-slate-200 text-slate-600 hover:bg-slate-50 transition-colors">Criar mensagem automática</button>
-          <button onClick={() => onGoTo('respostas')} className="text-xs px-3 py-1.5 rounded-lg border border-slate-200 text-slate-600 hover:bg-slate-50 transition-colors">Criar resposta rápida</button>
           <button onClick={() => onGoToConfig('teste')} className="text-xs px-3 py-1.5 rounded-lg border border-slate-200 text-slate-600 hover:bg-slate-50 transition-colors">Testar envio</button>
           <button onClick={() => onGoToChatbots('simulador')} className="text-xs px-3 py-1.5 rounded-lg border border-slate-200 text-slate-600 hover:bg-slate-50 transition-colors">Abrir simulador</button>
         </div>
@@ -1384,7 +1382,7 @@ function RelatorioPanel({ onGoTo }: { onGoTo: (p: Panel) => void }) {
             {report.byModule.length === 0 ? (
               <div className="py-6 text-center">
                 <p className="text-sm text-slate-400 mb-3">Nenhum envio registrado no período.</p>
-                <button onClick={() => onGoTo('mensagens')} className="text-xs px-3 py-1.5 rounded-lg bg-cyan-600 text-white hover:bg-cyan-700 transition-colors">
+                <button onClick={() => onGoTo('chatbots')} className="text-xs px-3 py-1.5 rounded-lg bg-cyan-600 text-white hover:bg-cyan-700 transition-colors">
                   Configurar automações
                 </button>
               </div>
@@ -6223,8 +6221,6 @@ export default function ChatbotLight() {
               </span>
             ) : undefined}
           />
-          <SideNavBtn panel="mensagens"       current={panel} onClick={goTo} icon={MessageSquare} label="Mensagens Automáticas" />
-          <SideNavBtn panel="respostas"       current={panel} onClick={goTo} icon={Reply}        label="Respostas Rápidas" />
           <SideNavBtn panel="templates"       current={panel} onClick={goTo} icon={FileText}     label="Templates" />
 
           <p className="text-xs font-semibold text-slate-500 uppercase tracking-widest px-3 mb-2 mt-5">Menu</p>
@@ -6254,9 +6250,7 @@ export default function ChatbotLight() {
         {panel === 'central'           && <CentralPanel onGoTo={goTo} onGoToConfig={goToConfig} onGoToChatbots={goToChatbots} />}
         {panel === 'relatorio'         && <RelatorioPanel onGoTo={goTo} />}
         {panel === 'chatbots'          && <ChatbotsPanel chatbotsTab={chatbotsTab} setChatbotsTab={setChatbotsTab} />}
-        {panel === 'mensagens'         && <MensagensPanel />}
         {panel === 'templates'         && <TemplatesPanel />}
-        {panel === 'respostas'         && <RespostasPanel />}
         {panel === 'historico'         && <HistoricoPanel />}
         {panel === 'pre_agendamentos'  && <PreAgendamentosPanel />}
         {panel === 'configuracoes'     && <ConfigPanel configTab={configTab} setConfigTab={setConfigTab} onGoToChatbots={goToChatbots} />}

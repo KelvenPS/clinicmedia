@@ -1,5 +1,6 @@
 import { Router, Response, NextFunction } from 'express'
 import { z } from 'zod'
+import { Prisma } from '@prisma/client'
 import { prisma } from '../lib/prisma'
 import { authenticate, requireFeature, AuthRequest } from '../middleware/auth'
 import { resolveChatbotLightSendTarget, sendRoomWhatsAppMessage, checkPhoneOnWhatsApp, normalizeToWhatsAppJid, isRoomSessionActive } from '../lib/room-whatsapp'
@@ -762,6 +763,161 @@ router.delete('/fluxos/:id', async (req: AuthRequest, res) => {
       metadata: { doctorId, fluxoId: id },
     })
     res.json({ message: 'Fluxo removido' })
+  } catch {
+    res.status(500).json({ message: 'Erro interno do servidor' })
+  }
+})
+
+// ─── Construtor de Atendimento (builder visual: draft/publish) ────────────────
+//
+// O motor (chatbot-light-engine.ts / chatbot-light-guided-engine.ts) só lê os
+// campos live (keywords/welcomeMessage/options) de LightFluxo. O construtor
+// edita exclusivamente os campos draft* — só /publish copia draft → live.
+
+const draftSchema = z.object({
+  keywords:       z.string().min(1, 'Palavras-chave obrigatórias').optional(),
+  welcomeMessage: z.string().min(1, 'Mensagem obrigatória').optional(),
+  options:        fluxoSchema.shape.options.optional(),
+})
+
+router.get('/fluxos/:id/builder', async (req: AuthRequest, res) => {
+  try {
+    const doctorId = await getTargetDoctorId(req)
+    const { id } = req.params
+    const fluxo = await prisma.lightFluxo.findFirst({ where: { id, doctorId } })
+    if (!fluxo) {
+      res.status(404).json({ message: 'Fluxo não encontrado' })
+      return
+    }
+
+    const draft = {
+      keywords:       fluxo.draftKeywords ?? fluxo.keywords,
+      welcomeMessage: fluxo.draftWelcomeMessage ?? fluxo.welcomeMessage,
+      options:        (fluxo.draftOptions as object[] | null) ?? (fluxo.options as object[]),
+    }
+    const options = draft.options as Array<{ actionType?: string; systemActionConfigId?: string | null; nextFlowId?: string | null }>
+
+    const systemActionConfigIds = Array.from(new Set(
+      options.filter(o => o.actionType === 'SYSTEM_ACTION' && o.systemActionConfigId).map(o => o.systemActionConfigId as string)
+    ))
+    const nextFlowIds = Array.from(new Set(
+      options.filter(o => o.actionType === 'OPEN_MENU' && o.nextFlowId).map(o => o.nextFlowId as string)
+    ))
+
+    const instance = await resolveInstanceForChatbot(doctorId, fluxo.chatbotId ?? undefined)
+    const [systemActionConfigs, subFlows] = await Promise.all([
+      systemActionConfigIds.length && instance
+        ? prisma.lightSystemActionConfig.findMany({ where: { id: { in: systemActionConfigIds }, instanceId: instance.id } })
+        : Promise.resolve([]),
+      nextFlowIds.length
+        ? prisma.lightFluxo.findMany({ where: { id: { in: nextFlowIds }, doctorId }, select: { id: true, name: true, active: true } })
+        : Promise.resolve([]),
+    ])
+
+    res.json({
+      id: fluxo.id,
+      chatbotId: fluxo.chatbotId,
+      name: fluxo.name,
+      description: fluxo.description,
+      maxAttempts: fluxo.maxAttempts,
+      fallbackMessage: fluxo.fallbackMessage,
+      active: fluxo.active,
+      status: fluxo.status,
+      hasDraftChanges: fluxo.hasDraftChanges,
+      lastPublishedAt: fluxo.lastPublishedAt,
+      live: { keywords: fluxo.keywords, welcomeMessage: fluxo.welcomeMessage, options: fluxo.options },
+      draft,
+      systemActionConfigs,
+      subFlows,
+    })
+  } catch {
+    res.status(500).json({ message: 'Erro interno do servidor' })
+  }
+})
+
+router.put('/fluxos/:id/draft', async (req: AuthRequest, res) => {
+  try {
+    const doctorId = await getTargetDoctorId(req)
+    const { id } = req.params
+    const data = draftSchema.parse(req.body)
+
+    const result = await prisma.lightFluxo.updateMany({
+      where: { id, doctorId },
+      data: {
+        draftKeywords:       data.keywords,
+        draftWelcomeMessage: data.welcomeMessage,
+        draftOptions:        data.options as object[] | undefined,
+        hasDraftChanges:     true,
+        status:              'DRAFT',
+      },
+    })
+    if (result.count === 0) {
+      res.status(404).json({ message: 'Fluxo não encontrado' })
+      return
+    }
+    const updated = await prisma.lightFluxo.findUnique({ where: { id } })
+    res.json(updated)
+  } catch (error) {
+    if (error instanceof z.ZodError) {
+      res.status(400).json({ message: 'Dados inválidos', errors: error.errors })
+      return
+    }
+    res.status(500).json({ message: 'Erro interno do servidor' })
+  }
+})
+
+router.post('/fluxos/:id/publish', async (req: AuthRequest, res) => {
+  try {
+    const doctorId = await getTargetDoctorId(req)
+    const { id } = req.params
+    const fluxo = await prisma.lightFluxo.findFirst({ where: { id, doctorId } })
+    if (!fluxo) {
+      res.status(404).json({ message: 'Fluxo não encontrado' })
+      return
+    }
+    const updated = await prisma.lightFluxo.update({
+      where: { id },
+      data: {
+        keywords:        fluxo.draftKeywords ?? fluxo.keywords,
+        welcomeMessage:  fluxo.draftWelcomeMessage ?? fluxo.welcomeMessage,
+        options:         (fluxo.draftOptions as object[] | null) ?? (fluxo.options as object[]),
+        status:          'PUBLISHED',
+        hasDraftChanges: false,
+        lastPublishedAt: new Date(),
+      },
+    })
+    await logAudit({
+      userId: req.user!.userId,
+      action: 'CHATBOT_LIGHT_FLUXO_PUBLISHED',
+      description: `Fluxo "${updated.name}" publicado`,
+      metadata: { doctorId, fluxoId: id },
+    })
+    res.json(updated)
+  } catch {
+    res.status(500).json({ message: 'Erro interno do servidor' })
+  }
+})
+
+router.post('/fluxos/:id/discard-draft', async (req: AuthRequest, res) => {
+  try {
+    const doctorId = await getTargetDoctorId(req)
+    const { id } = req.params
+    const result = await prisma.lightFluxo.updateMany({
+      where: { id, doctorId },
+      data: {
+        draftKeywords:       null,
+        draftWelcomeMessage: null,
+        draftOptions:        Prisma.DbNull,
+        hasDraftChanges:     false,
+        status:              'PUBLISHED',
+      },
+    })
+    if (result.count === 0) {
+      res.status(404).json({ message: 'Fluxo não encontrado' })
+      return
+    }
+    const updated = await prisma.lightFluxo.findUnique({ where: { id } })
+    res.json(updated)
   } catch {
     res.status(500).json({ message: 'Erro interno do servidor' })
   }
@@ -1845,6 +2001,9 @@ const simulateSchema = z.object({
   sessionToken: z.string().min(1).max(64),
   message: z.string().min(1).max(500),
   chatbotId: z.string().optional(),
+  // Quando true, simula com os campos de rascunho do Construtor de
+  // Atendimento (ainda não publicados) em vez dos campos live.
+  useDraft: z.boolean().optional(),
 })
 
 router.post('/simulate', async (req: AuthRequest, res: Response) => {
@@ -1855,8 +2014,8 @@ router.post('/simulate', async (req: AuthRequest, res: Response) => {
       res.status(400).json({ message: 'Dados inválidos', errors: parsed.error.errors })
       return
     }
-    const { sessionToken, message, chatbotId } = parsed.data
-    const result = await simulateLightMessage({ doctorId, sessionToken, messageText: message, chatbotId })
+    const { sessionToken, message, chatbotId, useDraft } = parsed.data
+    const result = await simulateLightMessage({ doctorId, sessionToken, messageText: message, chatbotId, useDraft })
     res.json(result)
   } catch (err) {
     console.error('[/chatbot-light/simulate]', err)

@@ -25,6 +25,7 @@ import api from '../lib/api'
 import { useAuthStore } from '../store/authStore'
 import Modal from '../components/ui/Modal'
 import { findCampaignPreset } from '../data/lightCampaignPresets'
+import ConstrutorPanel from './chatbot-light/ConstrutorPanel'
 
 const generateUUID = () => {
   if (typeof window !== 'undefined' && window.crypto && typeof window.crypto.randomUUID === 'function') {
@@ -41,8 +42,8 @@ const generateUUID = () => {
 type Panel = 'central' | 'relatorio' | 'chatbots' | 'notificacoes' | 'historico' | 'configuracoes' | 'pre_agendamentos'
 type ConfigTab = 'conexao' | 'teste' | 'telas' | 'horario'
 type ChatbotsTab = 'meus' | 'simulador'
-type ChatbotDetailTab = 'visao' | 'fluxos' | 'acoes' | 'respostas' | 'mensagens' | 'templates' | 'simulador' | 'config'
-type FluxoActionType = 'SEND_MESSAGE' | 'TRANSFER_QUEUE' | 'OPEN_MENU' | 'SYSTEM_ACTION' | 'END_CHAT' | 'START_PLAN_SCHEDULING' | 'START_LEAD_CAPTURE'
+type ChatbotDetailTab = 'visao' | 'construtor' | 'msgs' | 'automacoes' | 'testes' | 'config'
+export type FluxoActionType = 'SEND_MESSAGE' | 'TRANSFER_QUEUE' | 'OPEN_MENU' | 'SYSTEM_ACTION' | 'END_CHAT' | 'START_PLAN_SCHEDULING' | 'START_LEAD_CAPTURE'
 
 interface LightTemplate {
   id: string
@@ -88,7 +89,7 @@ interface DashboardData {
   recent: LightMessageLog[]
 }
 
-interface FluxoOption {
+export interface FluxoOption {
   id: string
   number: number
   label: string
@@ -112,7 +113,7 @@ interface FluxoOption {
   successMessage?: string | null
 }
 
-interface LightFluxo {
+export interface LightFluxo {
   id: string
   chatbotId: string | null
   name: string
@@ -124,6 +125,10 @@ interface LightFluxo {
   fallbackMessage: string
   active: boolean
   executions: number
+  // Camada de rascunho/publicação do Construtor de Atendimento
+  status?: 'DRAFT' | 'PUBLISHED'
+  hasDraftChanges?: boolean
+  lastPublishedAt?: string | null
   createdAt: string
   updatedAt: string
 }
@@ -298,7 +303,7 @@ const TEMPLATE_VARS: { category: string; label: string; vars: { key: string; des
 // Lista plana mantida para compatibilidade com validações existentes
 const VARIABLES = TEMPLATE_VARS.flatMap(g => g.vars.map(v => v.key))
 
-const FLUXO_ACTIONS: { value: FluxoActionType; label: string; description?: string }[] = [
+export const FLUXO_ACTIONS: { value: FluxoActionType; label: string; description?: string }[] = [
   { value: 'SEND_MESSAGE',        label: 'Enviar apenas mensagem' },
   { value: 'TRANSFER_QUEUE',      label: 'Transferir para atendimento' },
   { value: 'OPEN_MENU',           label: 'Abrir outro menu' },
@@ -308,7 +313,7 @@ const FLUXO_ACTIONS: { value: FluxoActionType; label: string; description?: stri
   { value: 'START_LEAD_CAPTURE',  label: 'Capturar Interesse (Pré-Agendamento)', description: 'Coleta nome e telefone do paciente para contato posterior da secretaria' },
 ]
 
-const FLUXO_QUEUES = [
+export const FLUXO_QUEUES = [
   { value: 'recepcao',   label: 'Recepção' },
   { value: 'agenda',     label: 'Agenda' },
   { value: 'financeiro', label: 'Financeiro' },
@@ -1869,7 +1874,7 @@ function ChatbotsPanel({ chatbotsTab, setChatbotsTab }: { chatbotsTab: ChatbotsT
   useEffect(() => {
     if (chatbotsTab === 'simulador' && !selectedChatbotId && chatbots.length > 0) {
       setSelectedChatbotId(chatbots[0].id)
-      setDetailTab('simulador')
+      setDetailTab('testes')
     }
   }, [chatbotsTab, chatbots, selectedChatbotId])
 
@@ -2009,14 +2014,12 @@ function ChatbotDetailView({
   onBack: () => void
 }) {
   const tabs: { key: ChatbotDetailTab; label: string }[] = [
-    { key: 'visao',      label: 'Visão Geral' },
-    { key: 'fluxos',     label: 'Fluxos' },
-    { key: 'acoes',      label: 'Ações do Sistema' },
-    { key: 'respostas',  label: 'Respostas Rápidas' },
-    { key: 'mensagens',  label: 'Mensagens Automáticas' },
-    { key: 'templates',  label: 'Templates' },
-    { key: 'simulador',  label: 'Simulador' },
-    { key: 'config',     label: 'Configurações' },
+    { key: 'visao',       label: 'Visão Geral' },
+    { key: 'construtor',  label: 'Construtor' },
+    { key: 'msgs',        label: 'Mensagens' },
+    { key: 'automacoes',  label: 'Automações' },
+    { key: 'testes',      label: 'Testes' },
+    { key: 'config',      label: 'Configurações' },
   ]
 
   return (
@@ -2043,14 +2046,39 @@ function ChatbotDetailView({
         </div>
       </div>
 
-      {tab === 'visao'     && <ChatbotVisaoGeralTab chatbot={chatbot} />}
-      {tab === 'fluxos'    && <FluxosPanel chatbotId={chatbot.id} />}
-      {tab === 'acoes'     && <SystemActionsPanel chatbotId={chatbot.id} />}
-      {tab === 'respostas'  && <RespostasPanel chatbotId={chatbot.id} />}
-      {tab === 'mensagens'  && <MensagensPanel chatbotId={chatbot.id} />}
-      {tab === 'templates'  && <TemplatesPanel />}
-      {tab === 'simulador'  && <div className="p-6"><SimuladorTab chatbotId={chatbot.id} /></div>}
+      {tab === 'visao'      && <ChatbotVisaoGeralTab chatbot={chatbot} />}
+      {tab === 'construtor' && <div className="h-[calc(100vh-13rem)]"><ConstrutorPanel chatbotId={chatbot.id} /></div>}
+      {tab === 'msgs'       && <MensagensLibPanel chatbotId={chatbot.id} />}
+      {tab === 'automacoes' && <MensagensPanel chatbotId={chatbot.id} />}
+      {tab === 'testes'     && <div className="p-6"><SimuladorTab chatbotId={chatbot.id} /></div>}
       {tab === 'config'     && <ChatbotConfigTab chatbot={chatbot} />}
+    </div>
+  )
+}
+
+// Agrupa Templates + Respostas Rápidas numa única aba ("Mensagens"), já que
+// nenhuma das duas depende de um fluxo específico do Construtor.
+function MensagensLibPanel({ chatbotId }: { chatbotId: string }) {
+  const [sub, setSub] = useState<'templates' | 'respostas'>('templates')
+  return (
+    <div>
+      <div className="px-6 pt-4 flex gap-1">
+        {([
+          { key: 'templates' as const, label: 'Templates' },
+          { key: 'respostas' as const, label: 'Respostas Rápidas' },
+        ]).map(t => (
+          <button
+            key={t.key}
+            onClick={() => setSub(t.key)}
+            className={`px-3 py-1.5 text-xs font-semibold rounded-full transition-colors ${
+              sub === t.key ? 'bg-cyan-50 text-cyan-700 border border-cyan-200' : 'text-slate-500 hover:bg-slate-50 border border-transparent'
+            }`}
+          >
+            {t.label}
+          </button>
+        ))}
+      </div>
+      {sub === 'templates' ? <TemplatesPanel /> : <RespostasPanel chatbotId={chatbotId} />}
     </div>
   )
 }
@@ -2232,572 +2260,6 @@ function ChatbotConfigTab({ chatbot }: { chatbot: ChatbotSummary }) {
               })}
             </div>
           )}
-        </div>
-      </Modal>
-    </div>
-  )
-}
-
-// ─── Fluxos panel ─────────────────────────────────────────────────────────────
-
-function FluxosPanel({ chatbotId }: { chatbotId: string }) {
-  const qc = useQueryClient()
-  const [modalOpen, setModalOpen]       = useState(false)
-  const [editing, setEditing]           = useState<LightFluxo | null>(null)
-  const [simulatorOpen, setSimulatorOpen] = useState(false)
-  const [simulatingFluxo, setSimulatingFluxo] = useState<LightFluxo | null>(null)
-  const welcomeRef = useRef<HTMLTextAreaElement>(null)
-
-  const openSimulator = (f?: LightFluxo) => {
-    setSimulatingFluxo(f ?? null)
-    setSimulatorOpen(true)
-  }
-
-  const { data: fluxos = [], isLoading } = useQuery<LightFluxo[]>({
-    queryKey: ['light-fluxos', chatbotId],
-    queryFn:  () => api.get('/chatbot-light/fluxos', { params: { chatbotId } }).then(r => r.data),
-  })
-
-  const { data: actionConfigs = [] } = useQuery<SystemActionConfig[]>({
-    queryKey: ['light-system-actions-configs', chatbotId],
-    queryFn: () => api.get('/chatbot-light/system-actions', { params: { chatbotId } }).then(r => r.data),
-  })
-
-  const [form, setForm] = useState({
-    name: '', description: '', keywords: '', welcomeMessage: '',
-    maxAttempts: 3, fallbackMessage: 'Não consegui entender. Vou transferir para um atendente.',
-    active: true,
-  })
-  const [options, setOptions] = useState<FluxoOption[]>([])
-  const [errors, setErrors]   = useState<Record<string, string>>({})
-
-  const openNew = () => {
-    setEditing(null)
-    setForm({ name: '', description: '', keywords: '', welcomeMessage: '', maxAttempts: 3, fallbackMessage: 'Não consegui entender. Vou transferir para um atendente.', active: true })
-    setOptions([])
-    setErrors({})
-    setModalOpen(true)
-  }
-
-  const openEdit = (f: LightFluxo) => {
-    setEditing(f)
-    setForm({
-      name: f.name, description: f.description ?? '', keywords: f.keywords,
-      welcomeMessage: f.welcomeMessage, maxAttempts: f.maxAttempts,
-      fallbackMessage: f.fallbackMessage, active: f.active,
-    })
-    setOptions(f.options ?? [])
-    setErrors({})
-    setModalOpen(true)
-  }
-
-  const addOption = () => {
-    setOptions(prev => [...prev, {
-      id: generateUUID(),
-      number: prev.length + 1,
-      label: '',
-      triggers: String(prev.length + 1),
-      response: '',
-      actionType: 'SEND_MESSAGE',
-      queueId: null,
-      nextFlowId: null,
-      systemAction: null,
-      systemActionKey: null,
-      systemActionConfigId: null,
-      transitionMessage: null,
-    }])
-  }
-
-  const generateWelcomeMessage = () => {
-    const menu = options
-      .filter(o => o.label.trim() !== '')
-      .map(o => `${o.number} - ${o.label}`)
-      .join('\n')
-    if (!menu) return
-    setForm(p => ({ ...p, welcomeMessage: `Olá, {nome}! Seja bem-vindo(a).\n\nEscolha uma opção:\n${menu}` }))
-  }
-
-  const removeOption = (id: string) => {
-    setOptions(prev => prev.filter(o => o.id !== id).map((o, i) => ({ ...o, number: i + 1 })))
-  }
-
-  const updateOption = (id: string, patch: Partial<FluxoOption>) => {
-    setOptions(prev => prev.map(o => o.id === id ? { ...o, ...patch } : o))
-  }
-
-  const validate = () => {
-    const e: Record<string, string> = {}
-    if (!form.name.trim())           e.name = 'Nome obrigatório'
-    if (!form.keywords.trim())       e.keywords = 'Pelo menos uma palavra-chave'
-    if (!form.welcomeMessage.trim()) e.welcomeMessage = 'Mensagem obrigatória'
-    for (const opt of options) {
-      if (!opt.label.trim())    { e.options = `Informe o texto da opção ${opt.number}`; break }
-      if (!opt.triggers.trim()) { e.options = `Informe as palavras aceitas da opção ${opt.number}`; break }
-      if (!opt.response.trim()) { e.options = `Informe a resposta do bot da opção ${opt.number}`; break }
-      if (opt.actionType === 'SYSTEM_ACTION') {
-        const hasVariables = ['{nome}', '{data}', '{telefone}', '{cpf}', '{medico}'].some(v => opt.response.includes(v));
-        if (hasVariables) {
-          e.options = `A "Mensagem antes de iniciar a ação" da opção ${opt.number} não pode usar variáveis como {nome} ou {data} antes que esses dados sejam coletados.`;
-          break;
-        }
-      }
-      if (opt.actionType === 'TRANSFER_QUEUE' && !opt.queueId) {
-        e.options = `Selecione a fila de destino da opção ${opt.number}`; break
-      }
-      if (opt.actionType === 'OPEN_MENU' && !opt.nextFlowId) {
-        e.options = `Selecione o submenu da opção ${opt.number}`; break
-      }
-      if (opt.actionType === 'SYSTEM_ACTION' && (!opt.systemActionKey || !opt.systemActionConfigId)) {
-        e.options = `Selecione a ação e a configuração correspondente da opção ${opt.number}`; break
-      }
-    }
-    setErrors(e)
-    return Object.keys(e).length === 0
-  }
-
-  const saveMutation = useMutation({
-    mutationFn: (data: object) =>
-      editing
-        ? api.put(`/chatbot-light/fluxos/${editing.id}`, data).then(r => r.data)
-        : api.post('/chatbot-light/fluxos', { ...data, chatbotId }).then(r => r.data),
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ['light-fluxos', chatbotId] })
-      qc.invalidateQueries({ queryKey: ['light-chatbots'] })
-      setModalOpen(false)
-      toast.success(editing ? 'Fluxo atualizado' : 'Fluxo criado')
-    },
-    onError: () => toast.error('Erro ao salvar fluxo'),
-  })
-
-  const deleteMutation = useMutation({
-    mutationFn: (id: string) => api.delete(`/chatbot-light/fluxos/${id}`),
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ['light-fluxos', chatbotId] })
-      qc.invalidateQueries({ queryKey: ['light-chatbots'] })
-      toast.success('Fluxo removido')
-    },
-  })
-
-  const toggleMutation = useMutation({
-    mutationFn: ({ id, active }: { id: string; active: boolean }) =>
-      api.put(`/chatbot-light/fluxos/${id}`, { active }).then(r => r.data),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['light-fluxos', chatbotId] }),
-    onError: () => toast.error('Erro ao atualizar'),
-  })
-
-  const handleSave = () => {
-    if (!validate()) return
-    saveMutation.mutate({ ...form, options })
-  }
-
-  return (
-    <div className="p-6 space-y-5">
-      <div className="flex items-center justify-between">
-        <div>
-          <h2 className="text-xl font-bold text-slate-900">Meus Chatbots</h2>
-          <p className="text-sm text-slate-500 mt-0.5">Menus automáticos ativados por palavras-chave enviadas pelo paciente</p>
-        </div>
-        <div className="flex items-center gap-2">
-          <button
-            onClick={() => openSimulator()}
-            className="flex items-center gap-1.5 px-3 py-2 rounded-xl text-sm font-medium border border-emerald-200 bg-emerald-50 text-emerald-700 hover:bg-emerald-100 transition-colors"
-          >
-            <Play className="w-4 h-4" /> Testar chatbot
-          </button>
-          <button onClick={openNew} className="btn-primary text-sm">
-            <Plus className="w-4 h-4" /> Novo fluxo
-          </button>
-        </div>
-      </div>
-
-      {isLoading ? (
-        <div className="flex justify-center py-10"><Loader2 className="w-5 h-5 animate-spin text-cyan-500" /></div>
-      ) : fluxos.length === 0 ? (
-        <div className="bg-white rounded-2xl border border-slate-200 py-16 text-center">
-          <GitBranch className="w-10 h-10 text-slate-200 mx-auto mb-3" />
-          <p className="text-slate-500 font-medium text-sm mb-1">Nenhum fluxo criado ainda</p>
-          <p className="text-slate-400 text-xs mb-5">Crie um fluxo para responder automaticamente quando o paciente enviar "oi", "menu" ou outra palavra-chave.</p>
-          <button onClick={openNew} className="btn-primary text-sm mx-auto">
-            <Plus className="w-4 h-4" /> Criar primeiro fluxo
-          </button>
-        </div>
-      ) : (
-        <div className="space-y-3">
-          {fluxos.map(f => (
-            <div key={f.id} className="bg-white rounded-2xl border border-slate-200 shadow-sm p-4">
-              <div className="flex items-start justify-between gap-3">
-                <div className="flex-1 min-w-0">
-                  <div className="flex items-center gap-2 mb-1.5">
-                    <p className="font-semibold text-slate-900 text-sm">{f.name}</p>
-                    <span className={`text-xs px-2 py-0.5 rounded-full font-semibold ${f.active ? 'bg-emerald-50 text-emerald-700' : 'bg-slate-100 text-slate-500'}`}>
-                      {f.active ? 'Ativo' : 'Inativo'}
-                    </span>
-                  </div>
-                  <div className="flex flex-wrap gap-1 mb-2">
-                    {f.keywords.split(',').map(k => k.trim()).filter(Boolean).map(k => (
-                      <span key={k} className="text-xs bg-cyan-50 text-cyan-700 border border-cyan-200 px-2 py-0.5 rounded-full font-mono">
-                        {k}
-                      </span>
-                    ))}
-                  </div>
-                  <p className="text-xs text-slate-400">
-                    {f.options?.length ?? 0} opções · {f.executions} execuções · Atualizado {format(new Date(f.updatedAt), "dd/MM/yy", { locale: ptBR })}
-                  </p>
-                </div>
-                <div className="flex items-center gap-1.5 flex-shrink-0">
-                  <Toggle
-                    enabled={f.active}
-                    onToggle={() => toggleMutation.mutate({ id: f.id, active: !f.active })}
-                    disabled={toggleMutation.isPending}
-                  />
-                  <button
-                    onClick={() => openSimulator(f)}
-                    title="Testar este fluxo"
-                    className="p-2 rounded-xl text-slate-400 hover:text-emerald-600 hover:bg-emerald-50 border border-transparent hover:border-emerald-100 transition-all"
-                  >
-                    <Play className="w-4 h-4" />
-                  </button>
-                  <button
-                    onClick={() => openEdit(f)}
-                    className="p-2 rounded-xl text-slate-400 hover:text-blue-600 hover:bg-blue-50 border border-transparent hover:border-blue-100 transition-all"
-                  >
-                    <Pencil className="w-4 h-4" />
-                  </button>
-                  <button
-                    onClick={() => { if (confirm('Remover este fluxo?')) deleteMutation.mutate(f.id) }}
-                    className="p-2 rounded-xl text-slate-400 hover:text-red-600 hover:bg-red-50 border border-transparent hover:border-red-100 transition-all"
-                  >
-                    <Trash2 className="w-4 h-4" />
-                  </button>
-                </div>
-              </div>
-
-              {/* Preview welcome message snippet */}
-              <div className="mt-3 bg-slate-50 border border-slate-200 rounded-xl px-3 py-2">
-                <p className="text-xs text-slate-400 mb-0.5 font-medium">Mensagem de abertura</p>
-                <p className="text-xs text-slate-600 line-clamp-2 whitespace-pre-wrap">{f.welcomeMessage}</p>
-              </div>
-
-              {/* Preview menu options */}
-              {f.options?.length > 0 && (
-                <div className="mt-2 flex flex-wrap gap-1.5">
-                  {f.options.map(o => (
-                    <span key={o.id} className="text-xs bg-slate-50 text-slate-600 border border-slate-200 px-2 py-0.5 rounded-full">
-                      {o.number} - {o.label || '(sem texto)'}
-                    </span>
-                  ))}
-                </div>
-              )}
-            </div>
-          ))}
-        </div>
-      )}
-
-      {/* Simulator modal */}
-      <FluxoSimulatorModal
-        isOpen={simulatorOpen}
-        onClose={() => setSimulatorOpen(false)}
-        initialFluxo={simulatingFluxo}
-        fallbackChatbotId={chatbotId}
-      />
-
-      {/* Fluxo editor modal */}
-      <Modal
-        isOpen={modalOpen}
-        onClose={() => setModalOpen(false)}
-        title={editing ? 'Editar Fluxo' : 'Novo Fluxo'}
-        size="lg"
-      >
-        <div className="space-y-5 max-h-[70vh] overflow-y-auto pr-1">
-
-          {/* Name */}
-          <div>
-            <label className="label">Nome do fluxo *</label>
-            <input
-              value={form.name}
-              onChange={e => setForm(p => ({ ...p, name: e.target.value }))}
-              className="input-field"
-              placeholder="Ex: Atendimento inicial"
-            />
-            {errors.name && <p className="text-xs text-red-500 mt-1">{errors.name}</p>}
-          </div>
-
-          {/* Keywords */}
-          <div>
-            <label className="label">Palavras-chave *</label>
-            <input
-              value={form.keywords}
-              onChange={e => setForm(p => ({ ...p, keywords: e.target.value }))}
-              className="input-field font-mono text-sm"
-              placeholder="oi, olá, menu, bom dia, boa tarde"
-            />
-            <p className="text-xs text-slate-400 mt-1">Separadas por vírgula. O chatbot ativa este fluxo quando o paciente enviar qualquer uma delas.</p>
-            {errors.keywords && <p className="text-xs text-red-500 mt-1">{errors.keywords}</p>}
-          </div>
-
-          {/* Welcome message */}
-          <div>
-            <div className="flex items-center justify-between">
-              <label className="label mb-0">Mensagem de abertura *</label>
-              {options.length > 0 && (
-                <button
-                  type="button"
-                  onClick={generateWelcomeMessage}
-                  className="text-xs flex items-center gap-1 text-cyan-600 hover:text-cyan-700 font-medium"
-                >
-                  Gerar mensagem com opções
-                </button>
-              )}
-            </div>
-            <textarea
-              ref={welcomeRef}
-              value={form.welcomeMessage}
-              onChange={e => setForm(p => ({ ...p, welcomeMessage: e.target.value }))}
-              rows={5}
-              className="input-field resize-none text-sm"
-              placeholder={`Olá, {nome}! Seja bem-vindo(a).\n\nEscolha uma opção:\n1 - Confirmar consulta\n2 - Reagendar\n3 - Falar com atendente`}
-            />
-            <p className="text-xs text-slate-500 mt-1">Variáveis disponíveis (clique para inserir):</p>
-            <VariableButtons
-              onInsert={v => insertAtCursor(welcomeRef, v, form.welcomeMessage, val => setForm(p => ({ ...p, welcomeMessage: val })))}
-            />
-            {errors.welcomeMessage && <p className="text-xs text-red-500 mt-1">{errors.welcomeMessage}</p>}
-          </div>
-
-          {/* Options */}
-          <div>
-            <div className="flex items-center justify-between mb-2">
-              <label className="label mb-0">Opções do menu</label>
-              <button
-                type="button"
-                onClick={addOption}
-                className="text-xs flex items-center gap-1 text-cyan-600 hover:text-cyan-700 font-medium"
-              >
-                <Plus className="w-3.5 h-3.5" /> Adicionar opção
-              </button>
-            </div>
-
-            {options.length === 0 ? (
-              <div className="bg-slate-50 border border-dashed border-slate-300 rounded-xl py-5 text-center">
-                <p className="text-xs text-slate-400">Nenhuma opção. Clique em "Adicionar opção" para criar os itens do menu.</p>
-              </div>
-            ) : (
-              <div className="space-y-3">
-                {options.map((opt, i) => (
-                  <div key={opt.id} className="bg-slate-50 border border-slate-200 rounded-xl p-3 space-y-2.5">
-                    <div className="flex items-center justify-between">
-                      <span className="flex items-center gap-2 text-xs font-bold text-slate-600">
-                        <span className="w-6 h-6 bg-cyan-100 text-cyan-700 text-xs font-bold rounded-full flex items-center justify-center flex-shrink-0">
-                          {i + 1}
-                        </span>
-                        Opção {i + 1}
-                      </span>
-                      <button type="button" onClick={() => removeOption(opt.id)} className="text-xs flex items-center gap-1 text-slate-400 hover:text-red-500 font-medium">
-                        <X className="w-3.5 h-3.5" /> Remover opção
-                      </button>
-                    </div>
-
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
-                      <div>
-                        <label className="label text-[11px] mb-0.5">Texto da opção *</label>
-                        <input
-                          value={opt.label}
-                          onChange={e => updateOption(opt.id, { label: e.target.value })}
-                          className="input-field text-sm py-1.5"
-                          placeholder="Ex: Confirmar consulta"
-                        />
-                      </div>
-                      <div>
-                        <label className="label text-[11px] mb-0.5">Quando o paciente digitar *</label>
-                        <input
-                          value={opt.triggers}
-                          onChange={e => updateOption(opt.id, { triggers: e.target.value })}
-                          className="input-field text-sm py-1.5 font-mono"
-                          placeholder={`Ex: ${i + 1}, confirmar, sim`}
-                        />
-                      </div>
-                    </div>
-
-                    <div>
-                      <label className="label text-[11px] mb-0.5">
-                        {opt.actionType === 'SYSTEM_ACTION' ? 'Mensagem antes de iniciar a ação *' : 'Resposta do bot *'}
-                      </label>
-                      <textarea
-                        value={opt.response}
-                        onChange={e => updateOption(opt.id, { response: e.target.value })}
-                        rows={2}
-                        className="input-field text-sm py-1.5 resize-none"
-                        placeholder="Ex: Perfeito, {nome}! Sua consulta foi confirmada."
-                      />
-                    </div>
-
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
-                      <div>
-                        <label className="label text-[11px] mb-0.5">Ação após resposta *</label>
-                        <select
-                          value={opt.actionType}
-                          onChange={e => updateOption(opt.id, {
-                            actionType: e.target.value as FluxoActionType,
-                            queueId: null, nextFlowId: null, systemAction: null,
-                            systemActionKey: null, systemActionConfigId: null, transitionMessage: null,
-                          })}
-                          className="input-field text-sm py-1.5"
-                        >
-                          {FLUXO_ACTIONS.map(a => (
-                            <option key={a.value} value={a.value}>{a.label}</option>
-                          ))}
-                        </select>
-                      </div>
-
-                      {opt.actionType === 'TRANSFER_QUEUE' && (
-                        <div>
-                          <label className="label text-[11px] mb-0.5">Fila de destino *</label>
-                          <select
-                            value={opt.queueId ?? ''}
-                            onChange={e => updateOption(opt.id, { queueId: e.target.value || null })}
-                            className="input-field text-sm py-1.5"
-                          >
-                            <option value="">— Selecionar fila —</option>
-                            {FLUXO_QUEUES.map(q => (
-                              <option key={q.value} value={q.value}>{q.label}</option>
-                            ))}
-                          </select>
-                        </div>
-                      )}
-
-                      {opt.actionType === 'OPEN_MENU' && (
-                        <div>
-                          <label className="label text-[11px] mb-0.5">Submenu (fluxo) *</label>
-                          <select
-                            value={opt.nextFlowId ?? ''}
-                            onChange={e => updateOption(opt.id, { nextFlowId: e.target.value || null })}
-                            className="input-field text-sm py-1.5"
-                          >
-                            <option value="">— Selecionar fluxo —</option>
-                            {fluxos.filter(f => f.id !== editing?.id).map(f => (
-                              <option key={f.id} value={f.id}>{f.name}</option>
-                            ))}
-                          </select>
-                        </div>
-                      )}
-
-                      {opt.actionType === 'SYSTEM_ACTION' && (
-                        <div className="col-span-1 md:col-span-2 bg-white border border-slate-200 rounded-xl p-4 space-y-3 mt-2 shadow-inner">
-                          <p className="text-xs font-bold text-slate-700 uppercase tracking-wide border-b pb-1.5">Vincular Ação do Sistema</p>
-                          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                            <div>
-                              <label className="label text-[11px] mb-0.5">Tipo de ação *</label>
-                              <select
-                                value={opt.systemActionKey ?? ''}
-                                onChange={e => updateOption(opt.id, {
-                                  systemActionKey: e.target.value || null,
-                                  systemActionConfigId: null
-                                })}
-                                className="input-field text-sm py-1.5"
-                              >
-                                <option value="">— Selecionar Ação —</option>
-                                <option value="SCHEDULE_APPOINTMENT">Agendar consulta</option>
-                                <option value="CONFIRM_APPOINTMENT">Confirmar consulta</option>
-                                <option value="CANCEL_APPOINTMENT" disabled>Cancelar consulta (Em breve)</option>
-                                <option value="SEND_PAYMENT_LINK" disabled>Enviar link de pagamento (Em breve)</option>
-                                <option value="SEND_EVALUATION_FORM" disabled>Enviar formulário de avaliação (Em breve)</option>
-                                <option value="UPDATE_PATIENT" disabled>Atualizar cadastro do paciente (Em breve)</option>
-                              </select>
-                            </div>
-                            <div>
-                              <label className="label text-[11px] mb-0.5">Configuração da ação *</label>
-                              <select
-                                value={opt.systemActionConfigId ?? ''}
-                                onChange={e => updateOption(opt.id, { systemActionConfigId: e.target.value || null })}
-                                className="input-field text-sm py-1.5"
-                                disabled={!opt.systemActionKey}
-                              >
-                                <option value="">— Selecionar Configuração —</option>
-                                {actionConfigs
-                                  .filter(c => c.actionKey === opt.systemActionKey && c.active)
-                                  .map(c => (
-                                    <option key={c.id} value={c.id}>{c.name}</option>
-                                  ))}
-                              </select>
-                            </div>
-                          </div>
-                          <div>
-                            <label className="label text-[11px] mb-0.5">Mensagem de transição (opcional)</label>
-                            <textarea
-                              value={opt.transitionMessage ?? ''}
-                              onChange={e => updateOption(opt.id, { transitionMessage: e.target.value })}
-                              rows={2}
-                              className="input-field text-sm py-1.5 resize-none"
-                              placeholder="Ex: Perfeito! Vamos iniciar seu agendamento..."
-                            />
-                            <p className="text-[10px] text-slate-400">Mensagem enviada logo antes de iniciar as perguntas da ação do sistema.</p>
-                          </div>
-                        </div>
-                      )}
-
-                      {opt.actionType === 'START_LEAD_CAPTURE' && (
-                        <div className="col-span-1 md:col-span-2 mt-2">
-                          <div className="flex items-start gap-3 bg-emerald-50 border border-emerald-200 rounded-xl p-3">
-                            <CalendarClock className="w-4 h-4 text-emerald-600 flex-shrink-0 mt-0.5" />
-                            <div>
-                              <p className="text-xs font-bold text-emerald-800 mb-0.5">Pré-Agendamento ativo</p>
-                              <p className="text-[11px] text-emerald-700">
-                                O chatbot coletará o nome e telefone do paciente e registrará o interesse.
-                                A secretaria será notificada na seção <strong>Pré-Agendamentos</strong> para entrar em contato.
-                              </p>
-                            </div>
-                          </div>
-                        </div>
-                      )}
-                    </div>
-                  </div>
-                ))}
-              </div>
-            )}
-            {errors.options && <p className="text-xs text-red-500 mt-1">{errors.options}</p>}
-          </div>
-
-          {/* Advanced */}
-          <div className="border-t border-slate-100 pt-4 space-y-3">
-            <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide">Configurações avançadas</p>
-
-            <div className="flex gap-4">
-              <div className="w-44">
-                <label className="label">Tentativas inválidas</label>
-                <input
-                  type="number"
-                  min={1} max={10}
-                  value={form.maxAttempts}
-                  onChange={e => setForm(p => ({ ...p, maxAttempts: parseInt(e.target.value) || 3 }))}
-                  className="input-field text-sm"
-                />
-                <p className="text-xs text-slate-400 mt-1">Máximo antes do fallback</p>
-              </div>
-              <div className="flex-1">
-                <label className="label">Mensagem de fallback</label>
-                <textarea
-                  value={form.fallbackMessage}
-                  onChange={e => setForm(p => ({ ...p, fallbackMessage: e.target.value }))}
-                  rows={2}
-                  className="input-field text-sm resize-none"
-                />
-              </div>
-            </div>
-
-            <div className="flex items-center gap-3">
-              <label className="label mb-0">Status do fluxo</label>
-              <Toggle enabled={form.active} onToggle={() => setForm(p => ({ ...p, active: !p.active }))} />
-            </div>
-          </div>
-
-          <button
-            type="button"
-            onClick={handleSave}
-            disabled={saveMutation.isPending}
-            className="btn-primary w-full"
-          >
-            {saveMutation.isPending ? 'Salvando...' : editing ? 'Salvar alterações' : 'Criar fluxo'}
-          </button>
         </div>
       </Modal>
     </div>
@@ -3929,14 +3391,14 @@ function HistoricoPanel() {
 
 // ─── System Actions Panel ────────────────────────────────────────────────────
 
-interface CatalogItem {
+export interface CatalogItem {
   key: string
   label: string
   implemented: boolean
   description?: string
 }
 
-interface SystemActionConfig {
+export interface SystemActionConfig {
   id: string
   instanceId: string
   actionKey: string
@@ -3955,7 +3417,7 @@ interface SimBubble {
   text: string
 }
 
-function SystemActionsPanel({ chatbotId }: { chatbotId: string }) {
+export function SystemActionsPanel({ chatbotId }: { chatbotId: string }) {
   const qc = useQueryClient()
   const [modalOpen, setModalOpen] = useState(false)
   const [selectedAction, setSelectedAction] = useState<CatalogItem | null>(null)

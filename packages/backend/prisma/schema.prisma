@@ -945,6 +945,16 @@ model LightFluxo {
   fallbackMessage String   @default("Não consegui entender. Vou transferir para um atendente.") @db.Text
   active          Boolean  @default(true)
   executions      Int      @default(0)
+  // Camada de rascunho do Construtor de Atendimento (builder visual). O motor
+  // (chatbot-light-engine.ts / chatbot-light-guided-engine.ts) só lê os campos
+  // acima (live/publicados) — os campos draft* abaixo só viram live quando o
+  // usuário clica em "Publicar" (POST /fluxos/:id/publish).
+  status              String    @default("PUBLISHED") // DRAFT | PUBLISHED
+  draftWelcomeMessage String?   @db.Text
+  draftKeywords       String?
+  draftOptions        Json?
+  hasDraftChanges     Boolean   @default(false)
+  lastPublishedAt     DateTime?
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
 

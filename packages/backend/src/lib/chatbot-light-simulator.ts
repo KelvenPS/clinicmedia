@@ -16,6 +16,27 @@ function simPhone(doctorId: string, sessionToken: string): string {
   return `${SIM_PREFIX}${doctorId.substring(0, 8)}_${sessionToken}`
 }
 
+// Aplica os campos de rascunho do Construtor de Atendimento por cima dos
+// campos live, sem alterar nenhuma lógica de roteamento abaixo — só usada
+// quando o simulador é chamado com `useDraft: true` ("Testar" antes de
+// publicar). O motor real (chatbot-light-engine.ts) nunca usa isso.
+function withDraftOverlay<T extends {
+  keywords: string
+  welcomeMessage: string
+  options: unknown
+  draftKeywords?: string | null
+  draftWelcomeMessage?: string | null
+  draftOptions?: unknown
+}>(fluxo: T, useDraft: boolean): T {
+  if (!useDraft) return fluxo
+  return {
+    ...fluxo,
+    keywords: fluxo.draftKeywords ?? fluxo.keywords,
+    welcomeMessage: fluxo.draftWelcomeMessage ?? fluxo.welcomeMessage,
+    options: fluxo.draftOptions ?? fluxo.options,
+  }
+}
+
 export interface SimulateResult {
   botMessages: string[]
   currentStep: string | null
@@ -30,8 +51,9 @@ export async function simulateLightMessage(params: {
   sessionToken: string
   messageText: string
   chatbotId?: string
+  useDraft?: boolean
 }): Promise<SimulateResult> {
-  const { doctorId, sessionToken, messageText, chatbotId } = params
+  const { doctorId, sessionToken, messageText, chatbotId, useDraft = false } = params
 
   const botMessages: string[] = []
   const collect = (msg: string) => { if (msg) botMessages.push(msg) }
@@ -66,7 +88,7 @@ export async function simulateLightMessage(params: {
         data: { status: 'EXPIRED' },
       })
       collect('Este atendimento expirou por inatividade. Vamos iniciar novamente.')
-      return await routeNewMessage({ doctorId, instance, contactPhone, incomingText, messageText, collect })
+      return await routeNewMessage({ doctorId, instance, contactPhone, incomingText, messageText, collect, useDraft })
     }
 
     await prisma.lightFlowSession.update({
@@ -78,7 +100,8 @@ export async function simulateLightMessage(params: {
     const menuCmds = ['oi', 'ola', 'olá', 'menu', 'inicio', 'início', 'voltar']
     if (activeSession.currentStepKey === 'WAITING_MENU_OPTION' && menuCmds.includes(incomingText)) {
       if (activeSession.flowId) {
-        const fluxo = await prisma.lightFluxo.findUnique({ where: { id: activeSession.flowId } })
+        const fluxoRaw = await prisma.lightFluxo.findUnique({ where: { id: activeSession.flowId } })
+        const fluxo = fluxoRaw ? withDraftOverlay(fluxoRaw, useDraft) : null
         if (fluxo?.active) {
           collect(fluxo.welcomeMessage)
           return makeResult(botMessages, activeSession.currentStepKey, 'ACTIVE', fluxo.name, activeSession.id)
@@ -106,7 +129,7 @@ export async function simulateLightMessage(params: {
 
     // WAITING_MENU_OPTION: match option triggers
     if (activeSession.currentStepKey === 'WAITING_MENU_OPTION') {
-      return await processMenuOption({ instance, session: activeSession, incomingText, collect })
+      return await processMenuOption({ instance, session: activeSession, incomingText, collect, useDraft })
     }
 
     // Guided steps (CHOOSE_PLAN, ASK_NAME, etc.)
@@ -114,7 +137,7 @@ export async function simulateLightMessage(params: {
   }
 
   // ── New message path ───────────────────────────────────────────────────────
-  return await routeNewMessage({ doctorId, instance, contactPhone, incomingText, messageText, collect })
+  return await routeNewMessage({ doctorId, instance, contactPhone, incomingText, messageText, collect, useDraft })
 }
 
 // ─── Route new message (no active session) ───────────────────────────────────
@@ -125,16 +148,18 @@ async function routeNewMessage(params: {
   incomingText: string
   messageText: string
   collect: (m: string) => void
+  useDraft?: boolean
 }): Promise<SimulateResult> {
-  const { doctorId, instance, contactPhone, incomingText, collect } = params
+  const { doctorId, instance, contactPhone, incomingText, collect, useDraft = false } = params
   const botMessages: string[] = []
   const innerCollect = (m: string) => { collect(m); botMessages.push(m) }
 
-  const fluxos = await prisma.lightFluxo.findMany({
+  const fluxosRaw = await prisma.lightFluxo.findMany({
     where: instance.chatbotId
       ? { chatbotId: instance.chatbotId, active: true }
       : { doctorId, chatbotId: null, active: true },
   })
+  const fluxos = fluxosRaw.map(f => withDraftOverlay(f, useDraft))
 
   const matchedFlow = fluxos.find(f =>
     f.keywords.split(',').map(k => normalizeText(k)).includes(incomingText)
@@ -193,10 +218,12 @@ async function processMenuOption(params: {
   session: any
   incomingText: string
   collect: (m: string) => void
+  useDraft?: boolean
 }): Promise<SimulateResult> {
-  const { instance, session, incomingText, collect } = params
+  const { instance, session, incomingText, collect, useDraft = false } = params
 
-  const fluxo = await prisma.lightFluxo.findUnique({ where: { id: session.flowId! } })
+  const fluxoRaw = await prisma.lightFluxo.findUnique({ where: { id: session.flowId! } })
+  const fluxo = fluxoRaw ? withDraftOverlay(fluxoRaw, useDraft) : null
   if (!fluxo?.active) {
     await prisma.lightFlowSession.update({ where: { id: session.id }, data: { status: 'FAILED' } })
     collect('Fluxo inativo ou não encontrado.')
@@ -276,7 +303,8 @@ async function processMenuOption(params: {
   }
 
   if (actionType === 'OPEN_MENU' && nextFlowId) {
-    const nextFlow = await prisma.lightFluxo.findUnique({ where: { id: nextFlowId } })
+    const nextFlowRaw = await prisma.lightFluxo.findUnique({ where: { id: nextFlowId } })
+    const nextFlow = nextFlowRaw ? withDraftOverlay(nextFlowRaw, useDraft) : null
     if (nextFlow?.active) {
       if (response) innerCollect(response)
       await prisma.lightFlowSession.update({

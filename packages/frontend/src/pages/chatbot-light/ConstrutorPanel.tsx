@@ -193,6 +193,8 @@ function FlowBuilder({ chatbotId, fluxoId, fluxos, onSelectFlow, onCreateFlow, c
     onError: () => toast.error('Erro ao salvar rascunho'),
   })
 
+  const [pendencias, setPendencias] = useState<string[] | null>(null)
+
   const publishMutation = useMutation({
     mutationFn: () => api.post(`/chatbot-light/fluxos/${fluxoId}/publish`).then(r => r.data),
     onSuccess: (updated: LightFluxo) => {
@@ -205,7 +207,14 @@ function FlowBuilder({ chatbotId, fluxoId, fluxos, onSelectFlow, onCreateFlow, c
       qc.invalidateQueries({ queryKey: ['light-fluxos', chatbotId] })
       toast.success('Publicado! O chatbot já está usando esta versão.')
     },
-    onError: () => toast.error('Erro ao publicar'),
+    onError: (err: any) => {
+      const list = err?.response?.data?.pendencias
+      if (Array.isArray(list) && list.length > 0) {
+        setPendencias(list)
+      } else {
+        toast.error(err?.response?.data?.message || 'Erro ao publicar')
+      }
+    },
   })
 
   const discardMutation = useMutation({
@@ -364,6 +373,8 @@ function FlowBuilder({ chatbotId, fluxoId, fluxos, onSelectFlow, onCreateFlow, c
             selected={selected}
             onSelect={setSelected}
             onRemoveOption={removeOption}
+            actionConfigs={actionConfigs}
+            fluxos={fluxos}
           />
 
           <BlockConfigPanel
@@ -405,8 +416,20 @@ function FlowBuilder({ chatbotId, fluxoId, fluxos, onSelectFlow, onCreateFlow, c
         </Modal>
       )}
 
+      {pendencias && (
+        <Modal isOpen onClose={() => setPendencias(null)} title="Não é possível publicar ainda" subtitle="Resolva as pendências abaixo antes de publicar este fluxo." size="md">
+          <ul className="space-y-2">
+            {pendencias.map((p, i) => (
+              <li key={i} className="flex items-start gap-2 text-sm text-slate-700 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
+                <span className="text-amber-600 flex-shrink-0">⚠</span> {p}
+              </li>
+            ))}
+          </ul>
+        </Modal>
+      )}
+
       {testOpen && (
-        <TestDrawer chatbotId={chatbotId} onClose={() => setTestOpen(false)} />
+        <TestDrawer chatbotId={chatbotId} fluxoId={fluxoId} onClose={() => setTestOpen(false)} />
       )}
     </div>
   )
@@ -450,15 +473,47 @@ function BlockLibrary() {
 
 // ─── Center column: WhatsApp-style conversation canvas ─────────────────────
 
-function SortableOptionBubble({ option, isSelected, onSelect, onRemove }: {
+// Resolve pra onde uma opção realmente aponta — substitui o rótulo genérico
+// do actionType (ex: "Enviar apenas mensagem") por informação que reflete o
+// que vai executar de verdade, e sinaliza quando falta configurar o destino.
+function describeDestination(option: FluxoOption, actionConfigs: SystemActionConfig[], fluxos: LightFluxo[]): { label: string; warn: boolean } {
+  switch (option.actionType) {
+    case 'SEND_MESSAGE':
+      return { label: 'Mensagem simples', warn: false }
+    case 'TRANSFER_QUEUE': {
+      const q = FLUXO_QUEUES.find(q => q.value === option.queueId)
+      return q ? { label: `Transfere para: ${q.label}`, warn: false } : { label: 'Sem fila selecionada', warn: true }
+    }
+    case 'OPEN_MENU': {
+      const f = fluxos.find(f => f.id === option.nextFlowId)
+      return f ? { label: `Submenu: ${f.name}`, warn: false } : { label: 'Sem submenu selecionado', warn: true }
+    }
+    case 'SYSTEM_ACTION': {
+      const cfg = actionConfigs.find(c => c.id === option.systemActionConfigId)
+      return cfg ? { label: `Ação do sistema: ${cfg.name}`, warn: false } : { label: 'Sem configuração vinculada', warn: true }
+    }
+    case 'END_CHAT':
+      return { label: 'Encerra a conversa', warn: false }
+    case 'START_LEAD_CAPTURE':
+      return { label: 'Coleta dados (pré-agendamento)', warn: false }
+    case 'START_PLAN_SCHEDULING':
+      return { label: 'Inicia agendamento por plano/serviço', warn: false }
+    default:
+      return { label: option.actionType, warn: false }
+  }
+}
+
+function SortableOptionBubble({ option, isSelected, onSelect, onRemove, actionConfigs, fluxos }: {
   option: FluxoOption
   isSelected: boolean
   onSelect: () => void
   onRemove: () => void
+  actionConfigs: SystemActionConfig[]
+  fluxos: LightFluxo[]
 }) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: option.id })
   const style = { transform: CSS.Transform.toString(transform), transition }
-  const actionLabel = FLUXO_ACTIONS.find(a => a.value === option.actionType)?.label ?? option.actionType
+  const destination = describeDestination(option, actionConfigs, fluxos)
 
   return (
     <div
@@ -477,7 +532,9 @@ function SortableOptionBubble({ option, isSelected, onSelect, onRemove }: {
           <span className="text-xs font-mono text-cyan-700 bg-cyan-100 px-1.5 rounded">{option.number}</span>
           <span className="text-sm font-medium text-slate-800 truncate">{option.label || 'Sem título'}</span>
         </div>
-        <p className="text-[11px] text-slate-400 mt-0.5">{actionLabel}</p>
+        <p className={`text-[11px] mt-0.5 ${destination.warn ? 'text-amber-600 font-medium' : 'text-slate-400'}`}>
+          {destination.warn ? '⚠ ' : ''}{destination.label}
+        </p>
       </div>
       <button onClick={e => { e.stopPropagation(); onRemove() }} className="text-slate-300 hover:text-red-500 p-1" title="Remover">
         <Trash2 className="w-3.5 h-3.5" />
@@ -486,12 +543,14 @@ function SortableOptionBubble({ option, isSelected, onSelect, onRemove }: {
   )
 }
 
-function ConversationCanvas({ welcomeMessage, options, selected, onSelect, onRemoveOption }: {
+function ConversationCanvas({ welcomeMessage, options, selected, onSelect, onRemoveOption, actionConfigs, fluxos }: {
   welcomeMessage: string
   options: FluxoOption[]
   selected: SelectedBlock
   onSelect: (b: SelectedBlock) => void
   onRemoveOption: (id: string) => void
+  actionConfigs: SystemActionConfig[]
+  fluxos: LightFluxo[]
 }) {
   const { setNodeRef, isOver } = useDroppable({ id: 'canvas-dropzone' })
 
@@ -524,6 +583,8 @@ function ConversationCanvas({ welcomeMessage, options, selected, onSelect, onRem
                   isSelected={selected.type === 'option' && selected.id === opt.id}
                   onSelect={() => onSelect({ type: 'option', id: opt.id })}
                   onRemove={() => onRemoveOption(opt.id)}
+                  actionConfigs={actionConfigs}
+                  fluxos={fluxos}
                 />
               ))}
             </div>
@@ -810,23 +871,34 @@ function FlowSettingsModal({ fluxo, onClose, onSave, saving }: {
 
 // ─── Test drawer (simula com o rascunho, useDraft: true) ───────────────────
 
-interface TestBubble { sender: 'bot' | 'user'; text: string }
+// Espelha MessageSource de chatbot-light-simulator.ts (backend) — granularidade
+// por turno: quando um turno manda várias bolhas (ex: opção "Ação do sistema"
+// que dispara mensagem de transição + a primeira pergunta do agendamento),
+// todas compartilham a mesma origem.
+interface MessageSource {
+  type: string
+  label: string
+  detail?: string | null
+}
 
-function TestDrawer({ chatbotId, onClose }: { chatbotId: string; onClose: () => void }) {
+interface TestBubble { sender: 'bot' | 'user'; text: string; source?: MessageSource }
+
+function TestDrawer({ chatbotId, fluxoId, onClose }: { chatbotId: string; fluxoId: string; onClose: () => void }) {
   const [sessionToken] = useState(() => generateUUID())
   const [messages, setMessages] = useState<TestBubble[]>([])
   const [input, setInput] = useState('')
   const [sending, setSending] = useState(false)
+  const [expanded, setExpanded] = useState<Set<number>>(new Set())
 
   const sendMutation = useMutation({
     mutationFn: (text: string) =>
-      api.post('/chatbot-light/simulate', { sessionToken, message: text, chatbotId, useDraft: true }).then(r => r.data),
+      api.post('/chatbot-light/simulate', { sessionToken, message: text, chatbotId, fluxoId, useDraft: true }).then(r => r.data),
     onMutate: (text: string) => {
       setMessages(prev => [...prev, { sender: 'user', text }])
       setSending(true)
     },
-    onSuccess: (result: { botMessages: string[] }) => {
-      setMessages(prev => [...prev, ...result.botMessages.map(text => ({ sender: 'bot' as const, text }))])
+    onSuccess: (result: { botMessages: string[]; source?: MessageSource }) => {
+      setMessages(prev => [...prev, ...result.botMessages.map(text => ({ sender: 'bot' as const, text, source: result.source }))])
     },
     onError: () => toast.error('Erro ao simular mensagem'),
     onSettled: () => setSending(false),
@@ -844,24 +916,46 @@ function TestDrawer({ chatbotId, onClose }: { chatbotId: string; onClose: () => 
     sendMutation.mutate(text)
   }
 
+  const toggleExpanded = (i: number) => {
+    setExpanded(prev => {
+      const next = new Set(prev)
+      if (next.has(i)) next.delete(i); else next.add(i)
+      return next
+    })
+  }
+
   return (
     <div className="fixed inset-y-0 right-0 w-full sm:w-96 bg-white shadow-2xl z-50 flex flex-col border-l border-slate-200">
       <div className="flex items-center justify-between px-4 py-3 border-b border-slate-100">
         <div>
           <p className="text-sm font-bold text-slate-900">Testar conversa</p>
-          <p className="text-[11px] text-slate-400">Simulação com o rascunho atual — não afeta o chatbot publicado.</p>
+          <p className="text-[11px] text-slate-400">Simulação com o rascunho deste fluxo — não afeta o chatbot publicado.</p>
         </div>
         <button onClick={handleClose} className="btn-icon"><X className="w-4 h-4" /></button>
       </div>
-      <div className="flex-1 overflow-y-auto p-4 space-y-2 bg-[#e5ddd5]">
+      <div className="flex-1 overflow-y-auto p-4 space-y-1.5 bg-[#e5ddd5]">
         {messages.length === 0 && (
-          <p className="text-xs text-slate-500 text-center mt-8">Digite "oi" para simular o início da conversa.</p>
+          <p className="text-xs text-slate-500 text-center mt-8">Digite qualquer mensagem para simular o início deste fluxo.</p>
         )}
         {messages.map((m, i) => (
-          <div key={i} className={`max-w-[85%] rounded-2xl px-3 py-2 text-sm whitespace-pre-wrap shadow ${
-            m.sender === 'bot' ? 'bg-white text-slate-800 rounded-tl-sm' : 'bg-emerald-100 text-slate-800 rounded-tr-sm ml-auto'
-          }`}>
-            {m.text}
+          <div key={i} className={m.sender === 'bot' ? '' : 'flex justify-end'}>
+            <div className={`max-w-[85%] rounded-2xl px-3 py-2 text-sm whitespace-pre-wrap shadow ${
+              m.sender === 'bot' ? 'bg-white text-slate-800 rounded-tl-sm' : 'bg-emerald-100 text-slate-800 rounded-tr-sm'
+            }`}>
+              {m.text}
+            </div>
+            {m.sender === 'bot' && m.source && (
+              <div className="mt-0.5">
+                <button onClick={() => toggleExpanded(i)} className="text-[10px] text-cyan-700 hover:underline">
+                  {expanded.has(i) ? 'Ocultar origem' : 'Ver origem'}
+                </button>
+                {expanded.has(i) && (
+                  <p className="text-[10px] text-slate-500 mt-0.5">
+                    {m.source.label}{m.source.detail ? ` · ${m.source.detail}` : ''}
+                  </p>
+                )}
+              </div>
+            )}
           </div>
         ))}
       </div>

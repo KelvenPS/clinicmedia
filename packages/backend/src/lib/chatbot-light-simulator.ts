@@ -37,12 +37,48 @@ function withDraftOverlay<T extends {
   }
 }
 
+// Origem da resposta do bot num turno da simulação — usada só pelo painel
+// "Ver origem" do Testar (diagnóstico), derivada do estado da sessão que já
+// existia (currentStep/sessionStatus/flowName). Granularidade por turno, não
+// por mensagem individual: quando um turno manda mais de uma bolha (ex: uma
+// opção "Ação do sistema" que dispara "Perfeito, vamos continuar" + a
+// primeira pergunta do agendamento), as duas vêm da mesma origem.
+export interface MessageSource {
+  type: 'welcome' | 'menu' | 'lead_capture' | 'system_action' | 'quick_reply' | 'transfer' | 'cancel' | 'fallback' | 'no_match' | 'no_instance' | 'completed'
+  label: string
+  detail?: string | null
+}
+
+function describeSource(currentStep: string | null, flowName: string | null, sessionStatus: string): MessageSource {
+  if (!currentStep) {
+    if (sessionStatus === 'TRANSFER') return { type: 'transfer', label: 'Transferência para atendimento' }
+    if (sessionStatus === 'CANCELLED') return { type: 'cancel', label: 'Cancelamento' }
+    if (sessionStatus === 'FAILED') return { type: 'fallback', label: 'Fallback / tentativas excedidas' }
+    if (sessionStatus === 'QUICK_REPLY') return { type: 'quick_reply', label: 'Resposta rápida' }
+    if (sessionStatus === 'NO_MATCH') return { type: 'no_match', label: 'Nenhuma palavra-chave reconhecida' }
+    if (sessionStatus === 'NO_INSTANCE') return { type: 'no_instance', label: 'Sem instância vinculada' }
+    return { type: 'completed', label: flowName ? `Encerramento — ${flowName}` : 'Encerramento' }
+  }
+  if (currentStep === 'WAITING_MENU_OPTION') {
+    return { type: 'menu', label: flowName ? `Menu de opções — ${flowName}` : 'Menu de opções' }
+  }
+  if (currentStep === 'ASK_FIRST_TIME' || currentStep.startsWith('ASK_LEAD') || currentStep.startsWith('ASK_CUSTOM_FIELD')) {
+    return { type: 'lead_capture', label: 'Coletar dados (pré-agendamento)', detail: currentStep }
+  }
+  return {
+    type: 'system_action',
+    label: flowName ? `Ação do sistema — configuração vinculada a "${flowName}"` : 'Ação do sistema',
+    detail: currentStep,
+  }
+}
+
 export interface SimulateResult {
   botMessages: string[]
   currentStep: string | null
   sessionStatus: string
   flowName: string | null
   sessionId: string | null
+  source: MessageSource
 }
 
 // ─── Main simulate function ────────────────────────────────────────────────────
@@ -52,8 +88,13 @@ export async function simulateLightMessage(params: {
   messageText: string
   chatbotId?: string
   useDraft?: boolean
+  // Quando presente, força a simulação a começar exatamente neste fluxo
+  // (usado pelo "Testar" do Construtor) em vez de casar por palavra-chave
+  // contra todos os fluxos do chatbot — evita que um fluxo diferente com
+  // gatilho parecido responda no lugar do que está sendo editado.
+  fluxoId?: string
 }): Promise<SimulateResult> {
-  const { doctorId, sessionToken, messageText, chatbotId, useDraft = false } = params
+  const { doctorId, sessionToken, messageText, chatbotId, useDraft = false, fluxoId } = params
 
   const botMessages: string[] = []
   const collect = (msg: string) => { if (msg) botMessages.push(msg) }
@@ -71,7 +112,7 @@ export async function simulateLightMessage(params: {
 
   if (!instance) {
     collect('⚠️ Chatbot Light ainda não tem uma Sala vinculada. Vincule uma Sala em Configurações > Conexão.')
-    return { botMessages, currentStep: null, sessionStatus: 'NO_INSTANCE', flowName: null, sessionId: null }
+    return makeResult(botMessages, null, 'NO_INSTANCE', null, null)
   }
 
   const activeSession = await prisma.lightFlowSession.findFirst({
@@ -88,7 +129,7 @@ export async function simulateLightMessage(params: {
         data: { status: 'EXPIRED' },
       })
       collect('Este atendimento expirou por inatividade. Vamos iniciar novamente.')
-      return await routeNewMessage({ doctorId, instance, contactPhone, incomingText, messageText, collect, useDraft })
+      return await routeNewMessage({ doctorId, instance, contactPhone, incomingText, messageText, collect, useDraft, fluxoId })
     }
 
     await prisma.lightFlowSession.update({
@@ -137,7 +178,7 @@ export async function simulateLightMessage(params: {
   }
 
   // ── New message path ───────────────────────────────────────────────────────
-  return await routeNewMessage({ doctorId, instance, contactPhone, incomingText, messageText, collect, useDraft })
+  return await routeNewMessage({ doctorId, instance, contactPhone, incomingText, messageText, collect, useDraft, fluxoId })
 }
 
 // ─── Route new message (no active session) ───────────────────────────────────
@@ -149,21 +190,31 @@ async function routeNewMessage(params: {
   messageText: string
   collect: (m: string) => void
   useDraft?: boolean
+  fluxoId?: string
 }): Promise<SimulateResult> {
-  const { doctorId, instance, contactPhone, incomingText, collect, useDraft = false } = params
+  const { doctorId, instance, contactPhone, incomingText, collect, useDraft = false, fluxoId } = params
   const botMessages: string[] = []
   const innerCollect = (m: string) => { collect(m); botMessages.push(m) }
 
-  const fluxosRaw = await prisma.lightFluxo.findMany({
-    where: instance.chatbotId
-      ? { chatbotId: instance.chatbotId, active: true }
-      : { doctorId, chatbotId: null, active: true },
-  })
-  const fluxos = fluxosRaw.map(f => withDraftOverlay(f, useDraft))
+  let fluxos: any[] = []
+  let matchedFlow: any
 
-  const matchedFlow = fluxos.find(f =>
-    f.keywords.split(',').map(k => normalizeText(k)).includes(incomingText)
-  )
+  if (fluxoId) {
+    // Testar do Construtor: ignora casamento por palavra-chave e força a
+    // simulação a começar exatamente no fluxo aberto na tela.
+    const pinnedRaw = await prisma.lightFluxo.findUnique({ where: { id: fluxoId } })
+    matchedFlow = pinnedRaw ? withDraftOverlay(pinnedRaw, useDraft) : undefined
+  } else {
+    const fluxosRaw = await prisma.lightFluxo.findMany({
+      where: instance.chatbotId
+        ? { chatbotId: instance.chatbotId, active: true }
+        : { doctorId, chatbotId: null, active: true },
+    })
+    fluxos = fluxosRaw.map(f => withDraftOverlay(f, useDraft))
+    matchedFlow = fluxos.find(f =>
+      f.keywords.split(',').map(k => normalizeText(k)).includes(incomingText)
+    )
+  }
 
   if (matchedFlow) {
     await prisma.lightFlowSession.updateMany({
@@ -989,5 +1040,5 @@ function makeResult(
   const msgs = typeof botMessages[0] === 'string' && botMessages.length === 1 && Array.isArray(botMessages[0])
     ? botMessages[0] as unknown as string[]
     : botMessages
-  return { botMessages: msgs, currentStep, sessionStatus, flowName, sessionId }
+  return { botMessages: msgs, currentStep, sessionStatus, flowName, sessionId, source: describeSource(currentStep, flowName, sessionStatus) }
 }

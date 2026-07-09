@@ -866,6 +866,34 @@ router.put('/fluxos/:id/draft', async (req: AuthRequest, res) => {
   }
 })
 
+// Validação de pendências antes de publicar — sobre os campos que vão virar
+// live. Não é uma checagem de "toda mensagem tem origem rastreável" (isso
+// exigiria policiar chatbot-light-guided-engine.ts, fora de escopo); é uma
+// checagem barata sobre os dados que o próprio Construtor edita.
+function validateFluxoForPublish(params: {
+  keywords: string
+  welcomeMessage: string
+  fallbackMessage: string
+  options: Array<{ number: number; actionType: string; queueId?: string | null; nextFlowId?: string | null; systemActionKey?: string | null; systemActionConfigId?: string | null }>
+}): string[] {
+  const pendencias: string[] = []
+  if (!params.welcomeMessage.trim()) pendencias.push('A mensagem de boas-vindas está vazia.')
+  if (!params.keywords.split(',').map(k => k.trim()).filter(Boolean).length) pendencias.push('Nenhuma palavra-chave configurada para iniciar a conversa.')
+  if (!params.fallbackMessage.trim()) pendencias.push('A mensagem de fallback está vazia.')
+  for (const opt of params.options) {
+    if (opt.actionType === 'TRANSFER_QUEUE' && !opt.queueId) {
+      pendencias.push(`Opção ${opt.number}: selecione a fila de destino.`)
+    }
+    if (opt.actionType === 'OPEN_MENU' && !opt.nextFlowId) {
+      pendencias.push(`Opção ${opt.number}: selecione o submenu de destino.`)
+    }
+    if (opt.actionType === 'SYSTEM_ACTION' && (!opt.systemActionKey || !opt.systemActionConfigId)) {
+      pendencias.push(`Opção ${opt.number}: selecione a ação do sistema e a configuração correspondente.`)
+    }
+  }
+  return pendencias
+}
+
 router.post('/fluxos/:id/publish', async (req: AuthRequest, res) => {
   try {
     const doctorId = await getTargetDoctorId(req)
@@ -875,12 +903,22 @@ router.post('/fluxos/:id/publish', async (req: AuthRequest, res) => {
       res.status(404).json({ message: 'Fluxo não encontrado' })
       return
     }
+
+    const keywords = fluxo.draftKeywords ?? fluxo.keywords
+    const welcomeMessage = fluxo.draftWelcomeMessage ?? fluxo.welcomeMessage
+    const options = (fluxo.draftOptions as object[] | null) ?? (fluxo.options as object[])
+    const pendencias = validateFluxoForPublish({ keywords, welcomeMessage, fallbackMessage: fluxo.fallbackMessage, options: options as any[] })
+    if (pendencias.length > 0) {
+      res.status(400).json({ message: 'Não é possível publicar ainda.', pendencias })
+      return
+    }
+
     const updated = await prisma.lightFluxo.update({
       where: { id },
       data: {
-        keywords:        fluxo.draftKeywords ?? fluxo.keywords,
-        welcomeMessage:  fluxo.draftWelcomeMessage ?? fluxo.welcomeMessage,
-        options:         (fluxo.draftOptions as object[] | null) ?? (fluxo.options as object[]),
+        keywords,
+        welcomeMessage,
+        options: options as object[],
         status:          'PUBLISHED',
         hasDraftChanges: false,
         lastPublishedAt: new Date(),
@@ -2004,6 +2042,10 @@ const simulateSchema = z.object({
   // Quando true, simula com os campos de rascunho do Construtor de
   // Atendimento (ainda não publicados) em vez dos campos live.
   useDraft: z.boolean().optional(),
+  // Fixa a simulação nesse fluxo (usado pelo "Testar" do Construtor) — sem
+  // isso, uma nova conversa é roteada por casamento de palavra-chave contra
+  // todos os fluxos do chatbot, podendo cair num fluxo diferente do editado.
+  fluxoId: z.string().optional(),
 })
 
 router.post('/simulate', async (req: AuthRequest, res: Response) => {
@@ -2014,8 +2056,12 @@ router.post('/simulate', async (req: AuthRequest, res: Response) => {
       res.status(400).json({ message: 'Dados inválidos', errors: parsed.error.errors })
       return
     }
-    const { sessionToken, message, chatbotId, useDraft } = parsed.data
-    const result = await simulateLightMessage({ doctorId, sessionToken, messageText: message, chatbotId, useDraft })
+    const { sessionToken, message, chatbotId, useDraft, fluxoId } = parsed.data
+    if (fluxoId && !(await prisma.lightFluxo.findFirst({ where: { id: fluxoId, doctorId }, select: { id: true } }))) {
+      res.status(404).json({ message: 'Fluxo não encontrado' })
+      return
+    }
+    const result = await simulateLightMessage({ doctorId, sessionToken, messageText: message, chatbotId, useDraft, fluxoId })
     res.json(result)
   } catch (err) {
     console.error('[/chatbot-light/simulate]', err)

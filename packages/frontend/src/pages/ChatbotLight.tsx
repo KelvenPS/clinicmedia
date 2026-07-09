@@ -5454,6 +5454,11 @@ function SimuladorTab({ chatbotId }: { chatbotId?: string } = {}) {
         <p className="text-sm text-slate-500 mt-0.5">Teste seus fluxos sem precisar de WhatsApp conectado</p>
       </div>
 
+      <div className="flex items-start gap-2 bg-slate-50 border border-slate-200 rounded-xl px-3.5 py-2.5 text-xs text-slate-600">
+        <Info className="w-3.5 h-3.5 flex-shrink-0 mt-0.5 text-slate-400" />
+        <span>Este teste usa a <strong>versão publicada</strong> dos fluxos. Para testar alterações ainda não publicadas, use o botão "Testar" dentro do <strong>Construtor</strong>.</span>
+      </div>
+
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 items-start">
         {/* Coluna esquerda: instruções */}
         <div className="space-y-4">

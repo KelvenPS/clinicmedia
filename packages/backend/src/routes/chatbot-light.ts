@@ -12,6 +12,10 @@ import { getChatbotLightTasks } from '../lib/chatbot-light-tasks'
 import { getChatbotLightReport } from '../lib/chatbot-light-reports'
 import { DEFAULT_BUSINESS_HOURS } from '../lib/chatbot-light-business-hours'
 import { getUnifiedHistory, HistoryEventType, HistoryStatus } from '../lib/chatbot-light-history'
+import { listActions, getAction, runAction } from '../lib/chatbot-actions/registry'
+import { simulateBlockEngine, resetBlockEngineSimulation, loadVersionBlocks } from '../lib/chatbot-block-engine'
+import { applyBlockTemplate, BLOCK_TEMPLATES, getOrCreateDraftVersion } from '../lib/chatbot-block-templates'
+import { listLegacyMessages, convertLegacyMessage } from '../lib/chatbot-legacy-migration'
 
 const router = Router()
 router.use(authenticate)
@@ -2082,6 +2086,366 @@ router.delete('/simulate/:sessionToken', async (req: AuthRequest, res: Response)
   } catch (err) {
     console.error('[/chatbot-light/simulate DELETE]', err)
     res.status(500).json({ message: 'Erro ao resetar simulação' })
+  }
+})
+
+// ─── Fase 3: Motor de blocos genérico (Construtor de Atendimento) ─────────────
+//
+// Tudo abaixo opera sobre ChatbotBuilderVersion/ChatbotBlock — nunca sobre
+// LightFluxo/LightSystemActionConfig. `ownedChatbotId` garante que o
+// chatbotId do path pertence ao médico autenticado antes de qualquer leitura
+// ou escrita (mesmo padrão da auditoria de segurança de 2026-07-08).
+
+const blockConfigSchema = z.record(z.any())
+
+const blockSchema = z.object({
+  id: z.string(),
+  type: z.string(),
+  name: z.string(),
+  orderIndex: z.number().int().default(0),
+  parentBlockId: z.string().nullable().optional(),
+  config: blockConfigSchema.default({}),
+  isActive: z.boolean().default(true),
+})
+
+const draftSchemaV2 = z.object({ blocks: z.array(blockSchema) })
+
+router.patch('/chatbots/:id/builder-mode', async (req: AuthRequest, res) => {
+  try {
+    const doctorId = await getTargetDoctorId(req)
+    const chatbotId = await ownedChatbotId(doctorId, req.params.id)
+    if (!chatbotId) { res.status(404).json({ message: 'Chatbot não encontrado' }); return }
+
+    const { builderMode } = req.body
+    if (builderMode !== 'legacy' && builderMode !== 'visual_builder') {
+      res.status(400).json({ message: 'builderMode inválido' })
+      return
+    }
+    const updated = await prisma.lightChatbot.update({ where: { id: chatbotId }, data: { builderMode } })
+    await logAudit({
+      userId: req.user!.userId,
+      action: 'CHATBOT_LIGHT_BUILDER_MODE_CHANGED',
+      description: `Chatbot "${updated.name}" mudou para modo ${builderMode}`,
+      metadata: { doctorId, chatbotId },
+    })
+    res.json(updated)
+  } catch {
+    res.status(500).json({ message: 'Erro interno do servidor' })
+  }
+})
+
+router.get('/chatbots/:id/builder/draft', async (req: AuthRequest, res) => {
+  try {
+    const doctorId = await getTargetDoctorId(req)
+    const chatbotId = await ownedChatbotId(doctorId, req.params.id)
+    if (!chatbotId) { res.status(404).json({ message: 'Chatbot não encontrado' }); return }
+
+    const version = await getOrCreateDraftVersion(chatbotId)
+    const blocks = await prisma.chatbotBlock.findMany({ where: { versionId: version.id }, orderBy: { orderIndex: 'asc' } })
+    const publishedVersion = await prisma.chatbotBuilderVersion.findFirst({ where: { chatbotId, status: 'published' }, orderBy: { versionNumber: 'desc' } })
+
+    res.json({ version, blocks, hasPublishedVersion: !!publishedVersion, publishedVersionNumber: publishedVersion?.versionNumber ?? null })
+  } catch {
+    res.status(500).json({ message: 'Erro interno do servidor' })
+  }
+})
+
+router.put('/chatbots/:id/builder/draft', async (req: AuthRequest, res) => {
+  try {
+    const doctorId = await getTargetDoctorId(req)
+    const chatbotId = await ownedChatbotId(doctorId, req.params.id)
+    if (!chatbotId) { res.status(404).json({ message: 'Chatbot não encontrado' }); return }
+
+    const data = draftSchemaV2.parse(req.body)
+    const version = await getOrCreateDraftVersion(chatbotId)
+
+    await prisma.$transaction([
+      prisma.chatbotBlock.deleteMany({ where: { versionId: version.id } }),
+      ...(data.blocks.length
+        ? [prisma.chatbotBlock.createMany({
+            data: data.blocks.map(b => ({
+              id: b.id, versionId: version.id, chatbotId, type: b.type, name: b.name,
+              orderIndex: b.orderIndex, parentBlockId: b.parentBlockId ?? null, config: b.config as object, isActive: b.isActive,
+            })),
+          })]
+        : []),
+    ])
+
+    res.json({ ok: true })
+  } catch (error) {
+    if (error instanceof z.ZodError) {
+      res.status(400).json({ message: 'Dados inválidos', errors: error.errors })
+      return
+    }
+    res.status(500).json({ message: 'Erro interno do servidor' })
+  }
+})
+
+function validateBlockGraph(blocks: { id: string; type: string; name: string; config: any }[]): { type: string; blockId: string; message: string }[] {
+  const errors: { type: string; blockId: string; message: string }[] = []
+
+  const hasWelcome = blocks.some(b => (b.type === 'welcome' || b.type === 'off_hours') && String(b.config?.triggers ?? '').trim())
+  if (!hasWelcome) errors.push({ type: 'MISSING_TRIGGER', blockId: '', message: 'Nenhum bloco de Boas-vindas com gatilho configurado.' })
+
+  const hasEndOrTransfer = blocks.some(b => b.type === 'end' || b.type === 'transfer')
+  if (!hasEndOrTransfer) errors.push({ type: 'MISSING_END', blockId: '', message: 'Nenhum bloco de Encerrar conversa ou Transferir atendimento no fluxo.' })
+
+  for (const b of blocks) {
+    const cfg = b.config ?? {}
+    if (b.type === 'menu' || b.type === 'submenu') {
+      const options = (cfg.options ?? []) as any[]
+      if (options.length === 0) {
+        errors.push({ type: 'MENU_WITHOUT_OPTIONS', blockId: b.id, message: `O menu "${b.name}" não tem nenhuma opção.` })
+      }
+      options.forEach((opt, i) => {
+        if (!opt.nextBlockId) {
+          errors.push({ type: 'MENU_WITHOUT_DESTINATION', blockId: b.id, message: `A opção ${opt.number ?? i + 1} do menu "${b.name}" não possui destino configurado.` })
+        }
+      })
+    }
+    if (b.type === 'menu_dynamic') {
+      if (!cfg.actionKey) errors.push({ type: 'MENU_DYNAMIC_WITHOUT_ACTION', blockId: b.id, message: `O menu dinâmico "${b.name}" não tem uma ação vinculada.` })
+      if (!cfg.saveTo) errors.push({ type: 'MENU_DYNAMIC_WITHOUT_SAVE', blockId: b.id, message: `O menu dinâmico "${b.name}" precisa de uma variável de destino ("Salvar escolha em").` })
+    }
+    if (b.type === 'collect_data') {
+      if (!cfg.saveTo) errors.push({ type: 'COLLECT_WITHOUT_VARIABLE', blockId: b.id, message: `O bloco "${b.name}" não define em qual variável salvar a resposta.` })
+      if (!cfg.nextBlockId) errors.push({ type: 'COLLECT_WITHOUT_DESTINATION', blockId: b.id, message: `O bloco "${b.name}" não define o próximo bloco.` })
+    }
+    if (b.type === 'system_action') {
+      const action = getAction(cfg.actionKey)
+      if (!action) {
+        errors.push({ type: 'ACTION_NOT_FOUND', blockId: b.id, message: `O bloco "${b.name}" aponta pra uma ação inexistente.` })
+      } else {
+        for (const input of action.inputs.filter(i => i.required)) {
+          if (!cfg.inputsMap?.[input.key]) {
+            errors.push({ type: 'ACTION_MISSING_INPUT', blockId: b.id, message: `A ação "${action.name}" (bloco "${b.name}") precisa da entrada "${input.label}".` })
+          }
+        }
+      }
+      if (!cfg.successBlockId) errors.push({ type: 'ACTION_MISSING_SUCCESS_BLOCK', blockId: b.id, message: `O bloco "${b.name}" não define o bloco de sucesso.` })
+      if (!cfg.errorBlockId) errors.push({ type: 'ACTION_MISSING_ERROR_BLOCK', blockId: b.id, message: `O bloco "${b.name}" não define o bloco de erro.` })
+    }
+  }
+
+  return errors
+}
+
+router.post('/chatbots/:id/builder/validate', async (req: AuthRequest, res) => {
+  try {
+    const doctorId = await getTargetDoctorId(req)
+    const chatbotId = await ownedChatbotId(doctorId, req.params.id)
+    if (!chatbotId) { res.status(404).json({ message: 'Chatbot não encontrado' }); return }
+
+    const version = await getOrCreateDraftVersion(chatbotId)
+    const blocks = await prisma.chatbotBlock.findMany({ where: { versionId: version.id, isActive: true } })
+    const errors = validateBlockGraph(blocks)
+    res.json({ valid: errors.length === 0, errors })
+  } catch {
+    res.status(500).json({ message: 'Erro interno do servidor' })
+  }
+})
+
+router.post('/chatbots/:id/builder/publish', async (req: AuthRequest, res) => {
+  try {
+    const doctorId = await getTargetDoctorId(req)
+    const chatbotId = await ownedChatbotId(doctorId, req.params.id)
+    if (!chatbotId) { res.status(404).json({ message: 'Chatbot não encontrado' }); return }
+
+    const draft = await getOrCreateDraftVersion(chatbotId)
+    const blocks = await prisma.chatbotBlock.findMany({ where: { versionId: draft.id, isActive: true } })
+    const errors = validateBlockGraph(blocks)
+    if (errors.length > 0) {
+      res.status(400).json({ message: 'Não é possível publicar ainda.', valid: false, errors })
+      return
+    }
+
+    const lastPublished = await prisma.chatbotBuilderVersion.findFirst({ where: { chatbotId, status: 'published' }, orderBy: { versionNumber: 'desc' } })
+    await prisma.$transaction(async (tx) => {
+      if (lastPublished) {
+        await tx.chatbotBuilderVersion.update({ where: { id: lastPublished.id }, data: { status: 'archived' } })
+      }
+      await tx.chatbotBuilderVersion.update({ where: { id: draft.id }, data: { status: 'published', publishedAt: new Date() } })
+    })
+
+    // Abre um novo rascunho vazio (cópia dos blocos recém-publicados) pra
+    // continuar editando sem afetar o que já foi publicado.
+    const newDraft = await prisma.chatbotBuilderVersion.create({
+      data: { chatbotId, status: 'draft', versionNumber: draft.versionNumber + 1 },
+    })
+    if (blocks.length > 0) {
+      await prisma.chatbotBlock.createMany({
+        data: blocks.map(b => ({
+          id: `${b.id}_v${newDraft.versionNumber}`, versionId: newDraft.id, chatbotId, type: b.type, name: b.name,
+          orderIndex: b.orderIndex, parentBlockId: b.parentBlockId, config: b.config as object, isActive: b.isActive,
+        })),
+      })
+    }
+
+    await logAudit({
+      userId: req.user!.userId,
+      action: 'CHATBOT_LIGHT_BUILDER_PUBLISHED',
+      description: `Construtor publicado (versão ${draft.versionNumber})`,
+      metadata: { doctorId, chatbotId, versionId: draft.id },
+    })
+
+    res.json({ ok: true, versionNumber: draft.versionNumber })
+  } catch {
+    res.status(500).json({ message: 'Erro interno do servidor' })
+  }
+})
+
+router.get('/chatbots/:id/builder/versions', async (req: AuthRequest, res) => {
+  try {
+    const doctorId = await getTargetDoctorId(req)
+    const chatbotId = await ownedChatbotId(doctorId, req.params.id)
+    if (!chatbotId) { res.status(404).json({ message: 'Chatbot não encontrado' }); return }
+    const versions = await prisma.chatbotBuilderVersion.findMany({ where: { chatbotId }, orderBy: { versionNumber: 'desc' } })
+    res.json(versions)
+  } catch {
+    res.status(500).json({ message: 'Erro interno do servidor' })
+  }
+})
+
+// Rollback = republicar uma versão arquivada (mantém histórico intacto).
+router.post('/chatbots/:id/builder/versions/:versionId/rollback', async (req: AuthRequest, res) => {
+  try {
+    const doctorId = await getTargetDoctorId(req)
+    const chatbotId = await ownedChatbotId(doctorId, req.params.id)
+    if (!chatbotId) { res.status(404).json({ message: 'Chatbot não encontrado' }); return }
+
+    const target = await prisma.chatbotBuilderVersion.findFirst({ where: { id: req.params.versionId, chatbotId } })
+    if (!target) { res.status(404).json({ message: 'Versão não encontrada' }); return }
+
+    const currentPublished = await prisma.chatbotBuilderVersion.findFirst({ where: { chatbotId, status: 'published' } })
+    await prisma.$transaction(async (tx) => {
+      if (currentPublished) await tx.chatbotBuilderVersion.update({ where: { id: currentPublished.id }, data: { status: 'archived' } })
+      await tx.chatbotBuilderVersion.update({ where: { id: target.id }, data: { status: 'published', publishedAt: new Date() } })
+    })
+    res.json({ ok: true })
+  } catch {
+    res.status(500).json({ message: 'Erro interno do servidor' })
+  }
+})
+
+const simulateBlockSchema = z.object({
+  sessionToken: z.string().min(1).max(64),
+  message: z.string().min(1).max(500),
+})
+
+router.post('/chatbots/:id/builder/simulate', async (req: AuthRequest, res) => {
+  try {
+    const doctorId = await getTargetDoctorId(req)
+    const chatbotId = await ownedChatbotId(doctorId, req.params.id)
+    if (!chatbotId) { res.status(404).json({ message: 'Chatbot não encontrado' }); return }
+
+    const parsed = simulateBlockSchema.safeParse(req.body)
+    if (!parsed.success) { res.status(400).json({ message: 'Dados inválidos', errors: parsed.error.errors }); return }
+
+    const result = await simulateBlockEngine({ doctorId, chatbotId, sessionToken: parsed.data.sessionToken, messageText: parsed.data.message })
+    res.json(result)
+  } catch (err) {
+    console.error('[/chatbot-light/chatbots/:id/builder/simulate]', err)
+    res.status(500).json({ message: 'Erro interno no simulador' })
+  }
+})
+
+router.delete('/chatbots/:id/builder/simulate/:sessionToken', async (req: AuthRequest, res) => {
+  try {
+    const doctorId = await getTargetDoctorId(req)
+    const chatbotId = await ownedChatbotId(doctorId, req.params.id)
+    if (!chatbotId) { res.status(404).json({ message: 'Chatbot não encontrado' }); return }
+    await resetBlockEngineSimulation(chatbotId, req.params.sessionToken)
+    res.json({ ok: true })
+  } catch {
+    res.status(500).json({ message: 'Erro ao resetar simulação' })
+  }
+})
+
+// Rastro da conversa — usado pelo drawer de teste e por diagnóstico geral.
+router.get('/chatbots/:id/builder/traces', async (req: AuthRequest, res) => {
+  try {
+    const doctorId = await getTargetDoctorId(req)
+    const chatbotId = await ownedChatbotId(doctorId, req.params.id)
+    if (!chatbotId) { res.status(404).json({ message: 'Chatbot não encontrado' }); return }
+
+    const sessionId = req.query.sessionId as string | undefined
+    const traces = await prisma.chatbotMessageTrace.findMany({
+      where: { chatbotId, ...(sessionId ? { sessionId } : {}) },
+      orderBy: { createdAt: 'desc' },
+      take: 200,
+    })
+    res.json(traces)
+  } catch {
+    res.status(500).json({ message: 'Erro interno do servidor' })
+  }
+})
+
+// ─── Ações do sistema (Action Registry) — tela operacional ────────────────────
+
+router.get('/actions', async (_req: AuthRequest, res) => {
+  const actions = listActions().map(a => ({ key: a.key, name: a.name, description: a.description, implemented: a.implemented, inputs: a.inputs, outputs: a.outputs }))
+  res.json(actions)
+})
+
+router.post('/chatbots/:id/actions/:key/test', async (req: AuthRequest, res) => {
+  try {
+    const doctorId = await getTargetDoctorId(req)
+    const chatbotId = await ownedChatbotId(doctorId, req.params.id)
+    if (!chatbotId) { res.status(404).json({ message: 'Chatbot não encontrado' }); return }
+
+    const action = getAction(req.params.key)
+    if (!action) { res.status(404).json({ message: 'Ação não encontrada' }); return }
+
+    const input = req.body?.input && typeof req.body.input === 'object' ? req.body.input : {}
+    const result = await runAction(action.key, { doctorId, chatbotId }, input)
+    res.json(result)
+  } catch {
+    res.status(500).json({ message: 'Erro ao testar ação' })
+  }
+})
+
+// ─── Modelos prontos ───────────────────────────────────────────────────────────
+
+router.get('/builder/templates', async (_req: AuthRequest, res) => {
+  res.json(BLOCK_TEMPLATES.map(t => ({ key: t.key, label: t.label, description: t.description, implemented: t.implemented })))
+})
+
+router.post('/chatbots/:id/builder/templates/:key/apply', async (req: AuthRequest, res) => {
+  try {
+    const doctorId = await getTargetDoctorId(req)
+    const chatbotId = await ownedChatbotId(doctorId, req.params.id)
+    if (!chatbotId) { res.status(404).json({ message: 'Chatbot não encontrado' }); return }
+
+    const result = await applyBlockTemplate(chatbotId, req.params.key)
+    res.json(result)
+  } catch (err: any) {
+    res.status(400).json({ message: err?.message || 'Erro ao aplicar modelo' })
+  }
+})
+
+// ─── Migração de legado ────────────────────────────────────────────────────────
+
+router.get('/chatbots/:id/legacy/messages', async (req: AuthRequest, res) => {
+  try {
+    const doctorId = await getTargetDoctorId(req)
+    const chatbotId = await ownedChatbotId(doctorId, req.params.id)
+    if (!chatbotId) { res.status(404).json({ message: 'Chatbot não encontrado' }); return }
+    const messages = await listLegacyMessages(chatbotId)
+    res.json(messages)
+  } catch {
+    res.status(500).json({ message: 'Erro interno do servidor' })
+  }
+})
+
+router.post('/chatbots/:id/legacy/messages/:key/convert', async (req: AuthRequest, res) => {
+  try {
+    const doctorId = await getTargetDoctorId(req)
+    const chatbotId = await ownedChatbotId(doctorId, req.params.id)
+    if (!chatbotId) { res.status(404).json({ message: 'Chatbot não encontrado' }); return }
+    const result = await convertLegacyMessage(chatbotId, req.params.key)
+    res.json(result)
+  } catch (err: any) {
+    res.status(400).json({ message: err?.message || 'Erro ao converter mensagem' })
   }
 })
 

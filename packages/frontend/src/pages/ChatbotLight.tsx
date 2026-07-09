@@ -26,6 +26,7 @@ import { useAuthStore } from '../store/authStore'
 import Modal from '../components/ui/Modal'
 import { findCampaignPreset } from '../data/lightCampaignPresets'
 import ConstrutorPanel from './chatbot-light/ConstrutorPanel'
+import BlockBuilderPanel from './chatbot-light/BlockBuilderPanel'
 
 const generateUUID = () => {
   if (typeof window !== 'undefined' && window.crypto && typeof window.crypto.randomUUID === 'function') {
@@ -1846,7 +1847,7 @@ function FluxoSimulatorModal({
 
 // ─── Chatbots panel (agrupa Meus Chatbots / Ações do Sistema / Simulador) ─────
 
-interface ChatbotSummary {
+export interface ChatbotSummary {
   id: string
   name: string
   description: string | null
@@ -1854,6 +1855,8 @@ interface ChatbotSummary {
   active: boolean
   boundRoomId: string | null
   fallbackQueue: string | null
+  // Fase 3: "legacy" (padrão, motor atual) | "visual_builder" (motor de blocos genérico)
+  builderMode?: string
   createdAt: string
   updatedAt: string
   lastActivityAt: string | null
@@ -2047,7 +2050,13 @@ function ChatbotDetailView({
       </div>
 
       {tab === 'visao'      && <ChatbotVisaoGeralTab chatbot={chatbot} />}
-      {tab === 'construtor' && <div className="h-[calc(100vh-13rem)]"><ConstrutorPanel chatbotId={chatbot.id} /></div>}
+      {tab === 'construtor' && (
+        <div className="h-[calc(100vh-13rem)]">
+          {chatbot.builderMode === 'visual_builder'
+            ? <BlockBuilderPanel chatbotId={chatbot.id} />
+            : <ConstrutorPanel chatbotId={chatbot.id} />}
+        </div>
+      )}
       {tab === 'msgs'       && <MensagensLibPanel chatbotId={chatbot.id} />}
       {tab === 'automacoes' && <MensagensPanel chatbotId={chatbot.id} />}
       {tab === 'testes'     && <div className="p-6"><SimuladorTab chatbotId={chatbot.id} /></div>}
@@ -2167,6 +2176,12 @@ function ChatbotConfigTab({ chatbot }: { chatbot: ChatbotSummary }) {
     onError: (e: any) => toast.error(e?.response?.data?.message || 'Erro ao excluir'),
   })
 
+  const builderModeMutation = useMutation({
+    mutationFn: (builderMode: string) => api.patch(`/chatbot-light/chatbots/${chatbot.id}/builder-mode`, { builderMode }).then(r => r.data),
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ['light-chatbots'] }); toast.success('Modo do Construtor atualizado') },
+    onError: () => toast.error('Erro ao mudar o modo do Construtor'),
+  })
+
   const hasBoundRoom = !!chatbot.boundRoomId
   const connStatus = chatbot.boundRoom?.whatsappConnection?.status
   const isConnected = connStatus === 'CONNECTED'
@@ -2194,6 +2209,37 @@ function ChatbotConfigTab({ chatbot }: { chatbot: ChatbotSummary }) {
               <Smartphone className="w-4 h-4" /> Vincular Sala
             </button>
           )}
+        </div>
+      </div>
+
+      <div>
+        <h3 className="font-semibold text-slate-900 mb-3">Modo do Construtor</h3>
+        <div className="bg-white border border-slate-200 rounded-2xl p-5 space-y-3">
+          <div className="flex items-center gap-3">
+            <button
+              onClick={() => builderModeMutation.mutate('legacy')}
+              disabled={builderModeMutation.isPending}
+              className={`flex-1 px-4 py-3 rounded-xl border text-sm font-semibold transition-colors ${
+                (chatbot.builderMode ?? 'legacy') === 'legacy' ? 'bg-cyan-50 border-cyan-300 text-cyan-700' : 'bg-white border-slate-200 text-slate-500 hover:bg-slate-50'
+              }`}
+            >
+              Legado (Fluxos/Ações do Sistema)
+            </button>
+            <button
+              onClick={() => builderModeMutation.mutate('visual_builder')}
+              disabled={builderModeMutation.isPending}
+              className={`flex-1 px-4 py-3 rounded-xl border text-sm font-semibold transition-colors ${
+                chatbot.builderMode === 'visual_builder' ? 'bg-cyan-50 border-cyan-300 text-cyan-700' : 'bg-white border-slate-200 text-slate-500 hover:bg-slate-50'
+              }`}
+            >
+              Construtor de Blocos (novo)
+            </button>
+          </div>
+          <p className="text-xs text-slate-400 leading-relaxed">
+            Trocar de modo <strong>não converte nada automaticamente</strong>. No modo novo, a conversa é montada do zero
+            com blocos (Boas-vindas, Menu, Coletar dado, Ação do sistema...) na aba Construtor — mensagens que hoje vêm de
+            uma Ação do Sistema legada podem ser recriadas como bloco em "Mensagens herdadas", dentro do Construtor.
+          </p>
         </div>
       </div>
 

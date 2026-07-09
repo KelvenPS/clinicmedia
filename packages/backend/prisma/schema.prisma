@@ -755,6 +755,11 @@ model LightChatbot {
   // de "que chatbot é dono desta sala?" no roteamento inbound.
   boundRoomId   String?  @unique
   fallbackQueue String?
+  // "legacy" (padrão) = motor atual (LightFluxo/LightSystemActionConfig),
+  // intocado. "visual_builder" = motor novo de blocos genéricos (Fase 3) —
+  // handleIncomingLightMessage desvia pra runBlockEngine() e ignora
+  // LightFluxo/LightSystemActionConfig por completo pra esse chatbot.
+  builderMode   String   @default("legacy")
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
 
@@ -1068,4 +1073,125 @@ model LightSystemActionLog {
   @@index([sessionId])
   @@index([createdAt])
   @@map("TBLLIGHTSYSTEMACTIONLOG")
+}
+
+// ─── Fase 3: motor de blocos genérico (visual_builder) ────────────────────────
+//
+// Tudo abaixo é aditivo e só é lido/escrito por chatbot-block-engine.ts e
+// pelas rotas de builder — nenhum destes models é usado pelo motor legado
+// (chatbot-light-engine.ts / chatbot-light-guided-engine.ts / LightFluxo /
+// LightSystemActionConfig), que continuam 100% intocados.
+
+model ChatbotBuilderVersion {
+  id              String    @id @default(uuid())
+  chatbotId       String
+  status          String    @default("draft") // draft | published | archived
+  versionNumber   Int
+  createdByUserId String?
+  publishedAt     DateTime?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  blocks ChatbotBlock[]
+
+  @@index([chatbotId])
+  @@index([status])
+  @@map("TBLCHATBOTBUILDERVERSION")
+}
+
+model ChatbotBlock {
+  id             String   @id @default(uuid())
+  versionId      String
+  chatbotId      String
+  type           String   // welcome|message|off_hours|success_message|error_message|menu|submenu|menu_dynamic|collect_data|confirm_data|system_action|condition|transfer|end
+  name           String
+  orderIndex     Int      @default(0)
+  parentBlockId  String?
+  config         Json     @default("{}")
+  isActive       Boolean  @default(true)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  version ChatbotBuilderVersion @relation(fields: [versionId], references: [id], onDelete: Cascade)
+
+  @@index([chatbotId])
+  @@index([versionId])
+  @@index([parentBlockId])
+  @@map("TBLCHATBOTBLOCK")
+}
+
+// Sessão de conversa do motor novo — independente de LightFlowSession
+// (motor legado). "variables" é o estado coletado/retornado durante a
+// conversa (nome, cpf, servicoId, horarioEscolhido, agendamentoId, ...).
+model ChatbotBuilderSession {
+  id            String    @id @default(uuid())
+  chatbotId     String
+  roomId        String?
+  phone         String
+  contactName   String?
+  currentBlockId String?
+  status        String    @default("ACTIVE") // ACTIVE|COMPLETED|CANCELLED|TRANSFER|FAILED|EXPIRED
+  variables     Json      @default("{}")
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+  lastMessageAt DateTime?
+
+  @@index([chatbotId, phone, status])
+  @@map("TBLCHATBOTBUILDERSESSION")
+}
+
+// Rastro por mensagem individual (não por turno) — cada mensagem
+// enviada/recebida pelo motor novo é logada com origem rastreável.
+model ChatbotMessageTrace {
+  id                 String   @id @default(uuid())
+  sessionId          String
+  chatbotId          String
+  direction          String   // inbound|outbound|system
+  message             String   @db.Text
+  blockId            String?
+  sourceType         String   // block|template|fallback_block|system_action_result|automation_block
+  sourceId           String?
+  variablesSnapshot  Json?
+  metadata           Json?
+  createdAt          DateTime @default(now())
+
+  @@index([sessionId])
+  @@index([chatbotId])
+  @@index([createdAt])
+  @@map("TBLCHATBOTMESSAGETRACE")
+}
+
+model SystemActionExecution {
+  id           String   @id @default(uuid())
+  chatbotId    String
+  sessionId    String?
+  actionKey    String
+  input        Json
+  output       Json?
+  success      Boolean
+  errorCode    String?
+  errorMessage String?
+  createdAt    DateTime @default(now())
+
+  @@index([chatbotId])
+  @@index([sessionId])
+  @@index([actionKey])
+  @@index([createdAt])
+  @@map("TBLSYSTEMACTIONEXECUTION")
+}
+
+// Registro do progresso de migração do legado (LightSystemActionConfig) pro
+// motor novo — não apaga nada legado, só marca o que já foi convertido.
+model LegacyActionMapping {
+  id             String   @id @default(uuid())
+  chatbotId      String
+  legacyActionId String   // LightSystemActionConfig.id
+  status         String   @default("active") // active|migrated|ignored
+  notes          String?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  @@index([chatbotId])
+  @@index([legacyActionId])
+  @@map("TBLLEGACYACTIONMAPPING")
 }

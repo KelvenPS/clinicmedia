@@ -5,6 +5,7 @@ import { resolveChatbotLightSendTarget, sendRoomWhatsAppMessage, normalizeToWhat
 import { processGuidedStep, interpolateTemplate, startLeadCaptureFlow, processLeadCaptureStep } from './chatbot-light-guided-engine'
 import { resolveTemplateVariables, resolveMessageText, TemplateContext } from './chatbot-light-variables'
 import { isWithinBusinessHours, flowHasLeadCapture, BusinessHoursConfig } from './chatbot-light-business-hours'
+import { runBlockEngine } from './chatbot-block-engine'
 
 
 const lightFlowStateCache = new NodeCache({
@@ -175,6 +176,26 @@ export async function handleIncomingLightMessage(params: {
       whatsappInstanceId
     })
     return
+  }
+
+  // 5.5. Fase 3: chatbots em modo visual_builder usam o motor de blocos novo
+  // e ignoram todo o restante desta função (LightFluxo/LightSystemActionConfig
+  // nunca são lidos/escritos para esses chatbots). Nenhuma outra linha deste
+  // arquivo muda — chatbots em modo "legacy" (padrão) seguem exatamente como
+  // antes a partir daqui.
+  if (instance.chatbotId) {
+    const chatbot = await prisma.lightChatbot.findUnique({ where: { id: instance.chatbotId }, select: { builderMode: true } })
+    if (chatbot?.builderMode === 'visual_builder') {
+      await runBlockEngine({
+        instance,
+        chatbotId: instance.chatbotId,
+        doctorId: instance.doctorId,
+        contactPhone: contactKey,
+        deliveryJid,
+        messageText,
+      })
+      return
+    }
   }
 
   // 6. Buscar sessão ACTIVE

@@ -57,7 +57,7 @@ export default function OutrasConfiguracoes() {
         </button>
 
         <button
-          onClick={() => navigate('/configuracoes/planos')}
+          onClick={() => navigate('/configuracoes/plano-financeiro')}
           className="w-full card-hover flex items-center gap-4 text-left"
         >
           <div className="w-10 h-10 rounded-xl bg-rose-100 flex items-center justify-center flex-shrink-0">
@@ -88,7 +88,7 @@ export default function OutrasConfiguracoes() {
                 Para configurar o valor padrão por tipo de atendimento, acesse
                 {' '}<button onClick={() => navigate('/configuracoes/tipos-atendimento')} className="underline font-medium">Tipos de Atendimento</button>.
                 Para configurar valores por plano de saúde, acesse
-                {' '}<button onClick={() => navigate('/configuracoes/planos')} className="underline font-medium">Planos de Saúde</button>.
+                {' '}<button onClick={() => navigate('/configuracoes/plano-financeiro')} className="underline font-medium">Planos de Saúde</button>.
               </p>
             </div>
           </div>

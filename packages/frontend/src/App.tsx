@@ -20,7 +20,6 @@ import CentrosCusto from './pages/financeiro/CentrosCusto'
 import OutrasConfiguracoes from './pages/financeiro/OutrasConfiguracoes'
 import Pacientes from './pages/Pacientes'
 import Prontuario from './pages/Prontuario'
-import Avaliacoes from './pages/Avaliacoes'
 import Perfil from './pages/configuracoes/Perfil'
 import PlanoFinanceiro from './pages/configuracoes/PlanoFinanceiro'
 import Ajuda from './pages/configuracoes/Ajuda'
@@ -30,17 +29,14 @@ import TiposAtendimento from './pages/configuracoes/TiposAtendimento'
 import Salas from './pages/configuracoes/Salas'
 import Documentos from './pages/configuracoes/Documentos'
 import FormasPagamento from './pages/configuracoes/FormasPagamento'
-import Planos from './pages/configuracoes/Planos'
+import Assinatura from './pages/configuracoes/Assinatura'
+import AssinaturaPendente from './pages/configuracoes/AssinaturaPendente'
 import ConfigNotificacoes from './pages/configuracoes/ConfigNotificacoes'
 import Integracoes from './pages/configuracoes/Integracoes'
 import ChatbotLight from './pages/ChatbotLight'
 import MinhasSalas from './pages/MinhasSalas'
 import AdminGestao from './pages/AdminGestao'
 import AdminSQL from './pages/AdminSQL'
-import AdminPlanos from './pages/AdminPlanos'
-import NotaFiscal from './pages/NotaFiscal'
-import ConsultaOnline from './pages/ConsultaOnline'
-import { FeatureGate } from './components/ui/FeatureGate'
 import { SecretaryGate } from './components/ui/SecretaryGate'
 
 function ProtectedRoute({ children, allowedRoles }: { children: React.ReactNode; allowedRoles?: string[] }) {
@@ -68,29 +64,25 @@ export default function App() {
           <Route path="dashboard" element={<Dashboard />} />
           <Route path="agenda" element={<Agenda />} />
           <Route path="pacientes" element={<Pacientes />} />
-          <Route path="prontuario" element={<FeatureGate feature="prontuario"><Prontuario /></FeatureGate>} />
-          <Route path="avaliacoes" element={<ProtectedRoute allowedRoles={['ADMIN', 'DOCTOR']}><FeatureGate feature="avaliacoes"><Avaliacoes /></FeatureGate></ProtectedRoute>} />
+          <Route path="prontuario" element={<Prontuario />} />
           <Route path="financeiro" element={<Navigate to="/financeiro/resumo" replace />} />
-          <Route path="financeiro/resumo" element={<FeatureGate feature="financeiro"><SecretaryGate permission="financeiro"><FinanceiroResumo /></SecretaryGate></FeatureGate>} />
-          <Route path="financeiro/fluxo-caixa" element={<FeatureGate feature="financeiro"><SecretaryGate permission="financeiro"><FluxoCaixa /></SecretaryGate></FeatureGate>} />
-          <Route path="financeiro/extrato" element={<FeatureGate feature="financeiro"><SecretaryGate permission="financeiro"><Extrato /></SecretaryGate></FeatureGate>} />
-          <Route path="financeiro/receitas" element={<FeatureGate feature="financeiro"><SecretaryGate permission="financeiro"><Receitas /></SecretaryGate></FeatureGate>} />
-          <Route path="financeiro/despesas" element={<FeatureGate feature="financeiro"><SecretaryGate permission="financeiro"><Despesas /></SecretaryGate></FeatureGate>} />
-          <Route path="financeiro/analise-receitas" element={<FeatureGate feature="financeiro"><SecretaryGate permission="financeiro"><AnaliseReceitas /></SecretaryGate></FeatureGate>} />
-          <Route path="financeiro/analise-despesas" element={<FeatureGate feature="financeiro"><SecretaryGate permission="financeiro"><AnaliseDespesas /></SecretaryGate></FeatureGate>} />
-          <Route path="financeiro/analise-avancada" element={<ProtectedRoute allowedRoles={['ADMIN', 'DOCTOR']}><FeatureGate feature="financeiro"><AnaliseAvancada /></FeatureGate></ProtectedRoute>} />
-          <Route path="financeiro/formas-pagamento" element={<ProtectedRoute allowedRoles={['ADMIN', 'DOCTOR']}><FeatureGate feature="financeiro"><FormasPagamento /></FeatureGate></ProtectedRoute>} />
-          <Route path="financeiro/categorias" element={<ProtectedRoute allowedRoles={['ADMIN', 'DOCTOR']}><FeatureGate feature="financeiro"><FinanceiroCategorias /></FeatureGate></ProtectedRoute>} />
-          <Route path="financeiro/contas-bancarias" element={<ProtectedRoute allowedRoles={['ADMIN', 'DOCTOR']}><FeatureGate feature="financeiro"><ContasBancarias /></FeatureGate></ProtectedRoute>} />
-          <Route path="financeiro/centros-custo" element={<ProtectedRoute allowedRoles={['ADMIN', 'DOCTOR']}><FeatureGate feature="financeiro"><CentrosCusto /></FeatureGate></ProtectedRoute>} />
-          <Route path="financeiro/outras-configuracoes" element={<ProtectedRoute allowedRoles={['ADMIN', 'DOCTOR']}><FeatureGate feature="financeiro"><OutrasConfiguracoes /></FeatureGate></ProtectedRoute>} />
+          <Route path="financeiro/resumo" element={<SecretaryGate permission="financeiro"><FinanceiroResumo /></SecretaryGate>} />
+          <Route path="financeiro/fluxo-caixa" element={<SecretaryGate permission="financeiro"><FluxoCaixa /></SecretaryGate>} />
+          <Route path="financeiro/extrato" element={<SecretaryGate permission="financeiro"><Extrato /></SecretaryGate>} />
+          <Route path="financeiro/receitas" element={<SecretaryGate permission="financeiro"><Receitas /></SecretaryGate>} />
+          <Route path="financeiro/despesas" element={<SecretaryGate permission="financeiro"><Despesas /></SecretaryGate>} />
+          <Route path="financeiro/analise-receitas" element={<SecretaryGate permission="financeiro"><AnaliseReceitas /></SecretaryGate>} />
+          <Route path="financeiro/analise-despesas" element={<SecretaryGate permission="financeiro"><AnaliseDespesas /></SecretaryGate>} />
+          <Route path="financeiro/analise-avancada" element={<ProtectedRoute allowedRoles={['ADMIN', 'DOCTOR']}><AnaliseAvancada /></ProtectedRoute>} />
+          <Route path="financeiro/formas-pagamento" element={<ProtectedRoute allowedRoles={['ADMIN', 'DOCTOR']}><FormasPagamento /></ProtectedRoute>} />
+          <Route path="financeiro/categorias" element={<ProtectedRoute allowedRoles={['ADMIN', 'DOCTOR']}><FinanceiroCategorias /></ProtectedRoute>} />
+          <Route path="financeiro/contas-bancarias" element={<ProtectedRoute allowedRoles={['ADMIN', 'DOCTOR']}><ContasBancarias /></ProtectedRoute>} />
+          <Route path="financeiro/centros-custo" element={<ProtectedRoute allowedRoles={['ADMIN', 'DOCTOR']}><CentrosCusto /></ProtectedRoute>} />
+          <Route path="financeiro/outras-configuracoes" element={<ProtectedRoute allowedRoles={['ADMIN', 'DOCTOR']}><OutrasConfiguracoes /></ProtectedRoute>} />
           <Route path="usuarios" element={<ProtectedRoute allowedRoles={['ADMIN']}><Usuarios /></ProtectedRoute>} />
           <Route path="admin/gestao" element={<ProtectedRoute allowedRoles={['ADMIN']}><AdminGestao /></ProtectedRoute>} />
           <Route path="admin/sql" element={<ProtectedRoute allowedRoles={['ADMIN']}><AdminSQL /></ProtectedRoute>} />
-          <Route path="admin/planos" element={<ProtectedRoute allowedRoles={['ADMIN']}><AdminPlanos /></ProtectedRoute>} />
           <Route path="minhas-salas" element={<ProtectedRoute allowedRoles={['SECRETARY']}><MinhasSalas /></ProtectedRoute>} />
-          <Route path="nota-fiscal" element={<FeatureGate feature="nota_fiscal"><SecretaryGate permission="nota_fiscal"><NotaFiscal /></SecretaryGate></FeatureGate>} />
-          <Route path="consulta-online" element={<FeatureGate feature="teleconsulta"><SecretaryGate permission="teleconsulta"><ConsultaOnline /></SecretaryGate></FeatureGate>} />
 
           <Route path="configuracoes" element={<Navigate to="/configuracoes/perfil" replace />} />
           <Route path="configuracoes/perfil" element={<Perfil />} />
@@ -102,9 +94,10 @@ export default function App() {
           <Route path="configuracoes/salas" element={<ProtectedRoute allowedRoles={['ADMIN', 'DOCTOR', 'SECRETARY']}><SecretaryGate permission="salas"><Salas /></SecretaryGate></ProtectedRoute>} />
           <Route path="configuracoes/documentos" element={<ProtectedRoute allowedRoles={['ADMIN', 'DOCTOR', 'SECRETARY']}><SecretaryGate permission="documentos"><Documentos /></SecretaryGate></ProtectedRoute>} />
           <Route path="configuracoes/formas-pagamento" element={<ProtectedRoute allowedRoles={['ADMIN', 'DOCTOR']}><FormasPagamento /></ProtectedRoute>} />
-          <Route path="configuracoes/planos" element={<ProtectedRoute allowedRoles={['ADMIN', 'DOCTOR']}><Planos /></ProtectedRoute>} />
           <Route path="configuracoes/notificacoes" element={<ConfigNotificacoes />} />
           <Route path="configuracoes/integracoes" element={<ProtectedRoute allowedRoles={['ADMIN', 'DOCTOR', 'SECRETARY']}><SecretaryGate permission="integracoes"><Integracoes /></SecretaryGate></ProtectedRoute>} />
+          <Route path="configuracoes/assinatura" element={<Assinatura />} />
+          <Route path="configuracoes/assinatura/pendente" element={<AssinaturaPendente />} />
         </Route>
 
         <Route path="*" element={<Navigate to="/" replace />} />

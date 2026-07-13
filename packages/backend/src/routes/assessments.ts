@@ -1,14 +1,13 @@
 import { Router } from 'express'
 import { z } from 'zod'
 import { prisma } from '../lib/prisma'
-import { authenticate, requireRole, requireFeature, AuthRequest } from '../middleware/auth'
+import { authenticate, requireRole, AuthRequest } from '../middleware/auth'
 
 import { triggerLightAutomatedMessage } from '../lib/chatbot-light-engine'
 
 const router = Router()
 router.use(authenticate)
 router.use(requireRole('ADMIN', 'DOCTOR'))
-router.use(requireFeature('avaliacoes'))
 
 const assessmentSchema = z.object({
   patientId: z.string().min(1),

@@ -5,7 +5,7 @@ import { z } from 'zod'
 import { prisma } from '../lib/prisma'
 import { signToken } from '../utils/jwt'
 import { authenticate, AuthRequest } from '../middleware/auth'
-import { ensureTrialSubscription } from '../lib/subscription'
+import { ensureTrialSubscription } from '../lib/subscription-access'
 
 const router = Router()
 
@@ -40,11 +40,6 @@ router.post('/login', async (req, res) => {
     if (!passwordMatch) {
       res.status(401).json({ message: 'Email ou senha inválidos' })
       return
-    }
-
-    // Ensure every doctor has a trial subscription row (backfill for pre-existing accounts)
-    if (user.role === 'DOCTOR') {
-      await ensureTrialSubscription(user.id).catch(() => {})
     }
 
     const token = signToken({
@@ -93,22 +88,28 @@ router.post('/register', async (req, res) => {
 
     const hashedPassword = await bcrypt.hash(data.password, 10)
 
-    const user = await prisma.user.create({
-      data: {
-        name: data.name,
-        email: data.email,
-        password: hashedPassword,
-        role: 'DOCTOR',
-        active: true,
-        specialty: data.specialty,
-        certType: data.certType,
-        certNumber: data.certNumber,
-        crm: data.certNumber,
-        phone: data.phone,
-      },
-    })
+    const user = await prisma.$transaction(async (tx) => {
+      const created = await tx.user.create({
+        data: {
+          name: data.name,
+          email: data.email,
+          password: hashedPassword,
+          role: 'DOCTOR',
+          active: true,
+          specialty: data.specialty,
+          certType: data.certType,
+          certNumber: data.certNumber,
+          crm: data.certNumber,
+          phone: data.phone,
+        },
+      })
 
-    await ensureTrialSubscription(user.id)
+      // Assinatura da clínica: trial de 7 dias, criado na mesma transação do
+      // cadastro pra nunca existir médico sem status de cobrança.
+      await ensureTrialSubscription(created.id, tx)
+
+      return created
+    })
 
     const token = signToken({
       userId: user.id,

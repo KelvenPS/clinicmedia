@@ -294,7 +294,6 @@ const TEMPLATE_VARS: { category: string; label: string; vars: { key: string; des
     label: 'Digital / Links',
     vars: [
       { key: '{link}',         desc: 'Link personalizado genérico' },
-      { key: '{teleconsulta}', desc: 'Link para a teleconsulta' },
       { key: '{prontuario}',   desc: 'Link para o prontuário do paciente' },
       { key: '{documento}',    desc: 'Nome de documento enviado' },
     ],

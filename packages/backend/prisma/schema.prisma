@@ -121,6 +121,7 @@ model User {
   paymentMethods       PaymentMethod[]             @relation("DoctorPaymentMethods")
   subscription         DoctorSubscription?         @relation("DoctorSubscription")
   subscriptionPayments SubscriptionPayment[]       @relation("DoctorPayments")
+  checkoutAttempts     SubscriptionCheckoutAttempt[] @relation("DoctorCheckoutAttempts")
   integrations         Integration[]               @relation("DoctorIntegrations")
   whatsappInstances    WhatsAppInstance[]          @relation("DoctorWhatsApp")
   healthPlans          HealthPlan[]                @relation("DoctorHealthPlans")
@@ -451,7 +452,6 @@ model Room {
   numero           String?
   cidade           String?
   address          String?  @map("address")
-  teleconsultaLink String?  @map("teleconsulta_link") // Link de teleconsulta para variável {teleconsulta}
   daysOfWeek       Json     @default("[]")
   startTime        String
   endTime          String
@@ -626,48 +626,109 @@ model WebhookLog {
   @@map("TBLLOGWEBHOOK")
 }
 
+// ─── Assinatura (Clinic Pro / Kiwify) ────────────────────────────────────────
+// Plano único (R$ 89,90/mês, 7 dias de teste). A assinatura é por "clínica" —
+// no modelo atual isso é o doctorId (o médico que criou a conta é o dono da
+// clínica); secretárias herdam o acesso via getEffectiveDoctorId().
+//
+// Status como String (não enum nativo do Postgres) de propósito: as tabelas
+// TBLASSINATURA/TBLPAGAMENTOASSINATURA já existiam com esse mesmo padrão para
+// o sistema antigo (MercadoPago, removido). Para não colidir com esse schema
+// drift já deixado no banco de produção, o sistema Kiwify usa tabelas novas
+// (TBLASSINATURACLINICA/TBLPAGAMENTOCLINICA). Ver docs/assinatura-kiwify.md.
+// Valores válidos ficam tipados em TypeScript: ver lib/subscription-access.ts.
+
 model DoctorSubscription {
-  id                 String    @id @default(uuid())
-  doctorId           String    @unique
-  plan               String    @default("TRIAL")
-  billingCycle       String    @default("MONTHLY")
-  status             String    @default("ACTIVE")
-  trialEndsAt        DateTime?
-  currentPeriodStart DateTime?
-  currentPeriodEnd   DateTime?
-  cancelledAt        DateTime?
-  mpPaymentId        String?
-  mpPreferenceId     String?
-  trialWarned        Boolean   @default(false)
-  adminNote          String?
-  createdAt          DateTime  @default(now())
-  updatedAt          DateTime  @updatedAt
+  id                     String    @id @default(uuid())
+  doctorId               String    @unique
+  status                 String    @default("TRIAL")
+
+  trialStartedAt         DateTime  @default(now())
+  trialEndsAt            DateTime
+
+  currentPeriodStartedAt DateTime?
+  currentPeriodEndsAt    DateTime?
+
+  kiwifySubscriptionId   String?
+  kiwifyCustomerId       String?
+  lastKiwifyOrderId      String?
+
+  lastPaymentAt          DateTime?
+  canceledAt             DateTime?
+  blockedAt              DateTime?
+
+  createdAt              DateTime  @default(now())
+  updatedAt              DateTime  @updatedAt
 
   doctor   User                  @relation("DoctorSubscription", fields: [doctorId], references: [id])
   payments SubscriptionPayment[] @relation("SubPayments")
 
-  @@map("TBLASSINATURA")
+  @@map("TBLASSINATURACLINICA")
 }
 
 model SubscriptionPayment {
   id             String    @id @default(uuid())
   doctorId       String
   subscriptionId String
-  plan           String
-  billingCycle   String    @default("MONTHLY")
-  amount         Float
+  kiwifyOrderId  String    @unique
   status         String    @default("PENDING")
-  mpPaymentId    String?   @unique
-  mpStatus       String?
-  paidAt         DateTime?
+  amountCents    Int       @default(8990)
+  currency       String    @default("BRL")
+
+  paymentMethod  String?
+  approvedAt     DateTime?
+  refundedAt     DateTime?
+
   createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
 
   doctor       User               @relation("DoctorPayments", fields: [doctorId], references: [id])
   subscription DoctorSubscription @relation("SubPayments", fields: [subscriptionId], references: [id])
 
   @@index([doctorId])
-  @@index([mpPaymentId])
-  @@map("TBLPAGAMENTOASSINATURA")
+  @@index([kiwifyOrderId])
+  @@map("TBLPAGAMENTOCLINICA")
+}
+
+// Registro bruto de cada webhook recebido da Kiwify — garante idempotência
+// (eventKey é único) e serve de trilha de auditoria/reconciliação.
+model KiwifyWebhookEvent {
+  id               String    @id @default(uuid())
+  eventKey         String    @unique
+  eventType        String
+  kiwifyOrderId    String?
+  payload          Json
+
+  processingStatus String    @default("RECEIVED")
+  receivedAt       DateTime  @default(now())
+  processedAt      DateTime?
+  errorMessage     String?
+  attempts         Int       @default(0)
+
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+
+  @@map("TBLWEBHOOKKIWIFY")
+}
+
+// Rastreia cada tentativa de checkout aberta pelo médico, pra relacionar o
+// pagamento na Kiwify de volta à conta certa (via s1/s2/s3 na URL).
+model SubscriptionCheckoutAttempt {
+  id          String    @id @default(uuid())
+  doctorId    String
+  userId      String
+
+  status      String    @default("CREATED")
+  checkoutUrl String?
+
+  createdAt   DateTime  @default(now())
+  completedAt DateTime?
+  expiresAt   DateTime?
+
+  doctor User @relation("DoctorCheckoutAttempts", fields: [doctorId], references: [id])
+
+  @@index([doctorId])
+  @@map("TBLTENTATIVACHECKOUT")
 }
 
 // ─── WhatsApp / Chatbot Module ────────────────────────────────────────────────

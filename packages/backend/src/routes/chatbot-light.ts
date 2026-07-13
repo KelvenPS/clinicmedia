@@ -2,7 +2,7 @@ import { Router, Response, NextFunction } from 'express'
 import { z } from 'zod'
 import { Prisma } from '@prisma/client'
 import { prisma } from '../lib/prisma'
-import { authenticate, requireFeature, AuthRequest } from '../middleware/auth'
+import { authenticate, AuthRequest } from '../middleware/auth'
 import { resolveChatbotLightSendTarget, sendRoomWhatsAppMessage, checkPhoneOnWhatsApp, normalizeToWhatsAppJid, isRoomSessionActive } from '../lib/room-whatsapp'
 import { requireSecretaryPermission, getEffectiveDoctorId, logAudit } from '../lib/secretaryAccess'
 import { simulateLightMessage, resetSimulation } from '../lib/chatbot-light-simulator'
@@ -19,7 +19,6 @@ import { listLegacyMessages, convertLegacyMessage } from '../lib/chatbot-legacy-
 
 const router = Router()
 router.use(authenticate)
-router.use(requireFeature('chatbot'))
 
 // Rotas de "uso do dia a dia" (chatbot_light_operar) — tudo o resto exige
 // "configurar" (chatbot_light_configurar). Ver Fase 3 do plano de refatoração.

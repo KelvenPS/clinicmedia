@@ -1,0 +1,105 @@
+-- Assinatura Clinic Pro via Kiwify (plano único, R$ 89,90/mês, 7 dias de teste).
+-- Tabelas novas (TBLASSINATURACLINICA/TBLPAGAMENTOCLINICA) para não colidir com
+-- TBLASSINATURA/TBLPAGAMENTOASSINATURA, que já existem em produção com o
+-- schema antigo do MercadoPago (removido do código, mas não do banco).
+
+-- CreateTable
+CREATE TABLE "TBLASSINATURACLINICA" (
+    "id" TEXT NOT NULL,
+    "doctorId" TEXT NOT NULL,
+    "status" TEXT NOT NULL DEFAULT 'TRIAL',
+    "trialStartedAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "trialEndsAt" TIMESTAMP(3) NOT NULL,
+    "currentPeriodStartedAt" TIMESTAMP(3),
+    "currentPeriodEndsAt" TIMESTAMP(3),
+    "kiwifySubscriptionId" TEXT,
+    "kiwifyCustomerId" TEXT,
+    "lastKiwifyOrderId" TEXT,
+    "lastPaymentAt" TIMESTAMP(3),
+    "canceledAt" TIMESTAMP(3),
+    "blockedAt" TIMESTAMP(3),
+    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updatedAt" TIMESTAMP(3) NOT NULL,
+
+    CONSTRAINT "TBLASSINATURACLINICA_pkey" PRIMARY KEY ("id")
+);
+
+-- CreateTable
+CREATE TABLE "TBLPAGAMENTOCLINICA" (
+    "id" TEXT NOT NULL,
+    "doctorId" TEXT NOT NULL,
+    "subscriptionId" TEXT NOT NULL,
+    "kiwifyOrderId" TEXT NOT NULL,
+    "status" TEXT NOT NULL DEFAULT 'PENDING',
+    "amountCents" INTEGER NOT NULL DEFAULT 8990,
+    "currency" TEXT NOT NULL DEFAULT 'BRL',
+    "paymentMethod" TEXT,
+    "approvedAt" TIMESTAMP(3),
+    "refundedAt" TIMESTAMP(3),
+    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updatedAt" TIMESTAMP(3) NOT NULL,
+
+    CONSTRAINT "TBLPAGAMENTOCLINICA_pkey" PRIMARY KEY ("id")
+);
+
+-- CreateTable
+CREATE TABLE "TBLWEBHOOKKIWIFY" (
+    "id" TEXT NOT NULL,
+    "eventKey" TEXT NOT NULL,
+    "eventType" TEXT NOT NULL,
+    "kiwifyOrderId" TEXT,
+    "payload" JSONB NOT NULL,
+    "processingStatus" TEXT NOT NULL DEFAULT 'RECEIVED',
+    "receivedAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "processedAt" TIMESTAMP(3),
+    "errorMessage" TEXT,
+    "attempts" INTEGER NOT NULL DEFAULT 0,
+    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updatedAt" TIMESTAMP(3) NOT NULL,
+
+    CONSTRAINT "TBLWEBHOOKKIWIFY_pkey" PRIMARY KEY ("id")
+);
+
+-- CreateTable
+CREATE TABLE "TBLTENTATIVACHECKOUT" (
+    "id" TEXT NOT NULL,
+    "doctorId" TEXT NOT NULL,
+    "userId" TEXT NOT NULL,
+    "status" TEXT NOT NULL DEFAULT 'CREATED',
+    "checkoutUrl" TEXT,
+    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "completedAt" TIMESTAMP(3),
+    "expiresAt" TIMESTAMP(3),
+
+    CONSTRAINT "TBLTENTATIVACHECKOUT_pkey" PRIMARY KEY ("id")
+);
+
+-- CreateIndex
+CREATE UNIQUE INDEX "TBLASSINATURACLINICA_doctorId_key" ON "TBLASSINATURACLINICA"("doctorId");
+
+-- CreateIndex
+CREATE UNIQUE INDEX "TBLPAGAMENTOCLINICA_kiwifyOrderId_key" ON "TBLPAGAMENTOCLINICA"("kiwifyOrderId");
+
+-- CreateIndex
+CREATE INDEX "TBLPAGAMENTOCLINICA_doctorId_idx" ON "TBLPAGAMENTOCLINICA"("doctorId");
+
+-- CreateIndex
+CREATE INDEX "TBLPAGAMENTOCLINICA_kiwifyOrderId_idx" ON "TBLPAGAMENTOCLINICA"("kiwifyOrderId");
+
+-- CreateIndex
+CREATE UNIQUE INDEX "TBLWEBHOOKKIWIFY_eventKey_key" ON "TBLWEBHOOKKIWIFY"("eventKey");
+
+-- CreateIndex
+CREATE INDEX "TBLTENTATIVACHECKOUT_doctorId_idx" ON "TBLTENTATIVACHECKOUT"("doctorId");
+
+-- AddForeignKey
+ALTER TABLE "TBLASSINATURACLINICA" ADD CONSTRAINT "TBLASSINATURACLINICA_doctorId_fkey" FOREIGN KEY ("doctorId") REFERENCES "TBLUSUARIO"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "TBLPAGAMENTOCLINICA" ADD CONSTRAINT "TBLPAGAMENTOCLINICA_doctorId_fkey" FOREIGN KEY ("doctorId") REFERENCES "TBLUSUARIO"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "TBLPAGAMENTOCLINICA" ADD CONSTRAINT "TBLPAGAMENTOCLINICA_subscriptionId_fkey" FOREIGN KEY ("subscriptionId") REFERENCES "TBLASSINATURACLINICA"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "TBLTENTATIVACHECKOUT" ADD CONSTRAINT "TBLTENTATIVACHECKOUT_doctorId_fkey" FOREIGN KEY ("doctorId") REFERENCES "TBLUSUARIO"("id") ON DELETE RESTRICT ON UPDATE CASCADE;

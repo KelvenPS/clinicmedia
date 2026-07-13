@@ -10,8 +10,6 @@ export const SECRETARY_PERMISSION_KEYS = [
   'chatbot_light',
   'chatbot_light_operar',
   'chatbot_light_configurar',
-  'nota_fiscal',
-  'teleconsulta',
   'documentos',
   'salas',
   'integracoes',

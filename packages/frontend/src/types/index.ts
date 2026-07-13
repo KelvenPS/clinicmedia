@@ -6,7 +6,6 @@ export type TransactionType = 'INCOME' | 'EXPENSE'
 export type TransactionStatus = 'PENDING' | 'PAID' | 'CANCELLED'
 export type PlanType = 'PARTICULAR' | 'CONVENIO' | 'OUTROS'
 export type RecordType = 'ANAMNESE' | 'EVOLUCAO' | 'PRESCRICAO' | 'EXAME' | 'ATESTADO' | 'OUTROS'
-export type AssessmentType = 'WISC_IV' | 'WASI' | 'WAIS_III' | 'COGNITIVA' | 'RAVLT'
 
 export interface User {
   id: string
@@ -170,30 +169,12 @@ export interface GroupedMedicalRecord {
   records: MedicalRecord[]
 }
 
-export interface Assessment {
-  id: string
-  patientId: string
-  doctorId: string
-  type: AssessmentType
-  assessDate: string
-  patientAge?: number | null
-  subtestScores: Record<string, number | null>
-  compositeScores: Record<string, number | null>
-  interpretation?: string | null
-  notes?: string | null
-  status: string
-  createdAt: string
-  updatedAt: string
-  patient: { id: string; name: string; birthDate?: string | null }
-  doctor: { id: string; name: string; specialty?: string | null; certType?: string | null; certNumber?: string | null; crm?: string | null }
-}
-
 export interface DoctorSecretary {
   id: string
   doctorId: string
   secretaryId: string
   active: boolean
-  permissions?: Partial<Record<'chatbot' | 'chatbot_light' | 'chatbot_light_operar' | 'chatbot_light_configurar' | 'nota_fiscal' | 'teleconsulta' | 'documentos' | 'salas' | 'integracoes' | 'financeiro', boolean>>
+  permissions?: Partial<Record<'chatbot' | 'chatbot_light' | 'chatbot_light_operar' | 'chatbot_light_configurar' | 'documentos' | 'salas' | 'integracoes' | 'financeiro', boolean>>
   createdAt: string
   secretary: {
     id: string
@@ -336,72 +317,6 @@ export interface PaymentMethod {
   instructions?: string | null
   active: boolean
   createdAt: string
-}
-
-export type PlanKey = 'TRIAL' | 'PRO' | 'PLUS' | 'CLINIC' | 'TELECONSULTA' | 'TELECONSULTA_PRO'
-export type PlanStatus = 'ACTIVE' | 'INACTIVE' | 'CANCELLED' | 'EXPIRED'
-
-export const PLAN_DISPLAY: Record<PlanKey, string> = {
-  TRIAL:            'Período Gratuito',
-  PRO:              'Pro',
-  PLUS:             'Plus',
-  CLINIC:           'Clínica',
-  TELECONSULTA:     'Teleconsulta',
-  TELECONSULTA_PRO: 'Teleconsulta Pro',
-}
-
-export const PLAN_FEATURES: Record<PlanKey, string[]> = {
-  TRIAL:            ['agenda', 'prontuario', 'financeiro'],
-  PRO:              ['agenda', 'prontuario', 'financeiro'],
-  PLUS:             ['agenda', 'prontuario', 'financeiro'],
-  CLINIC:           ['agenda', 'prontuario', 'financeiro', 'avaliacoes', 'chatbot'],
-  TELECONSULTA:     ['agenda', 'prontuario', 'financeiro', 'avaliacoes', 'chatbot', 'teleconsulta'],
-  TELECONSULTA_PRO: ['agenda', 'prontuario', 'financeiro', 'avaliacoes', 'chatbot', 'teleconsulta', 'teleconsulta_pro'],
-}
-
-export const PLAN_LIMITS: Record<PlanKey, { rooms: number; secretaries: number; teleconsultas: number }> = {
-  TRIAL:            { rooms: 0, secretaries: 0, teleconsultas: 0 },
-  PRO:              { rooms: 1, secretaries: 1, teleconsultas: 0 },
-  PLUS:             { rooms: 3, secretaries: 3, teleconsultas: 0 },
-  CLINIC:           { rooms: 999, secretaries: 999, teleconsultas: 0 },
-  TELECONSULTA:     { rooms: 999, secretaries: 999, teleconsultas: 4 },
-  TELECONSULTA_PRO: { rooms: 999, secretaries: 999, teleconsultas: 10 },
-}
-
-export const PLAN_PRICES: Record<string, { monthly: number; annual: number }> = {
-  PRO:              { monthly: 89.90,  annual: 89.90  * 12 * 0.85 },
-  PLUS:             { monthly: 109.90, annual: 109.90 * 12 * 0.85 },
-  CLINIC:           { monthly: 159.90, annual: 159.90 * 12 * 0.85 },
-  TELECONSULTA:     { monthly: 199.90, annual: 199.90 * 12 * 0.85 },
-  TELECONSULTA_PRO: { monthly: 399.90, annual: 399.90 * 12 * 0.85 },
-}
-
-export interface SubscriptionPaymentRecord {
-  id: string
-  plan: string
-  billingCycle: string
-  amount: number
-  status: string
-  mpPaymentId?: string | null
-  paidAt?: string | null
-  createdAt: string
-}
-
-export interface DoctorSubscription {
-  id: string
-  doctorId: string
-  plan: PlanKey
-  billingCycle: 'MONTHLY' | 'ANNUAL'
-  status: PlanStatus
-  trialEndsAt?: string | null
-  currentPeriodStart?: string | null
-  currentPeriodEnd?: string | null
-  cancelledAt?: string | null
-  mpPaymentId?: string | null
-  adminNote?: string | null
-  trialWarned?: boolean
-  createdAt: string
-  payments?: SubscriptionPaymentRecord[]
 }
 
 export interface AppointmentType {

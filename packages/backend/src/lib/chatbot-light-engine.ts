@@ -850,7 +850,6 @@ export async function checkScheduledReminders() {
       clinicAddress:     buildRoomAddress(appt.room),
       clinicName:        (appt.room as any)?.name,
       clinicPhone:       (appt.room as any)?.whatsappConnection?.phoneNumber,
-      teleconsultaLink:  (appt.room as any)?.teleconsultaLink,
       paymentValue:      apptValue != null ? `R$ ${Number(apptValue).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : undefined,
     })
     await prisma.appointment.update({
@@ -899,7 +898,6 @@ export async function checkScheduledReminders() {
       clinicAddress:     buildRoomAddress(appt.room),
       clinicName:        (appt.room as any)?.name,
       clinicPhone:       (appt.room as any)?.whatsappConnection?.phoneNumber,
-      teleconsultaLink:  (appt.room as any)?.teleconsultaLink,
       paymentValue:      apptValue2h != null ? `R$ ${Number(apptValue2h).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : undefined,
     })
     await prisma.appointment.update({

@@ -25,6 +25,14 @@ api.interceptors.response.use(
         window.location.href = '/login'
       }
     }
+
+    if (error.response?.status === 402 && error.response?.data?.code === 'SUBSCRIPTION_REQUIRED') {
+      const billingPath = '/configuracoes/assinatura'
+      if (!window.location.pathname.startsWith(billingPath)) {
+        window.location.href = error.response.data.redirectTo || billingPath
+      }
+    }
+
     return Promise.reject(error)
   }
 )

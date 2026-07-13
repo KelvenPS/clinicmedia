@@ -8,7 +8,9 @@ WORKDIR /app
 COPY --from=deps /app/node_modules ./node_modules
 COPY packages/frontend .
 ARG VITE_API_URL=http://2.25.185.223/api
+ARG VITE_APP_VERSION=development
 ENV VITE_API_URL=$VITE_API_URL
+ENV VITE_APP_VERSION=$VITE_APP_VERSION
 RUN npm run build
 
 FROM nginx:alpine AS runner

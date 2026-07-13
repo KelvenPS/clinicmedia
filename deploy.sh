@@ -7,7 +7,7 @@
 #   3. prisma migrate deploy (aplica apenas migrations novas)
 #   4. node dist/index.js
 
-set -e
+set -euo pipefail
 
 echo "========================================"
 echo "  ClinIQ Pro — Deploy"
@@ -15,19 +15,25 @@ echo "========================================"
 
 # 1. Pull latest code
 echo ""
-echo "[1/3] Atualizando codigo..."
+echo "[1/4] Atualizando codigo..."
 git pull origin main
 
-# 2. Build images (apenas os que mudaram são reconstruídos pelo cache)
+# 2. Versão do build: hash curto do commit + timestamp UTC
+export RELEASE_SHA="$(git rev-parse --short HEAD)"
+export BUILD_DATE="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+echo "[DEPLOY] Versão: $RELEASE_SHA (build $BUILD_DATE)"
+
+# 3. Build images (apenas os que mudaram são reconstruídos pelo cache)
 echo ""
-echo "[2/3] Buildando imagens..."
+echo "[2/4] Buildando imagens..."
 docker compose build
 
-# 3. Restart containers preservando o volume do banco
-#    --force-recreate garante que os containers usem as novas imagens
+# 4. Sobe/recria apenas os containers cuja imagem realmente mudou.
+#    Sem --force-recreate: postgres e nginx só reiniciam se sua config mudar,
+#    evitando derrubar o banco e as sessões do WhatsApp a cada deploy.
 echo ""
-echo "[3/3] Reiniciando containers..."
-docker compose up -d --force-recreate
+echo "[3/4] Atualizando containers..."
+docker compose up -d
 
 # Aguarda o backend ficar healthy (aplica migrations via scripts/migrate.sh)
 echo ""
@@ -43,6 +49,12 @@ until docker inspect --format='{{.State.Health.Status}}' clinicmedia_backend 2>/
   printf "."
   sleep 3
 done
+
+# 5. Smoke test: confirma que a versão publicada é a que acabamos de buildar
+echo ""
+echo "[4/4] Smoke test..."
+PUBLISHED_VERSION="$(curl -sf http://localhost/api/version | grep -o '"version":"[^"]*"' || echo 'FALHOU')"
+echo "[DEPLOY] Endpoint de versão respondeu: $PUBLISHED_VERSION"
 
 echo ""
 echo ""

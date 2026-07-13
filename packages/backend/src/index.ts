@@ -10,14 +10,12 @@ import doctorRoutes from './routes/doctors'
 import healthPlanRoutes from './routes/health-plans'
 import medicalRecordRoutes from './routes/medical-records'
 import appointmentBlockRoutes from './routes/appointment-blocks'
-import assessmentRoutes from './routes/assessments'
 import teamRoutes from './routes/team'
 import appointmentTypeRoutes from './routes/appointment-types'
 import roomRoutes from './routes/rooms'
 import documentRoutes from './routes/documents'
 import notificationRoutes from './routes/notifications'
 import paymentMethodRoutes from './routes/payment-methods'
-import subscriptionRoutes from './routes/subscriptions'
 import integrationRoutes from './routes/integrations'
 import chatbotLightRoutes from './routes/chatbot-light'
 import myRoomsRoutes from './routes/my-rooms'
@@ -26,6 +24,14 @@ import { restoreRoomSessions, startRoomHealthWatchdog } from './lib/room-whatsap
 import { startLightScheduler } from './lib/chatbot-light-engine'
 import adminRoutes from './routes/admin'
 import adminSqlRoutes from './routes/admin-sql'
+import versionRoutes from './routes/version'
+import readinessRoutes from './routes/readiness'
+import subscriptionRoutes from './routes/subscriptions'
+import kiwifyWebhookRoutes from './routes/webhooks-kiwify'
+import { getAppVersion } from './lib/app-version'
+import { authenticate } from './middleware/auth'
+import { requireActiveSubscription } from './middleware/subscription'
+import { startSubscriptionExpiryWatchdog } from './lib/subscription-access'
 
 dotenv.config()
 
@@ -41,35 +47,48 @@ app.use(cors({
   credentials: true,
 }))
 
-app.use(express.json())
+// Captura o corpo bruto da requisição (necessário pra validar a assinatura
+// HMAC do webhook da Kiwify, que precisa dos bytes originais, não do JSON já
+// reserializado). Custo desprezível para as demais rotas.
+app.use(express.json({
+  verify: (req, _res, buf) => {
+    (req as Request & { rawBody?: Buffer }).rawBody = buf
+  },
+}))
 app.use(express.urlencoded({ extended: true }))
 
 app.use('/api/auth', authRoutes)
 app.use('/api/users', userRoutes)
-app.use('/api/appointments', appointmentRoutes)
-app.use('/api/patients', patientRoutes)
-app.use('/api/financial', financialRoutes)
+app.use('/api/appointments', authenticate, requireActiveSubscription, appointmentRoutes)
+app.use('/api/patients', authenticate, requireActiveSubscription, patientRoutes)
+app.use('/api/financial', authenticate, requireActiveSubscription, financialRoutes)
 app.use('/api/doctors', doctorRoutes)
-app.use('/api/health-plans', healthPlanRoutes)
-app.use('/api/medical-records', medicalRecordRoutes)
-app.use('/api/appointment-blocks', appointmentBlockRoutes)
-app.use('/api/assessments', assessmentRoutes)
-app.use('/api/team', teamRoutes)
-app.use('/api/appointment-types', appointmentTypeRoutes)
-app.use('/api/rooms', roomRoutes)
-app.use('/api/documents', documentRoutes)
-app.use('/api/notifications', notificationRoutes)
-app.use('/api/payment-methods', paymentMethodRoutes)
-app.use('/api/subscriptions', subscriptionRoutes)
-app.use('/api/integrations', integrationRoutes)
-app.use('/api/chatbot-light', chatbotLightRoutes)
-app.use('/api/my/rooms', myRoomsRoutes)
+app.use('/api/health-plans', authenticate, requireActiveSubscription, healthPlanRoutes)
+app.use('/api/medical-records', authenticate, requireActiveSubscription, medicalRecordRoutes)
+app.use('/api/appointment-blocks', authenticate, requireActiveSubscription, appointmentBlockRoutes)
+// Avaliações (NFe/Teleconsulta/Avaliação) removidas do produto — rota desmontada
+// de propósito, mas o arquivo e o modelo Assessment continuam intactos caso
+// precise ser reativado (ver docs/assinatura-kiwify.md).
+app.use('/api/team', authenticate, requireActiveSubscription, teamRoutes)
+app.use('/api/appointment-types', authenticate, requireActiveSubscription, appointmentTypeRoutes)
+app.use('/api/rooms', authenticate, requireActiveSubscription, roomRoutes)
+app.use('/api/documents', authenticate, requireActiveSubscription, documentRoutes)
+app.use('/api/notifications', authenticate, requireActiveSubscription, notificationRoutes)
+app.use('/api/payment-methods', authenticate, requireActiveSubscription, paymentMethodRoutes)
+app.use('/api/integrations', authenticate, requireActiveSubscription, integrationRoutes)
+app.use('/api/chatbot-light', authenticate, requireActiveSubscription, chatbotLightRoutes)
+app.use('/api/my/rooms', authenticate, requireActiveSubscription, myRoomsRoutes)
 app.use('/api/admin/sql', adminSqlRoutes)
 app.use('/api/admin', adminRoutes)
+app.use('/api/version', versionRoutes)
+app.use('/api/readiness', readinessRoutes)
+app.use('/api/subscription', subscriptionRoutes)
+app.use('/api/webhooks/kiwify', kiwifyWebhookRoutes)
 
 app.get('/api/health', (_req, res) => {
   res.json({
     status: 'ok',
+    version: getAppVersion(),
     timestamp: new Date().toISOString(),
     env: process.env.NODE_ENV,
   })
@@ -113,6 +132,9 @@ app.listen(PORT, () => {
 
   // Inicia o scheduler do Chatbot Light para disparar avisos atrasados e lembretes periódicos
   startLightScheduler()
+
+  // Verifica periodicamente trials expirados e marca a assinatura como bloqueada
+  startSubscriptionExpiryWatchdog()
 })
 
 export default app

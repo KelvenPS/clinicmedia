@@ -244,50 +244,6 @@ router.post('/migrate-patients', async (_req: AuthRequest, res) => {
   }
 })
 
-// GET /api/admin/subscriptions-overview — all doctors with subscription status
-router.get('/subscriptions-overview', async (_req: AuthRequest, res) => {
-  try {
-    const doctors = await prisma.user.findMany({
-      where: { role: 'DOCTOR', active: true },
-      select: {
-        id: true,
-        name: true,
-        email: true,
-        specialty: true,
-        createdAt: true,
-        subscription: {
-          select: {
-            id: true,
-            plan: true,
-            billingCycle: true,
-            status: true,
-            trialEndsAt: true,
-            currentPeriodEnd: true,
-            cancelledAt: true,
-            adminNote: true,
-            createdAt: true,
-            payments: {
-              orderBy: { createdAt: 'desc' },
-              take: 1,
-              select: { amount: true, status: true, paidAt: true, plan: true },
-            },
-          },
-        },
-        _count: {
-          select: {
-            patients: true,
-            doctorAppointments: true,
-          },
-        },
-      },
-      orderBy: { createdAt: 'desc' },
-    })
-    res.json(doctors)
-  } catch {
-    res.status(500).json({ message: 'Erro interno do servidor' })
-  }
-})
-
 // GET /api/admin/team - doctor with their secretaries
 router.get('/team', async (_req: AuthRequest, res) => {
   try {

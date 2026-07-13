@@ -11,16 +11,12 @@ import {
   ChevronDown,
   Settings,
   ClipboardList,
-  Brain,
   Bot,
   MessageSquare,
-  Receipt,
-  Video,
   Database,
   PanelLeftClose,
   PanelLeft,
   ShieldCheck,
-  CreditCard,
   Building2,
 } from 'lucide-react'
 import { useQuery } from '@tanstack/react-query'
@@ -114,7 +110,6 @@ export default function Sidebar({ collapsed = false, onToggleCollapse }: Sidebar
     { to: '/agenda', icon: Calendar, label: 'Agenda', roles: ['ADMIN', 'DOCTOR', 'SECRETARY'], secretaryPermission: undefined },
     { to: '/pacientes', icon: Users, label: 'Pacientes', roles: ['ADMIN', 'DOCTOR', 'SECRETARY'], secretaryPermission: undefined },
     { to: '/prontuario', icon: ClipboardList, label: 'Prontuário', roles: ['ADMIN', 'DOCTOR', 'SECRETARY'], secretaryPermission: undefined },
-    { to: '/avaliacoes', icon: Brain, label: 'Avaliações', roles: ['ADMIN', 'DOCTOR'], secretaryPermission: undefined },
     { to: '/financeiro', icon: DollarSign, label: 'Financeiro', roles: ['ADMIN', 'DOCTOR', 'SECRETARY'], secretaryPermission: 'financeiro' as const },
     { to: '/usuarios', icon: UserCog, label: 'Usuários', roles: ['ADMIN'], secretaryPermission: undefined },
   ]
@@ -266,46 +261,6 @@ export default function Sidebar({ collapsed = false, onToggleCollapse }: Sidebar
           </div>
         )}
 
-        {/* ── NFS-e ── */}
-        {can('nota_fiscal') && (
-        <div className={`${collapsed ? 'mt-3 pt-3' : 'mt-3 pt-3'} border-t border-white/8`}>
-          {!collapsed && (
-            <p className="section-label mb-2">Nota Fiscal</p>
-          )}
-          <NavItem
-            to="/nota-fiscal"
-            icon={Receipt}
-            label="NFS-e"
-            collapsed={collapsed}
-            badge={
-              <span className="text-xs bg-amber-500/20 text-amber-400 px-1.5 py-0.5 rounded-md font-medium border border-amber-500/20">
-                EM BREVE
-              </span>
-            }
-          />
-        </div>
-        )}
-
-        {/* ── Teleconsulta ── */}
-        {can('teleconsulta') && (
-        <div className={`mt-0.5`}>
-          {!collapsed && (
-            <p className="section-label mb-2 mt-3">Consulta Online</p>
-          )}
-          <NavItem
-            to="/consulta-online"
-            icon={Video}
-            label="Teleconsulta"
-            collapsed={collapsed}
-            badge={
-              <span className="text-xs bg-violet-500/20 text-violet-400 px-1.5 py-0.5 rounded-md font-medium border border-violet-500/20">
-                EM BREVE
-              </span>
-            }
-          />
-        </div>
-        )}
-
         {/* ── Admin ── */}
         {user?.role === 'ADMIN' && (
           <div className={`${collapsed ? 'mt-3 pt-3' : 'mt-4 pt-4'} border-t border-white/8`}>
@@ -313,7 +268,6 @@ export default function Sidebar({ collapsed = false, onToggleCollapse }: Sidebar
               <p className="section-label mb-2">Admin</p>
             )}
             <NavItem to="/admin/gestao" icon={ShieldCheck} label="Gestão" collapsed={collapsed} />
-            <NavItem to="/admin/planos" icon={CreditCard} label="Planos" collapsed={collapsed} />
             <NavItem to="/admin/sql" icon={Database} label="SQL Admin" collapsed={collapsed} />
           </div>
         )}

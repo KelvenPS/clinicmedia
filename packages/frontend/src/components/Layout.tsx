@@ -7,9 +7,11 @@ import FinanceiroSidebar from './FinanceiroSidebar'
 import NotificationBell from './NotificationBell'
 import SubscriptionGate from './SubscriptionGate'
 import PageTransition from './ui/PageTransition'
+import { VersionUpdateBanner } from './system/VersionUpdateBanner'
 import { TrialBanner } from './ui/TrialBanner'
 import SettingsMobileNav from './SettingsMobileNav'
 import { useAuthStore } from '../store/authStore'
+import { useUnsavedChangesGuard } from '../hooks/useUnsavedChangesGuard'
 import type { AuthUser } from '../types'
 
 const ROUTE_LABELS: Record<string, string> = {
@@ -17,7 +19,6 @@ const ROUTE_LABELS: Record<string, string> = {
   agenda: 'Agenda',
   pacientes: 'Pacientes',
   prontuario: 'Prontuário',
-  avaliacoes: 'Avaliações',
   financeiro: 'Financeiro',
   resumo: 'Resumo',
   'fluxo-caixa': 'Fluxo de Caixa',
@@ -41,12 +42,11 @@ const ROUTE_LABELS: Record<string, string> = {
   salas: 'Salas',
   documentos: 'Documentos',
   'formas-pagamento': 'Formas de Pagamento',
-  planos: 'Planos',
   notificacoes: 'Notificações',
   integracoes: 'Integrações',
+  assinatura: 'Assinatura',
+  pendente: 'Pagamento Pendente',
   chatbot: 'Chatbot IA',
-  'nota-fiscal': 'NFS-e',
-  'consulta-online': 'Teleconsulta',
   admin: 'Admin',
   sql: 'SQL Admin',
   gestao: 'Gestão',
@@ -191,6 +191,7 @@ export default function Layout() {
   const isFinanceiro = location.pathname.startsWith('/financeiro')
   const { user, logout } = useAuthStore()
   const navigate = useNavigate()
+  useUnsavedChangesGuard()
 
   const [sidebarCollapsed, setSidebarCollapsed] = useState(() => {
     return localStorage.getItem('clinic_sidebar_collapsed') === 'true'
@@ -218,7 +219,6 @@ export default function Layout() {
   }, [location.pathname])
 
   return (
-    <SubscriptionGate>
       <div className="flex h-screen bg-slate-50 overflow-hidden">
 
         {/* ── Mobile overlay ── */}
@@ -341,7 +341,10 @@ export default function Layout() {
             </div>
           </header>
 
-          {/* Trial / subscription banner */}
+          {/* Nova versão disponível */}
+          <VersionUpdateBanner />
+
+          {/* Trial / assinatura */}
           <TrialBanner />
 
           {/* Page content */}
@@ -349,12 +352,13 @@ export default function Layout() {
             <div className="p-4 sm:p-6 max-w-screen-2xl mx-auto w-full">
               {isSettings && <SettingsMobileNav />}
               <PageTransition>
-                <Outlet />
+                <SubscriptionGate>
+                  <Outlet />
+                </SubscriptionGate>
               </PageTransition>
             </div>
           </main>
         </div>
       </div>
-    </SubscriptionGate>
   )
 }

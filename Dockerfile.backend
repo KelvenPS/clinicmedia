@@ -16,7 +16,11 @@ RUN npm run build -w packages/backend
 
 FROM node:20-alpine AS runner
 WORKDIR /app
+ARG RELEASE_SHA=development
+ARG BUILD_DATE=unknown
 ENV NODE_ENV=production
+ENV APP_VERSION=$RELEASE_SHA
+ENV BUILD_DATE=$BUILD_DATE
 RUN apk add --no-cache openssl
 COPY --from=builder /app/node_modules ./node_modules
 COPY --from=builder /app/packages/backend/dist ./dist

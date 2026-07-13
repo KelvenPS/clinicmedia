@@ -27,7 +27,6 @@ export const TEMPLATE_VARIABLE_REGISTRY = [
   { key: '{nf}',               label: 'Nota fiscal',               category: 'financeiro',   description: 'Número ou link da nota fiscal' },
   // Links / Digital
   { key: '{link}',             label: 'Link genérico',             category: 'digital',      description: 'Link personalizado' },
-  { key: '{teleconsulta}',     label: 'Link teleconsulta',         category: 'digital',      description: 'Link para a consulta online' },
   { key: '{prontuario}',       label: 'Link prontuário',           category: 'digital',      description: 'Link para acessar o prontuário' },
   { key: '{documento}',        label: 'Documento',                 category: 'digital',      description: 'Nome de documento enviado' },
 ] as const
@@ -63,7 +62,6 @@ export interface TemplateContext {
   nfLink?: string
   // Digital
   link?: string
-  teleconsultaLink?: string
   prontuarioLink?: string
   documentName?: string
 }
@@ -133,7 +131,6 @@ export function resolveTemplateVariables(template: string, ctx: TemplateContext)
     .replace(/\{forma_pagamento\}/g,  ctx.paymentMethod     ?? '')
     .replace(/\{nf\}/g,               ctx.nfLink ?? ctx.nfNumber ?? '')
     .replace(/\{link\}/g,             ctx.link              ?? '')
-    .replace(/\{teleconsulta\}/g,     ctx.teleconsultaLink  ?? '')
     .replace(/\{prontuario\}/g,       ctx.prontuarioLink    ?? '')
     .replace(/\{documento\}/g,        ctx.documentName      ?? '')
 }
@@ -194,7 +191,6 @@ export async function resolveContextFromAppointment(
     clinicAddress:     buildRoomAddress(room),
     clinicName:        room?.name                                   ?? undefined,
     clinicPhone:       room?.whatsappConnection?.phoneNumber        ?? undefined,
-    teleconsultaLink:  room?.teleconsultaLink                       ?? undefined,
     prontuarioLink:    `${frontendUrl}/prontuario`,
     paymentValue:      (appt as any).value != null
                          ? `R$ ${Number((appt as any).value).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`

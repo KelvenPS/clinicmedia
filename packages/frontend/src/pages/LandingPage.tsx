@@ -9,7 +9,6 @@ import {
   Link2,
   ChevronRight,
   Star,
-  Check,
   ArrowRight,
   Menu,
   X,
@@ -36,7 +35,6 @@ function Navbar() {
 
   const navLinks = [
     { label: 'Funcionalidades', href: '#funcionalidades' },
-    { label: 'Planos', href: '#planos' },
     { label: 'Suporte', href: '#suporte' },
   ]
 
@@ -410,159 +408,6 @@ function HowItWorks() {
   )
 }
 
-// ─── Pricing ───────────────────────────────────────────────────────────────────
-
-const trialFeatures = [
-  'Agenda completa',
-  'Prontuário eletrônico',
-  'Laudos cognitivos (WISC-IV, WASI)',
-  'Suporte por e-mail',
-  '1 profissional incluído',
-]
-
-const proFeatures = [
-  'Tudo do Trial incluído',
-  'Profissionais ilimitados',
-  'Controle financeiro avançado',
-  'Integrações (WhatsApp, Google)',
-  'Suporte prioritário 24/7',
-  'Relatórios e analytics avançados',
-  'API e webhooks',
-]
-
-function Pricing() {
-  const [annual, setAnnual] = useState(false)
-
-  return (
-    <section id="planos" className="py-24 bg-slate-900">
-      <div className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8">
-        {/* Header */}
-        <div className="text-center mb-12">
-          <div className="inline-flex items-center gap-2 px-4 py-1.5 rounded-full bg-blue-500/10 border border-blue-500/25 text-blue-400 text-sm font-medium mb-4">
-            Planos
-          </div>
-          <h2 className="text-3xl sm:text-4xl font-bold text-white mb-4">
-            Simples e{' '}
-            <span className="bg-gradient-to-r from-cyan-400 to-blue-500 bg-clip-text text-transparent">
-              transparentes
-            </span>
-          </h2>
-          <p className="text-slate-400 text-lg max-w-xl mx-auto mb-8">
-            Comece gratuitamente, sem cartão de crédito. Faça upgrade quando quiser.
-          </p>
-
-          {/* Billing toggle */}
-          <div className="inline-flex items-center gap-3 bg-slate-800 rounded-xl p-1">
-            <button
-              onClick={() => setAnnual(false)}
-              className={`px-5 py-2 rounded-lg text-sm font-medium transition-all ${
-                !annual ? 'bg-slate-700 text-white shadow' : 'text-slate-400 hover:text-white'
-              }`}
-            >
-              Mensal
-            </button>
-            <button
-              onClick={() => setAnnual(true)}
-              className={`px-5 py-2 rounded-lg text-sm font-medium transition-all flex items-center gap-2 ${
-                annual ? 'bg-slate-700 text-white shadow' : 'text-slate-400 hover:text-white'
-              }`}
-            >
-              Anual
-              <span className="text-xs px-1.5 py-0.5 rounded-md bg-emerald-500/20 text-emerald-400 font-semibold">
-                -17%
-              </span>
-            </button>
-          </div>
-        </div>
-
-        {/* Cards */}
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-8 items-stretch">
-          {/* Trial */}
-          <div className="relative p-8 rounded-2xl bg-slate-800/50 border border-slate-700/50 flex flex-col">
-            <div className="mb-6">
-              <span className="inline-block px-3 py-1 rounded-full bg-slate-700 text-slate-300 text-xs font-bold tracking-widest uppercase mb-4">
-                Trial
-              </span>
-              <div className="text-3xl font-black text-white mb-1">Grátis</div>
-              <div className="text-slate-400 text-sm">por 30 dias, sem cartão</div>
-            </div>
-
-            <ul className="space-y-3 mb-8 flex-1">
-              {trialFeatures.map((f) => (
-                <li key={f} className="flex items-start gap-3 text-slate-300 text-sm">
-                  <Check size={16} className="text-cyan-500 mt-0.5 flex-shrink-0" />
-                  {f}
-                </li>
-              ))}
-            </ul>
-
-            <Link
-              to="/login"
-              className="block w-full text-center px-6 py-3 rounded-xl border border-slate-600 text-white font-semibold hover:border-slate-400 hover:bg-slate-700/50 transition-all"
-            >
-              Começar grátis
-            </Link>
-          </div>
-
-          {/* Pro */}
-          <div className="relative p-8 rounded-2xl bg-gradient-to-b from-blue-950/80 to-slate-900/80 border border-blue-500/40 flex flex-col shadow-2xl shadow-blue-900/30">
-            {/* Popular badge */}
-            <div className="absolute -top-3.5 left-1/2 -translate-x-1/2">
-              <span className="inline-block px-4 py-1 rounded-full bg-gradient-to-r from-cyan-500 to-blue-600 text-white text-xs font-bold shadow-lg shadow-cyan-500/30">
-                Mais popular
-              </span>
-            </div>
-
-            <div className="mb-6">
-              <span className="inline-block px-3 py-1 rounded-full bg-blue-500/20 text-blue-300 text-xs font-bold tracking-widest uppercase mb-4">
-                Pro
-              </span>
-              <div className="flex items-end gap-1 mb-1">
-                <span className="text-3xl font-black text-white">
-                  {annual ? 'R$ 970' : 'R$ 97'}
-                </span>
-                <span className="text-slate-400 text-sm mb-1">{annual ? '/ano' : '/mês'}</span>
-              </div>
-              {annual && (
-                <div className="text-emerald-400 text-sm font-medium">
-                  Equivale a R$ 80,83/mês — economize R$ 194/ano
-                </div>
-              )}
-              {!annual && (
-                <div className="text-slate-400 text-sm">
-                  ou R$ 970/ano e economize R$ 194
-                </div>
-              )}
-            </div>
-
-            <ul className="space-y-3 mb-8 flex-1">
-              {proFeatures.map((f) => (
-                <li key={f} className="flex items-start gap-3 text-slate-200 text-sm">
-                  <Check size={16} className="text-cyan-400 mt-0.5 flex-shrink-0" />
-                  {f}
-                </li>
-              ))}
-            </ul>
-
-            <Link
-              to="/login"
-              className="block w-full text-center px-6 py-3 rounded-xl bg-gradient-to-r from-cyan-500 to-blue-600 text-white font-semibold hover:from-cyan-400 hover:to-blue-500 transition-all shadow-lg shadow-cyan-500/25 hover:shadow-cyan-500/40"
-            >
-              Assinar agora
-            </Link>
-          </div>
-        </div>
-
-        {/* Guarantee */}
-        <p className="text-center text-slate-500 text-sm mt-8">
-          <Shield size={14} className="inline-block mr-1.5 text-emerald-500" />
-          Garantia de satisfação de 30 dias · Cancele a qualquer momento · Dados exportáveis
-        </p>
-      </div>
-    </section>
-  )
-}
-
 // ─── Testimonials ──────────────────────────────────────────────────────────────
 
 const testimonials = [
@@ -749,7 +594,6 @@ function Footer() {
             <ul className="space-y-2.5">
               {[
                 { label: 'Funcionalidades', href: '#funcionalidades', anchor: true },
-                { label: 'Planos', href: '#planos', anchor: true },
                 { label: 'Entrar', href: '/login', anchor: false },
               ].map((item) => (
                 <li key={item.label}>
@@ -824,7 +668,6 @@ export default function LandingPage() {
         <Hero />
         <Features />
         <HowItWorks />
-        <Pricing />
         <Testimonials />
         <CtaBanner />
       </main>

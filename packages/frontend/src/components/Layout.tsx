@@ -50,6 +50,7 @@ const ROUTE_LABELS: Record<string, string> = {
   admin: 'Admin',
   sql: 'SQL Admin',
   gestao: 'Gestão',
+  planos: 'Planos',
 }
 
 function Breadcrumbs() {

@@ -36,6 +36,7 @@ import Integracoes from './pages/configuracoes/Integracoes'
 import ChatbotLight from './pages/ChatbotLight'
 import MinhasSalas from './pages/MinhasSalas'
 import AdminGestao from './pages/AdminGestao'
+import AdminPlanos from './pages/AdminPlanos'
 import AdminSQL from './pages/AdminSQL'
 import { SecretaryGate } from './components/ui/SecretaryGate'
 
@@ -81,6 +82,7 @@ export default function App() {
           <Route path="financeiro/outras-configuracoes" element={<ProtectedRoute allowedRoles={['ADMIN', 'DOCTOR']}><OutrasConfiguracoes /></ProtectedRoute>} />
           <Route path="usuarios" element={<ProtectedRoute allowedRoles={['ADMIN']}><Usuarios /></ProtectedRoute>} />
           <Route path="admin/gestao" element={<ProtectedRoute allowedRoles={['ADMIN']}><AdminGestao /></ProtectedRoute>} />
+          <Route path="admin/planos" element={<ProtectedRoute allowedRoles={['ADMIN']}><AdminPlanos /></ProtectedRoute>} />
           <Route path="admin/sql" element={<ProtectedRoute allowedRoles={['ADMIN']}><AdminSQL /></ProtectedRoute>} />
           <Route path="minhas-salas" element={<ProtectedRoute allowedRoles={['SECRETARY']}><MinhasSalas /></ProtectedRoute>} />
 

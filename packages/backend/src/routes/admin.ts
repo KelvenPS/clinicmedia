@@ -6,6 +6,8 @@ const isPrismaNotFound = (e: unknown): boolean =>
   e instanceof Error && 'code' in e && (e as { code: string }).code === 'P2025'
 import { prisma } from '../lib/prisma'
 import { authenticate, requireRole, AuthRequest } from '../middleware/auth'
+import { logAudit } from '../lib/secretaryAccess'
+import { CLINIC_PRO_SUBSCRIPTION } from '../lib/billing-config'
 
 const router = Router()
 router.use(authenticate)
@@ -265,6 +267,194 @@ router.get('/team', async (_req: AuthRequest, res) => {
     })
     res.json(doctors)
   } catch {
+    res.status(500).json({ message: 'Erro interno do servidor' })
+  }
+})
+
+// ─── Gestão manual de assinatura (usuários de teste, suporte) ───────────────
+// Só ADMIN chega aqui (requireRole('ADMIN') no topo do arquivo). Liberar a
+// assinatura do médico libera automaticamente toda a equipe vinculada — o
+// acesso é sempre calculado a partir da assinatura do doctorId
+// (getEffectiveDoctorId), nunca por usuário individual.
+
+// GET /api/admin/subscriptions — lista todos os médicos com status de assinatura
+router.get('/subscriptions', async (_req: AuthRequest, res) => {
+  try {
+    const doctors = await prisma.user.findMany({
+      where: { role: 'DOCTOR', active: true },
+      select: {
+        id: true,
+        name: true,
+        email: true,
+        specialty: true,
+        createdAt: true,
+        subscription: {
+          select: {
+            status: true,
+            trialEndsAt: true,
+            currentPeriodEndsAt: true,
+            lastPaymentAt: true,
+            blockedAt: true,
+            canceledAt: true,
+            adminNote: true,
+            updatedAt: true,
+          },
+        },
+        _count: {
+          select: { doctorTeam: { where: { active: true } } },
+        },
+      },
+      orderBy: { name: 'asc' },
+    })
+    res.json(doctors)
+  } catch {
+    res.status(500).json({ message: 'Erro interno do servidor' })
+  }
+})
+
+const grantAccessSchema = z.object({
+  unlimited: z.boolean().optional(),
+  days: z.coerce.number().int().min(1).max(3650).optional(),
+  note: z.string().max(500).optional(),
+})
+
+// POST /api/admin/subscriptions/:doctorId/grant — libera acesso manualmente
+router.post('/subscriptions/:doctorId/grant', async (req: AuthRequest, res) => {
+  try {
+    const { doctorId } = req.params
+    const { unlimited, days, note } = grantAccessSchema.parse(req.body)
+
+    const doctor = await prisma.user.findUnique({ where: { id: doctorId, role: 'DOCTOR' } })
+    if (!doctor) {
+      res.status(404).json({ message: 'Médico não encontrado' })
+      return
+    }
+
+    const now = new Date()
+    const currentPeriodEndsAt = unlimited ? null : new Date(now.getTime() + (days ?? 30) * 24 * 60 * 60 * 1000)
+
+    const subscription = await prisma.doctorSubscription.upsert({
+      where: { doctorId },
+      create: {
+        doctorId,
+        status: 'ACTIVE',
+        trialStartedAt: now,
+        trialEndsAt: now,
+        currentPeriodStartedAt: now,
+        currentPeriodEndsAt,
+        adminNote: note,
+      },
+      update: {
+        status: 'ACTIVE',
+        currentPeriodStartedAt: now,
+        currentPeriodEndsAt,
+        blockedAt: null,
+        canceledAt: null,
+        adminNote: note,
+      },
+    })
+
+    await logAudit({
+      userId: req.user!.userId,
+      action: 'SUBSCRIPTION_ADMIN_GRANTED',
+      description: `Admin liberou acesso de ${doctor.email} (${unlimited ? 'sem prazo' : `${days ?? 30} dias`})${note ? ` — ${note}` : ''}`,
+    })
+
+    res.json(subscription)
+  } catch (error) {
+    if (error instanceof z.ZodError) {
+      res.status(400).json({ message: 'Dados inválidos', errors: error.errors })
+      return
+    }
+    res.status(500).json({ message: 'Erro interno do servidor' })
+  }
+})
+
+const blockAccessSchema = z.object({ note: z.string().max(500).optional() })
+
+// POST /api/admin/subscriptions/:doctorId/block — bloqueia acesso manualmente
+router.post('/subscriptions/:doctorId/block', async (req: AuthRequest, res) => {
+  try {
+    const { doctorId } = req.params
+    const { note } = blockAccessSchema.parse(req.body)
+
+    const doctor = await prisma.user.findUnique({ where: { id: doctorId, role: 'DOCTOR' } })
+    if (!doctor) {
+      res.status(404).json({ message: 'Médico não encontrado' })
+      return
+    }
+
+    const subscription = await prisma.doctorSubscription.upsert({
+      where: { doctorId },
+      create: {
+        doctorId,
+        status: 'BLOCKED',
+        trialStartedAt: new Date(),
+        trialEndsAt: new Date(),
+        blockedAt: new Date(),
+        adminNote: note,
+      },
+      update: { status: 'BLOCKED', blockedAt: new Date(), adminNote: note },
+    })
+
+    await logAudit({
+      userId: req.user!.userId,
+      action: 'SUBSCRIPTION_ADMIN_BLOCKED',
+      description: `Admin bloqueou acesso de ${doctor.email}${note ? ` — ${note}` : ''}`,
+    })
+
+    res.json(subscription)
+  } catch (error) {
+    if (error instanceof z.ZodError) {
+      res.status(400).json({ message: 'Dados inválidos', errors: error.errors })
+      return
+    }
+    res.status(500).json({ message: 'Erro interno do servidor' })
+  }
+})
+
+const resetTrialSchema = z.object({ note: z.string().max(500).optional() })
+
+// POST /api/admin/subscriptions/:doctorId/reset-trial — concede um novo trial de 7 dias
+router.post('/subscriptions/:doctorId/reset-trial', async (req: AuthRequest, res) => {
+  try {
+    const { doctorId } = req.params
+    const { note } = resetTrialSchema.parse(req.body)
+
+    const doctor = await prisma.user.findUnique({ where: { id: doctorId, role: 'DOCTOR' } })
+    if (!doctor) {
+      res.status(404).json({ message: 'Médico não encontrado' })
+      return
+    }
+
+    const now = new Date()
+    const trialEndsAt = new Date(now.getTime() + CLINIC_PRO_SUBSCRIPTION.trialDays * 24 * 60 * 60 * 1000)
+
+    const subscription = await prisma.doctorSubscription.upsert({
+      where: { doctorId },
+      create: { doctorId, status: 'TRIAL', trialStartedAt: now, trialEndsAt, adminNote: note },
+      update: {
+        status: 'TRIAL',
+        trialStartedAt: now,
+        trialEndsAt,
+        blockedAt: null,
+        canceledAt: null,
+        adminNote: note,
+      },
+    })
+
+    await logAudit({
+      userId: req.user!.userId,
+      action: 'SUBSCRIPTION_ADMIN_TRIAL_RESET',
+      description: `Admin resetou trial de ${doctor.email}${note ? ` — ${note}` : ''}`,
+    })
+
+    res.json(subscription)
+  } catch (error) {
+    if (error instanceof z.ZodError) {
+      res.status(400).json({ message: 'Dados inválidos', errors: error.errors })
+      return
+    }
     res.status(500).json({ message: 'Erro interno do servidor' })
   }
 })

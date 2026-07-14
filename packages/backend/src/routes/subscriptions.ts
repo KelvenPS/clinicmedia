@@ -68,7 +68,7 @@ router.post('/checkout', requireRole('DOCTOR'), async (req: AuthRequest, res) =>
       },
     })
 
-    const checkoutUrl = buildKiwifyCheckoutUrl({
+    const checkoutUrl = await buildKiwifyCheckoutUrl({
       doctorId,
       userId: req.user!.userId,
       checkoutAttemptId: checkoutAttempt.id,

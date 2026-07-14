@@ -53,7 +53,19 @@
 - `scripts/backfill-subscriptions.ts` — migração explícita para contas
   existentes (ver seção própria abaixo).
 - Prisma: `DoctorSubscription`, `SubscriptionPayment`, `KiwifyWebhookEvent`,
-  `SubscriptionCheckoutAttempt` (migration `20260713140000_add_kiwify_subscription`).
+  `SubscriptionCheckoutAttempt` (migration `20260713140000_add_kiwify_subscription`),
+  `KiwifyIntegrationConfig` (migration `20260715120000_add_kiwify_integration_config`,
+  linha única id="kiwify" — configuração administrável, ver seção abaixo).
+- `src/lib/kiwify-config.ts` — resolve a configuração efetiva da integração:
+  valores salvos no banco (via Admin > Integrações) têm prioridade, variáveis
+  de ambiente `KIWIFY_*` entram só como fallback. `kiwify.client.ts` e
+  `routes/webhooks-kiwify.ts` consultam essa função em vez de ler `process.env`
+  diretamente.
+- `src/routes/admin-integrations.ts` — `GET/PUT /api/admin/integrations/kiwify`
+  (config, segredos mascarados), `POST .../webhook-secret/regenerate` (gera e
+  devolve o segredo em texto puro uma única vez), `GET .../webhook-secret`
+  (revela o segredo atual, auditado), `GET .../events` (últimos webhooks
+  recebidos, pra debug).
 - Status da assinatura (`SubscriptionStatusValue`, TypeScript, não enum
   Postgres): `TRIAL`, `ACTIVE`, `PENDING_PAYMENT`, `PAST_DUE`, `CANCELED`,
   `BLOCKED`. `PENDING_PAYMENT` existe para o caso de Pix/boleto gerado e ainda
@@ -83,6 +95,14 @@
   7s, redireciona pro dashboard assim que `accessAllowed=true`.
 - `src/lib/api.ts` — interceptor redireciona pra `/configuracoes/assinatura`
   em qualquer resposta `402 SUBSCRIPTION_REQUIRED`.
+- `src/pages/AdminIntegracoes.tsx` — menu **Admin > Integrações**
+  (`/admin/integracoes`, só `role=ADMIN`): mostra o endpoint do webhook
+  (`https://SEU_DOMINIO/api/webhooks/kiwify`) com botão de copiar, gera/revela/
+  regenera o segredo do webhook, edita URL de checkout, product ID e (numa
+  seção avançada colapsável) account ID/client ID/client secret pra
+  reconciliação via API. Toggle "Integração ativa" liga/desliga o
+  processamento do webhook sem precisar redeploy. Lista os últimos 20 eventos
+  recebidos (tipo, pedido, status, erro) pra debug.
 
 ### Módulos removidos do produto (NFe, Teleconsulta, Avaliação)
 NFe e Teleconsulta já tinham sido removidos numa entrega anterior (só existiam
@@ -152,23 +172,41 @@ BACKFILL_STATUS=TRIAL npx tsx scripts/backfill-subscriptions.ts
 
 ## Configuração no painel da Kiwify
 
-1. Cadastre o produto Clinic Pro (assinatura recorrente mensal, R$ 89,90) e
-   copie o `KIWIFY_PRODUCT_ID`.
-2. Configure o checkout com parâmetros de rastreamento (`s1`, `s2`, `s3`) —
-   o backend já preenche isso automaticamente na URL gerada por
-   `POST /api/subscription/checkout` (`kiwify.client.ts:buildKiwifyCheckoutUrl`).
-3. Cadastre a URL do webhook: `https://SEU_DOMINIO/api/webhooks/kiwify`.
-4. **Importante — verificar antes de ativar em produção**: o esquema exato de
-   assinatura de webhook da Kiwify (header `x-kiwify-signature` vs. token na
-   query string) e os nomes de campo do payload (`order_status`,
-   `TrackingParameters.s1` etc., em `kiwify.types.ts`/`kiwify.mapper.ts`)
-   foram montados a partir da documentação pública da Kiwify, sem um payload
-   real em mãos. Assim que o primeiro webhook de teste chegar, comparar o
-   payload real com `kiwify.types.ts` e ajustar o mapper se necessário.
-5. Se for usar a reconciliação via API (`GET /api/subscription/reconcile`),
-   configure `KIWIFY_CLIENT_ID`/`KIWIFY_CLIENT_SECRET`/`KIWIFY_API_BASE_URL`
-   — sem eles, a reconciliação cai automaticamente no modo "aguardando
-   webhook" (não quebra, só não confirma antecipadamente).
+**Recomendado: tudo pela UI**, em Admin > Integrações (`/admin/integracoes`,
+só visível pra `role=ADMIN`) — não precisa mexer em `.env` nem redeployar:
+
+1. Cadastre o produto Clinic Pro na Kiwify (assinatura recorrente mensal,
+   R$ 89,90) e copie o link de **checkout direto** (`pay.kiwify.com.br/...`,
+   não o link da página do produto — só o de checkout aceita os parâmetros de
+   rastreamento `s1/s2/s3` que identificam o médico).
+2. Em Admin > Integrações, cole esse link em "URL de checkout", clique em
+   "Gerar novo segredo" pra criar o token do webhook, copie o **endpoint**
+   exibido (`https://SEU_DOMINIO/api/webhooks/kiwify`) e o **segredo**
+   gerado.
+3. No painel da Kiwify, cadastre o endpoint como URL do webhook e cole o
+   segredo gerado no campo de token/assinatura do webhook.
+4. Volte em Admin > Integrações, ative o toggle "Integração ativa" e salve.
+5. Opcional: preencha "ID do produto" pra ignorar pagamentos de outros
+   produtos da mesma conta Kiwify; e a seção avançada (account ID / client ID
+   / client secret) se for usar a reconciliação via API
+   (`GET /api/subscription/reconcile`) — sem isso, a reconciliação cai
+   automaticamente no modo "aguardando webhook" (não quebra, só não confirma
+   antecipadamente).
+
+Alternativa (sem UI, via `.env` — mantido por compatibilidade): preencha
+`KIWIFY_CHECKOUT_URL`, `KIWIFY_PRODUCT_ID`, `KIWIFY_WEBHOOK_SECRET` etc. no
+`.env` do backend e redeploy. Os valores salvos pela UI sempre têm
+prioridade sobre as env vars quando existirem (ver `src/lib/kiwify-config.ts`).
+
+**Importante — verificar antes de confiar 100% em produção**: o esquema exato
+de assinatura de webhook da Kiwify (header `x-kiwify-signature` vs. token na
+query string) e os nomes de campo do payload (`order_status`,
+`TrackingParameters.s1` etc., em `kiwify.types.ts`/`kiwify.mapper.ts`) foram
+montados a partir da documentação pública da Kiwify. Assim que o primeiro
+webhook de teste chegar, confira em Admin > Integrações (lista de "Últimos
+webhooks recebidos") se ele foi processado corretamente; se aparecer
+"Ignorado" ou com erro, compare o payload real (tabela `TBLWEBHOOKKIWIFY`)
+com `kiwify.types.ts` e ajuste o mapper se necessário.
 
 ## Endpoints
 
@@ -178,6 +216,11 @@ BACKFILL_STATUS=TRIAL npx tsx scripts/backfill-subscriptions.ts
 | POST | `/api/subscription/checkout` | DOCTOR | gera URL de checkout Kiwify |
 | POST | `/api/subscription/reconcile` | DOCTOR, rate-limited (15s) | verificação manual |
 | POST | `/api/webhooks/kiwify` | segredo do webhook (não é sessão) | eventos de pagamento |
+| GET | `/api/admin/integrations/kiwify` | ADMIN | config atual (segredos mascarados) |
+| PUT | `/api/admin/integrations/kiwify` | ADMIN | atualiza checkout/produto/credenciais/toggle |
+| POST | `/api/admin/integrations/kiwify/webhook-secret/regenerate` | ADMIN | gera novo segredo do webhook |
+| GET | `/api/admin/integrations/kiwify/webhook-secret` | ADMIN | revela o segredo atual (auditado) |
+| GET | `/api/admin/integrations/kiwify/events` | ADMIN | últimos webhooks recebidos |
 
 ## Fluxo do webhook
 

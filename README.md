@@ -113,3 +113,5 @@ agenda-katiane/
 - [ ] Dashboard com mais métricas
 - [ ] Suporte a múltiplas clínicas
 - [ ] App mobile (React Native)
+## 📈 Próximos passos (sugestões)
+## 📈 Próximos passos (sugestões)

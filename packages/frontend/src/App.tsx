@@ -38,6 +38,7 @@ import MinhasSalas from './pages/MinhasSalas'
 import AdminGestao from './pages/AdminGestao'
 import AdminPlanos from './pages/AdminPlanos'
 import AdminSQL from './pages/AdminSQL'
+import AdminIntegracoes from './pages/AdminIntegracoes'
 import { SecretaryGate } from './components/ui/SecretaryGate'
 
 function ProtectedRoute({ children, allowedRoles }: { children: React.ReactNode; allowedRoles?: string[] }) {
@@ -84,6 +85,7 @@ export default function App() {
           <Route path="admin/gestao" element={<ProtectedRoute allowedRoles={['ADMIN']}><AdminGestao /></ProtectedRoute>} />
           <Route path="admin/planos" element={<ProtectedRoute allowedRoles={['ADMIN']}><AdminPlanos /></ProtectedRoute>} />
           <Route path="admin/sql" element={<ProtectedRoute allowedRoles={['ADMIN']}><AdminSQL /></ProtectedRoute>} />
+          <Route path="admin/integracoes" element={<ProtectedRoute allowedRoles={['ADMIN']}><AdminIntegracoes /></ProtectedRoute>} />
           <Route path="minhas-salas" element={<ProtectedRoute allowedRoles={['SECRETARY']}><MinhasSalas /></ProtectedRoute>} />
 
           <Route path="configuracoes" element={<Navigate to="/configuracoes/perfil" replace />} />

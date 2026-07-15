@@ -4,6 +4,7 @@ import { verifyKiwifyWebhookSignature } from '../integrations/kiwify/kiwify.clie
 import { mapKiwifyWebhook } from '../integrations/kiwify/kiwify.mapper'
 import { processKiwifyWebhookEvent } from '../integrations/kiwify/kiwify.service'
 import { KIWIFY_WEBHOOK_ENABLED } from '../lib/billing-config'
+import { getResolvedKiwifyConfig } from '../lib/kiwify-config'
 
 interface RequestWithRawBody extends Request {
   rawBody?: Buffer
@@ -14,14 +15,23 @@ const router = Router()
 // POST /api/webhooks/kiwify — endpoint público, sem authenticate(). A
 // validação é o segredo do webhook, não sessão de usuário.
 router.post('/', async (req: RequestWithRawBody, res) => {
+  // KIWIFY_WEBHOOK_ENABLED é um kill-switch de operação (env, precisa
+  // redeploy); config.enabled é o toggle do admin em Admin > Integrações
+  // (runtime, via banco). Os dois precisam estar ligados.
   if (!KIWIFY_WEBHOOK_ENABLED) {
     res.status(503).json({ message: 'Webhook desabilitado' })
     return
   }
 
-  const secret = process.env.KIWIFY_WEBHOOK_SECRET
+  const config = await getResolvedKiwifyConfig()
+  if (!config.enabled) {
+    res.status(503).json({ message: 'Integração Kiwify desativada em Admin > Integrações' })
+    return
+  }
+
+  const secret = config.webhookSecret
   if (!secret) {
-    console.error('[KIWIFY_WEBHOOK] KIWIFY_WEBHOOK_SECRET não configurado — recusando evento')
+    console.error('[KIWIFY_WEBHOOK] Segredo do webhook não configurado — recusando evento')
     res.status(500).json({ message: 'Webhook não configurado' })
     return
   }
@@ -44,7 +54,7 @@ router.post('/', async (req: RequestWithRawBody, res) => {
     return
   }
 
-  const productId = process.env.KIWIFY_PRODUCT_ID
+  const productId = config.productId
   const payload = req.body
 
   try {

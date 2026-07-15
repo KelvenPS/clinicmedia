@@ -1,4 +1,5 @@
 import crypto from 'crypto'
+import { getResolvedKiwifyConfig } from '../../lib/kiwify-config'
 
 // Verificação de assinatura do webhook. A Kiwify suporta dois esquemas comuns:
 // 1) HMAC SHA-256 do corpo bruto, enviado no header `x-kiwify-signature`;
@@ -36,14 +37,15 @@ export function verifyKiwifyWebhookSignature(params: {
   return false
 }
 
-export function buildKiwifyCheckoutUrl(params: {
+export async function buildKiwifyCheckoutUrl(params: {
   doctorId: string
   userId: string
   checkoutAttemptId: string
-}): string {
-  const baseUrl = process.env.KIWIFY_CHECKOUT_URL
+}): Promise<string> {
+  const config = await getResolvedKiwifyConfig()
+  const baseUrl = config.checkoutUrl
   if (!baseUrl) {
-    throw new Error('KIWIFY_CHECKOUT_URL não configurada')
+    throw new Error('URL de checkout da Kiwify não configurada — configure em Admin > Integrações')
   }
 
   const url = new URL(baseUrl)
@@ -71,9 +73,8 @@ interface KiwifySaleResult {
 let cachedToken: { token: string; expiresAt: number } | null = null
 
 async function getKiwifyAccessToken(): Promise<string | null> {
-  const clientId = process.env.KIWIFY_CLIENT_ID
-  const clientSecret = process.env.KIWIFY_CLIENT_SECRET
-  const apiBase = process.env.KIWIFY_API_BASE_URL
+  const config = await getResolvedKiwifyConfig()
+  const { clientId, clientSecret, apiBaseUrl: apiBase } = config
 
   if (!clientId || !clientSecret || !apiBase) return null
 
@@ -107,8 +108,8 @@ async function getKiwifyAccessToken(): Promise<string | null> {
 }
 
 export async function getKiwifySale(orderId: string): Promise<KiwifySaleResult | null> {
-  const apiBase = process.env.KIWIFY_API_BASE_URL
-  const accountId = process.env.KIWIFY_ACCOUNT_ID
+  const config = await getResolvedKiwifyConfig()
+  const { apiBaseUrl: apiBase, accountId } = config
   if (!apiBase) return null
 
   const token = await getKiwifyAccessToken()

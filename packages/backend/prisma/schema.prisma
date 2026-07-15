@@ -715,6 +715,28 @@ model KiwifyWebhookEvent {
   @@map("TBLWEBHOOKKIWIFY")
 }
 
+// Configuração administrável da integração Kiwify (linha única, id fixo
+// "kiwify") — permite ao ADMIN da plataforma gerenciar endpoint, segredo do
+// webhook, produto e URL de checkout pelo menu Admin > Integrações, sem
+// depender de variável de ambiente/redeploy. Ver src/lib/kiwify-config.ts:
+// valores em branco aqui caem de volta pras env vars (KIWIFY_*) como fallback.
+model KiwifyIntegrationConfig {
+  id            String  @id
+  enabled       Boolean @default(false)
+  checkoutUrl   String?
+  productId     String?
+  accountId     String?
+  clientId      String?
+  clientSecret  String?
+  webhookSecret String?
+
+  updatedByUserId String?
+  updatedAt       DateTime @updatedAt
+  createdAt       DateTime @default(now())
+
+  @@map("TBLCONFIGKIWIFY")
+}
+
 // Rastreia cada tentativa de checkout aberta pelo médico, pra relacionar o
 // pagamento na Kiwify de volta à conta certa (via s1/s2/s3 na URL).
 model SubscriptionCheckoutAttempt {

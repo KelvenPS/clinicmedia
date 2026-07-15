@@ -19,6 +19,7 @@ import {
   ShieldCheck,
   Building2,
   CreditCard,
+  Webhook,
 } from 'lucide-react'
 import { useQuery } from '@tanstack/react-query'
 import { useAuthStore } from '../store/authStore'
@@ -270,6 +271,7 @@ export default function Sidebar({ collapsed = false, onToggleCollapse }: Sidebar
             )}
             <NavItem to="/admin/gestao" icon={ShieldCheck} label="Gestão" collapsed={collapsed} />
             <NavItem to="/admin/planos" icon={CreditCard} label="Planos" collapsed={collapsed} />
+            <NavItem to="/admin/integracoes" icon={Webhook} label="Integrações" collapsed={collapsed} />
             <NavItem to="/admin/sql" icon={Database} label="SQL Admin" collapsed={collapsed} />
           </div>
         )}

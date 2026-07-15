@@ -27,5 +27,8 @@ COPY --from=builder /app/packages/backend/dist ./dist
 COPY packages/backend/package.json ./
 COPY packages/backend/prisma ./prisma
 COPY packages/backend/scripts ./scripts
+# scripts/backfill-subscriptions.ts importa direto de ../src (roda via tsx,
+# não via dist compilado) — precisa do source TS disponível na imagem final.
+COPY packages/backend/src ./src
 EXPOSE 3001
 CMD ["sh", "scripts/migrate.sh"]

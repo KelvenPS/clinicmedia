@@ -24,6 +24,7 @@ import { restoreRoomSessions, startRoomHealthWatchdog } from './lib/room-whatsap
 import { startLightScheduler } from './lib/chatbot-light-engine'
 import adminRoutes from './routes/admin'
 import adminSqlRoutes from './routes/admin-sql'
+import adminIntegrationsRoutes from './routes/admin-integrations'
 import versionRoutes from './routes/version'
 import readinessRoutes from './routes/readiness'
 import subscriptionRoutes from './routes/subscriptions'
@@ -79,6 +80,7 @@ app.use('/api/integrations', authenticate, requireActiveSubscription, integratio
 app.use('/api/chatbot-light', authenticate, requireActiveSubscription, chatbotLightRoutes)
 app.use('/api/my/rooms', authenticate, requireActiveSubscription, myRoomsRoutes)
 app.use('/api/admin/sql', adminSqlRoutes)
+app.use('/api/admin/integrations', adminIntegrationsRoutes)
 app.use('/api/admin', adminRoutes)
 app.use('/api/version', versionRoutes)
 app.use('/api/readiness', readinessRoutes)

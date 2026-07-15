@@ -188,6 +188,16 @@ export default function AppointmentForm({
     }
   }, [watchPatient, primaryPlan, appointment, setValue])
 
+  // Auto-fill room from the secretary's own room assignment for the selected
+  // doctor. Without this, a secretary scoped to a single room could leave the
+  // selector empty and the appointment would end up invisible in her own
+  // room-filtered agenda.
+  useEffect(() => {
+    if (!appointment && currentUser?.role === 'SECRETARY' && filteredRooms.length === 1) {
+      setValue('roomId', filteredRooms[0].id)
+    }
+  }, [filteredRooms, currentUser, appointment, setValue])
+
   // Auto-calculate value when type or patient changes
   useEffect(() => {
     if (!appointment && selectedAppType?.baseValue) {
@@ -425,7 +435,11 @@ export default function AppointmentForm({
             <MapPin className="w-3.5 h-3.5 text-slate-400" />
             Local de atendimento
           </label>
-          <select {...register('roomId')} className="input-field">
+          <select
+            {...register('roomId')}
+            className="input-field"
+            disabled={currentUser?.role === 'SECRETARY' && filteredRooms.length === 1}
+          >
             <option value="">Sem sala definida</option>
             {filteredRooms.map(r => (
               <option key={r.id} value={r.id}>

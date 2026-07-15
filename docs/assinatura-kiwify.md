@@ -2,7 +2,7 @@
 
 ## Modelo comercial
 
-- Produto único: **Clinic Pro**, R$ 89,90/mês, 7 dias de teste grátis.
+- Produto único: **Clinic Pro**, R$ 49,90/mês, 7 dias de teste grátis.
 - Sem tiers, sem upgrade/downgrade, sem cobrança por módulo.
 - A assinatura é por "tenant" — no modelo de dados atual isso é o **doctorId**
   (o `User` com `role=DOCTOR` é o médico/especialista responsável e dono do
@@ -152,7 +152,7 @@ BACKFILL_STATUS=TRIAL npx tsx scripts/backfill-subscriptions.ts
 
 ## Configuração no painel da Kiwify
 
-1. Cadastre o produto Clinic Pro (assinatura recorrente mensal, R$ 89,90) e
+1. Cadastre o produto Clinic Pro (assinatura recorrente mensal, R$ 49,90) e
    copie o `KIWIFY_PRODUCT_ID`.
 2. Configure o checkout com parâmetros de rastreamento (`s1`, `s2`, `s3`) —
    o backend já preenche isso automaticamente na URL gerada por

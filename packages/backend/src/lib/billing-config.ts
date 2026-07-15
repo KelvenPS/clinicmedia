@@ -2,7 +2,7 @@
 // Não repita 8990 / 89.90 / 7 em outros arquivos: importe daqui.
 export const CLINIC_PRO_SUBSCRIPTION = {
   name: 'Clinic Pro',
-  monthlyPriceCents: Number(process.env.CLINIC_PRO_MONTHLY_PRICE_CENTS) || 8990,
+  monthlyPriceCents: Number(process.env.CLINIC_PRO_MONTHLY_PRICE_CENTS) || 4990,
   currency: process.env.CLINIC_PRO_CURRENCY || 'BRL',
   trialDays: Number(process.env.CLINIC_PRO_TRIAL_DAYS) || 7,
   gracePeriodDays: Number(process.env.CLINIC_PRO_GRACE_PERIOD_DAYS) || 0,

@@ -627,7 +627,7 @@ model WebhookLog {
 }
 
 // ─── Assinatura (Clinic Pro / Kiwify) ────────────────────────────────────────
-// Plano único (R$ 89,90/mês, 7 dias de teste). A assinatura é por "clínica" —
+// Plano único (R$ 49,90/mês, 7 dias de teste). A assinatura é por "clínica" —
 // no modelo atual isso é o doctorId (o médico que criou a conta é o dono da
 // clínica); secretárias herdam o acesso via getEffectiveDoctorId().
 //
@@ -676,7 +676,7 @@ model SubscriptionPayment {
   subscriptionId String
   kiwifyOrderId  String    @unique
   status         String    @default("PENDING")
-  amountCents    Int       @default(8990)
+  amountCents    Int       @default(4990)
   currency       String    @default("BRL")
 
   paymentMethod  String?

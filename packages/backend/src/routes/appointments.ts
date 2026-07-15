@@ -56,7 +56,7 @@ router.get('/', async (req: AuthRequest, res) => {
 
       // Secretaries assigned to specific rooms only see appointments from those rooms.
       const roomAssignments = await prisma.roomSecretary.findMany({
-        where: { secretaryId: req.user!.userId },
+        where: { secretaryId: req.user!.userId, active: true },
         select: { roomId: true },
       })
       if (roomAssignments.length > 0) {
@@ -153,7 +153,7 @@ router.post('/', async (req: AuthRequest, res) => {
       }
 
       const roomAssignments = await prisma.roomSecretary.findMany({
-        where: { secretaryId: req.user!.userId },
+        where: { secretaryId: req.user!.userId, active: true, room: { doctorId: apptData.doctorId } },
         select: { roomId: true },
       })
       if (roomAssignments.length > 0) {
@@ -357,7 +357,7 @@ router.put('/:id', async (req: AuthRequest, res) => {
 
         if ('roomId' in data) {
           const roomAssignments = await prisma.roomSecretary.findMany({
-            where: { secretaryId: req.user!.userId },
+            where: { secretaryId: req.user!.userId, active: true, room: { doctorId: existing.doctorId } },
             select: { roomId: true },
           })
           if (roomAssignments.length > 0) {

@@ -136,7 +136,7 @@ export default function FormasPagamento() {
   const activeCount = methods.filter(m => m.active).length
 
   return (
-    <div className="max-w-2xl space-y-6 page-stagger">
+    <div className="max-w-2xl mx-auto space-y-6 page-stagger">
       {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-3">
         <div className="animate-stagger-1">

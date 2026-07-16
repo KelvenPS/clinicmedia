@@ -1,3 +1,5 @@
+import type { SecretaryPermissions } from '../hooks/useSecretaryPermissions'
+
 export type Role = 'ADMIN' | 'DOCTOR' | 'SECRETARY'
 export type AppointmentStatus = 'SCHEDULED' | 'CONFIRMED' | 'COMPLETED' | 'CANCELLED' | 'NO_SHOW'
 export type PatientStatus = 'PRE_CADASTRO' | 'ATIVO' | 'INCOMPLETO' | 'INATIVO'
@@ -5,7 +7,7 @@ export type PatientOrigin = 'AGENDA' | 'CHATBOT' | 'MANUAL' | 'IMPORTACAO'
 export type TransactionType = 'INCOME' | 'EXPENSE'
 export type TransactionStatus = 'PENDING' | 'PAID' | 'CANCELLED'
 export type PlanType = 'PARTICULAR' | 'CONVENIO' | 'OUTROS'
-export type RecordType = 'ANAMNESE' | 'EVOLUCAO' | 'PRESCRICAO' | 'EXAME' | 'ATESTADO' | 'OUTROS'
+export type RecordType = 'ANAMNESE' | 'EVOLUCAO' | 'PRESCRICAO' | 'EXAME' | 'ATESTADO' | 'OUTROS' | 'SISTEMA'
 
 export interface User {
   id: string
@@ -174,7 +176,7 @@ export interface DoctorSecretary {
   doctorId: string
   secretaryId: string
   active: boolean
-  permissions?: Partial<Record<'chatbot' | 'chatbot_light' | 'chatbot_light_operar' | 'chatbot_light_configurar' | 'documentos' | 'salas' | 'integracoes' | 'financeiro', boolean>>
+  permissions?: SecretaryPermissions
   createdAt: string
   secretary: {
     id: string

@@ -16,6 +16,7 @@ import {
   Trash2,
   ChevronDown,
   AlertTriangle,
+  Pencil,
 } from 'lucide-react'
 import toast from 'react-hot-toast'
 import api from '../lib/api'
@@ -34,7 +35,13 @@ const recordTypeConfig: Record<string, { label: string; color: string; bg: strin
   EXAME: { label: 'Exame', color: 'text-amber-700', bg: 'bg-amber-100', icon: '🔬' },
   ATESTADO: { label: 'Atestado', color: 'text-red-700', bg: 'bg-red-100', icon: '📄' },
   OUTROS: { label: 'Outros', color: 'text-slate-700', bg: 'bg-slate-100', icon: '📝' },
+  SISTEMA: { label: 'Sistema', color: 'text-indigo-700', bg: 'bg-indigo-100', icon: '⚙️' },
 }
+
+// Tipos que o médico pode escolher ao criar/editar manualmente. 'SISTEMA' é
+// reservado para lançamentos automáticos (falta, remarcação, conclusão de
+// consulta) e nunca aparece como opção nesse formulário.
+const MANUAL_RECORD_TYPES = Object.entries(recordTypeConfig).filter(([value]) => value !== 'SISTEMA')
 
 const schema = z.object({
   patientId: z.string().min(1, 'Selecione um paciente'),
@@ -47,7 +54,7 @@ const schema = z.object({
 
 type FormData = z.infer<typeof schema>
 
-function RecordCard({ record, onDelete, canDelete }: { record: MedicalRecord; onDelete: () => void; canDelete: boolean }) {
+function RecordCard({ record, onDelete, onEdit, canDelete, canEdit }: { record: MedicalRecord; onDelete: () => void; onEdit: () => void; canDelete: boolean; canEdit: boolean }) {
   const [expanded, setExpanded] = useState(false)
   const tc = recordTypeConfig[record.type] || recordTypeConfig.OUTROS
 
@@ -101,17 +108,30 @@ function RecordCard({ record, onDelete, canDelete }: { record: MedicalRecord; on
           ) : (
             <p className="text-sm text-slate-700 whitespace-pre-wrap leading-relaxed">{record.content}</p>
           )}
-          {canDelete && (
-            <div className="flex justify-end mt-4">
-              <button
-                onClick={onDelete}
-                className="flex items-center gap-1.5 text-xs text-red-500 hover:text-red-700
-                           hover:bg-red-50 px-3 py-1.5 rounded-xl transition-all duration-150 active:scale-95
-                           border border-transparent hover:border-red-100"
-              >
-                <Trash2 className="w-3.5 h-3.5" />
-                Excluir registro
-              </button>
+          {(canEdit || canDelete) && (
+            <div className="flex justify-end gap-2 mt-4">
+              {canEdit && (
+                <button
+                  onClick={onEdit}
+                  className="flex items-center gap-1.5 text-xs text-blue-600 hover:text-blue-800
+                             hover:bg-blue-50 px-3 py-1.5 rounded-xl transition-all duration-150 active:scale-95
+                             border border-transparent hover:border-blue-100"
+                >
+                  <Pencil className="w-3.5 h-3.5" />
+                  Editar
+                </button>
+              )}
+              {canDelete && (
+                <button
+                  onClick={onDelete}
+                  className="flex items-center gap-1.5 text-xs text-red-500 hover:text-red-700
+                             hover:bg-red-50 px-3 py-1.5 rounded-xl transition-all duration-150 active:scale-95
+                             border border-transparent hover:border-red-100"
+                >
+                  <Trash2 className="w-3.5 h-3.5" />
+                  Excluir registro
+                </button>
+              )}
             </div>
           )}
         </div>
@@ -127,6 +147,8 @@ function RecordForm({
   currentUser,
   onSubmit,
   loading,
+  initialValues,
+  submitLabel = 'Salvar Prontuário',
 }: {
   defaultPatientId?: string
   patients: Patient[]
@@ -134,6 +156,8 @@ function RecordForm({
   currentUser: { id: string; role: string } | null
   onSubmit: (data: FormData) => void
   loading: boolean
+  initialValues?: Partial<FormData>
+  submitLabel?: string
 }) {
   const { register, handleSubmit, formState: { errors } } = useForm<FormData>({
     resolver: zodResolver(schema),
@@ -144,6 +168,7 @@ function RecordForm({
       date: format(new Date(), 'yyyy-MM-dd'),
       title: '',
       content: '',
+      ...initialValues,
     },
   })
 
@@ -172,7 +197,7 @@ function RecordForm({
         <div>
           <label className="label">Tipo *</label>
           <select {...register('type')} className="input-field">
-            {Object.entries(recordTypeConfig).map(([value, { label }]) => (
+            {MANUAL_RECORD_TYPES.map(([value, { label }]) => (
               <option key={value} value={value}>{label}</option>
             ))}
           </select>
@@ -206,7 +231,7 @@ function RecordForm({
             <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
             Salvando...
           </span>
-        ) : 'Salvar Prontuário'}
+        ) : submitLabel}
       </button>
     </form>
   )
@@ -218,6 +243,7 @@ export default function Prontuario() {
   const [search, setSearch] = useState('')
   const [selectedPatient, setSelectedPatient] = useState<Patient | null>(null)
   const [modalOpen, setModalOpen] = useState(false)
+  const [editingRecord, setEditingRecord] = useState<MedicalRecord | null>(null)
 
   const { data: patients = [] } = useQuery<Patient[]>({
     queryKey: ['patients', search],
@@ -259,6 +285,16 @@ export default function Prontuario() {
       qc.invalidateQueries({ queryKey: ['prontuario'] })
       toast.success('Registro removido')
     },
+  })
+
+  const updateMutation = useMutation({
+    mutationFn: (vars: { id: string; data: FormData }) => api.put(`/medical-records/${vars.id}`, vars.data),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['prontuario'] })
+      toast.success('Prontuário atualizado!')
+      setEditingRecord(null)
+    },
+    onError: () => toast.error('Erro ao atualizar prontuário'),
   })
 
   const totalRecords = grouped.reduce((acc, g) => acc + g.records.length, 0)
@@ -422,7 +458,9 @@ export default function Prontuario() {
                             key={record.id}
                             record={record}
                             canDelete={user?.role === 'ADMIN' || user?.role === 'DOCTOR'}
+                            canEdit={user?.role === 'ADMIN' || user?.role === 'DOCTOR'}
                             onDelete={() => deleteMutation.mutate(record.id)}
+                            onEdit={() => setEditingRecord(record)}
                           />
                         ))}
                       </div>
@@ -463,6 +501,34 @@ export default function Prontuario() {
             currentUser={user}
             onSubmit={(data) => createMutation.mutate(data)}
             loading={createMutation.isPending}
+          />
+        )}
+      </Modal>
+
+      <Modal
+        isOpen={!!editingRecord}
+        onClose={() => setEditingRecord(null)}
+        title="Editar Registro de Prontuário"
+        size="lg"
+      >
+        {editingRecord && (
+          <RecordForm
+            key={editingRecord.id}
+            defaultPatientId={editingRecord.patientId}
+            patients={patients}
+            doctors={doctors}
+            currentUser={user}
+            submitLabel="Salvar alterações"
+            initialValues={{
+              patientId: editingRecord.patientId,
+              doctorId: editingRecord.doctorId,
+              type: editingRecord.type === 'SISTEMA' ? 'OUTROS' : editingRecord.type,
+              date: format(new Date(editingRecord.date), 'yyyy-MM-dd'),
+              title: editingRecord.title,
+              content: editingRecord.content,
+            }}
+            onSubmit={(data) => updateMutation.mutate({ id: editingRecord.id, data })}
+            loading={updateMutation.isPending}
           />
         )}
       </Modal>

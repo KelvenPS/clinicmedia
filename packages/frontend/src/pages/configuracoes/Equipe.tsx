@@ -21,7 +21,7 @@ import toast from 'react-hot-toast'
 import api from '../../lib/api'
 import type { DoctorSecretary } from '../../types'
 import Modal from '../../components/ui/Modal'
-import { SECRETARY_PERMISSION_KEYS, SECRETARY_PERMISSION_LABELS, type SecretaryPermissionKey, type SecretaryPermissions } from '../../hooks/useSecretaryPermissions'
+import { SECRETARY_PERMISSION_KEYS, SECRETARY_PERMISSION_LABELS, PERMISSION_KEY_TO_INTEGRATION_TYPE, type SecretaryPermissionKey, type SecretaryPermissions } from '../../hooks/useSecretaryPermissions'
 
 const createSchema = z.object({
   name: z.string().min(2, 'Nome obrigatório'),
@@ -49,6 +49,16 @@ export default function Equipe() {
   const qc = useQueryClient()
   const [mode, setMode] = useState<'list' | 'create' | 'link'>('list')
   const [accessLink, setAccessLink] = useState<DoctorSecretary | null>(null)
+
+  const { data: activeAddonTypes = [] } = useQuery<{ type: string; status: string }[]>({
+    queryKey: ['integration-addons'],
+    queryFn: () => api.get('/integration-addons').then(r => r.data),
+  })
+  const activeTypeSet = new Set(activeAddonTypes.filter(a => a.status === 'ACTIVE').map(a => a.type))
+  const visiblePermissionKeys = SECRETARY_PERMISSION_KEYS.filter(key => {
+    const integrationType = PERMISSION_KEY_TO_INTEGRATION_TYPE[key]
+    return !integrationType || activeTypeSet.has(integrationType)
+  })
 
   const { data: team = [], isLoading } = useQuery<DoctorSecretary[]>({
     queryKey: ['team'],
@@ -115,7 +125,7 @@ export default function Equipe() {
   const activeCount = team.filter(t => t.active).length
 
   return (
-    <div className="max-w-2xl space-y-6 page-stagger">
+    <div className="max-w-2xl mx-auto space-y-6 page-stagger">
       {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 animate-stagger-1">
         <div>
@@ -440,7 +450,7 @@ export default function Equipe() {
               Agenda, Pacientes e Prontuário já estão sempre liberados. Avaliações e agendas de outros médicos/salas continuam sempre bloqueados.
             </p>
             <div className="space-y-2">
-              {SECRETARY_PERMISSION_KEYS.map((key: SecretaryPermissionKey) => {
+              {visiblePermissionKeys.map((key: SecretaryPermissionKey) => {
                 const checked = !!accessLink.permissions?.[key]
                 return (
                   <label
@@ -464,6 +474,11 @@ export default function Equipe() {
                 )
               })}
             </div>
+            {activeTypeSet.size === 0 && (
+              <p className="text-xs text-slate-400 bg-slate-50 border border-slate-100 rounded-lg px-3 py-2">
+                Nenhuma integração contratada ainda — contrate em Configurações → Integrações para liberar o acesso de secretárias a elas.
+              </p>
+            )}
             <div className="flex justify-end pt-2 border-t border-slate-100">
               <button type="button" onClick={() => setAccessLink(null)} className="btn-secondary">
                 Concluído

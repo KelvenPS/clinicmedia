@@ -1,8 +1,112 @@
+import type { IntegrationType } from '@prisma/client'
 import { prisma } from '../../lib/prisma'
 import { logAudit } from '../../lib/secretaryAccess'
 import { isValidTransition, calculateClinicAccess, type SubscriptionStatusValue } from '../../lib/subscription-access'
 import { CLINIC_PRO_SUBSCRIPTION } from '../../lib/billing-config'
 import type { NormalizedBillingEvent } from './kiwify.types'
+
+export async function processIntegrationAddonWebhookEvent(
+  event: NormalizedBillingEvent,
+  addonType: string,
+  eventKey: string
+): Promise<ProcessWebhookResult> {
+  const existing = await prisma.kiwifyWebhookEvent.findUnique({ where: { eventKey } })
+  if (existing?.processingStatus === 'PROCESSED') {
+    return { received: true, duplicated: true }
+  }
+
+  const webhookRecord = existing
+    ? await prisma.kiwifyWebhookEvent.update({
+        where: { eventKey },
+        data: { attempts: { increment: 1 } },
+      })
+    : await prisma.kiwifyWebhookEvent.create({
+        data: {
+          eventKey,
+          eventType: event.eventType,
+          kiwifyOrderId: event.providerOrderId || null,
+          payload: event.rawPayload as object,
+        },
+      })
+
+  if (event.eventType === 'UNKNOWN' || !event.providerOrderId) {
+    await prisma.kiwifyWebhookEvent.update({
+      where: { id: webhookRecord.id },
+      data: { processingStatus: 'IGNORED', processedAt: new Date(), errorMessage: 'Evento não mapeado ou sem order_id' },
+    })
+    return { received: true, ignored: 'unmapped_event' }
+  }
+
+  const doctorId = event.doctorId
+  if (!doctorId) {
+    await prisma.kiwifyWebhookEvent.update({
+      where: { id: webhookRecord.id },
+      data: { processingStatus: 'IGNORED', processedAt: new Date(), errorMessage: 'Sem doctorId (TrackingParameters.s1) no payload' },
+    })
+    return { received: true, ignored: 'missing_doctor_id' }
+  }
+
+  const addon = await prisma.integrationAddon.findUnique({ where: { doctorId_type: { doctorId, type: addonType as IntegrationType } } })
+  if (!addon) {
+    await prisma.kiwifyWebhookEvent.update({
+      where: { id: webhookRecord.id },
+      data: { processingStatus: 'IGNORED', processedAt: new Date(), errorMessage: `Add-on não encontrado para doctorId=${doctorId} type=${addonType}` },
+    })
+    return { received: true, ignored: 'addon_not_found' }
+  }
+
+  const now = new Date()
+
+  await prisma.$transaction(async (tx) => {
+    switch (event.eventType) {
+      case 'PAYMENT_APPROVED':
+      case 'SUBSCRIPTION_RENEWED': {
+        await tx.integrationAddon.update({
+          where: { id: addon.id },
+          data: {
+            status: 'ACTIVE',
+            lastPaymentAt: now,
+            currentPeriodEndsAt: addOneMonth(now),
+            lastKiwifyOrderId: event.providerOrderId,
+            kiwifySubscriptionId: event.providerSubscriptionId ?? addon.kiwifySubscriptionId,
+            canceledAt: null,
+          },
+        })
+        await logAudit({ userId: doctorId, action: 'INTEGRATION_ADDON_ACTIVATED', description: `${addonType} — pedido ${event.providerOrderId}` })
+        break
+      }
+
+      case 'PAYMENT_LATE': {
+        await tx.integrationAddon.update({ where: { id: addon.id }, data: { status: 'PAST_DUE' } })
+        await logAudit({ userId: doctorId, action: 'INTEGRATION_ADDON_PAST_DUE', description: `${addonType} — pedido ${event.providerOrderId}` })
+        break
+      }
+
+      case 'SUBSCRIPTION_CANCELED': {
+        await tx.integrationAddon.update({ where: { id: addon.id }, data: { status: 'CANCELED', canceledAt: now } })
+        await logAudit({ userId: doctorId, action: 'INTEGRATION_ADDON_CANCELED', description: `${addonType} — pedido ${event.providerOrderId}` })
+        break
+      }
+
+      case 'PAYMENT_REFUNDED':
+      case 'CHARGEBACK': {
+        await tx.integrationAddon.update({ where: { id: addon.id }, data: { status: 'BLOCKED' } })
+        await logAudit({ userId: doctorId, action: 'INTEGRATION_ADDON_BLOCKED', description: `${addonType} — pedido ${event.providerOrderId}` })
+        break
+      }
+
+      // PAYMENT_REFUSED / PAYMENT_PENDING: mantém PENDING_PAYMENT já setado no
+      // checkout, nada a atualizar além de marcar o webhook como processado.
+    }
+
+    await tx.kiwifyWebhookEvent.update({
+      where: { id: webhookRecord.id },
+      data: { processingStatus: 'PROCESSED', processedAt: now },
+    })
+  })
+
+  return { received: true }
+}
 
 function addOneMonth(from: Date): Date {
   const d = new Date(from)

@@ -1,5 +1,6 @@
 import crypto from 'crypto'
 import { getResolvedKiwifyConfig } from '../../lib/kiwify-config'
+import { INTEGRATION_ADDON_PRICING } from '../../lib/billing-config'
 
 // Verificação de assinatura do webhook. A Kiwify suporta dois esquemas comuns:
 // 1) HMAC SHA-256 do corpo bruto, enviado no header `x-kiwify-signature`;
@@ -54,6 +55,37 @@ export async function buildKiwifyCheckoutUrl(params: {
   url.searchParams.set('s3', params.checkoutAttemptId)
   url.searchParams.set('utm_source', 'clinic-pro')
   url.searchParams.set('utm_medium', 'subscription')
+
+  return url.toString()
+}
+
+// Checkout de um add-on de integração (ver INTEGRATION_ADDON_PRICING). Cada
+// tipo tem seu próprio produto/checkout na Kiwify — configurado via env var
+// específica (kiwifyCheckoutUrlEnvKey), já que ainda não existem produtos
+// reais criados. `s4` carrega o tipo pra o webhook saber qual addon ativar.
+export function buildAddonCheckoutUrl(params: {
+  doctorId: string
+  userId: string
+  addonId: string
+  type: string
+}): string {
+  const pricing = INTEGRATION_ADDON_PRICING[params.type]
+  if (!pricing) {
+    throw new Error(`Tipo de integração desconhecido: ${params.type}`)
+  }
+
+  const baseUrl = process.env[pricing.kiwifyCheckoutUrlEnvKey]
+  if (!baseUrl) {
+    throw new Error(`Produto Kiwify ainda não configurado para "${pricing.label}" (defina ${pricing.kiwifyCheckoutUrlEnvKey})`)
+  }
+
+  const url = new URL(baseUrl)
+  url.searchParams.set('s1', params.doctorId)
+  url.searchParams.set('s2', params.userId)
+  url.searchParams.set('s3', params.addonId)
+  url.searchParams.set('s4', params.type)
+  url.searchParams.set('utm_source', 'clinic-pro')
+  url.searchParams.set('utm_medium', 'integration-addon')
 
   return url.toString()
 }

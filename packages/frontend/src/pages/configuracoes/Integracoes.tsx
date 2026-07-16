@@ -12,6 +12,26 @@ import toast from 'react-hot-toast'
 import api from '../../lib/api'
 import type { Integration, WebhookLog, IntegrationType } from '../../types'
 import Modal from '../../components/ui/Modal'
+import { useAuthStore } from '../../store/authStore'
+import { Link } from 'react-router-dom'
+import { Lock, ShoppingCart } from 'lucide-react'
+
+interface IntegrationAddonStatus {
+  type: IntegrationType
+  label: string
+  priceCents: number
+  status: 'INACTIVE' | 'PENDING_PAYMENT' | 'ACTIVE' | 'PAST_DUE' | 'CANCELED' | 'BLOCKED'
+  currentPeriodEndsAt: string | null
+}
+
+const ADDON_STATUS_LABEL: Record<IntegrationAddonStatus['status'], { label: string; className: string }> = {
+  INACTIVE: { label: 'Não contratado', className: 'bg-slate-100 text-slate-500' },
+  PENDING_PAYMENT: { label: 'Pagamento pendente', className: 'bg-amber-100 text-amber-700' },
+  ACTIVE: { label: 'Contratado', className: 'bg-emerald-100 text-emerald-700' },
+  PAST_DUE: { label: 'Pagamento atrasado', className: 'bg-amber-100 text-amber-700' },
+  CANCELED: { label: 'Cancelado', className: 'bg-slate-100 text-slate-500' },
+  BLOCKED: { label: 'Bloqueado', className: 'bg-red-100 text-red-700' },
+}
 
 // ─── integration meta ──────────────────────────────────────────────────────────
 
@@ -583,6 +603,8 @@ type ModalMode = 'create' | 'edit'
 
 export default function Integracoes() {
   const qc = useQueryClient()
+  const { user } = useAuthStore()
+  const isManager = user?.role === 'DOCTOR' || user?.role === 'ADMIN'
   const [modalOpen, setModalOpen] = useState(false)
   const [modalMode, setModalMode] = useState<ModalMode>('create')
   const [editingIntegration, setEditingIntegration] = useState<Integration | null>(null)
@@ -597,6 +619,25 @@ export default function Integracoes() {
   const { data: integrations = [] } = useQuery<Integration[]>({
     queryKey: ['integrations'],
     queryFn: () => api.get('/integrations').then(r => r.data),
+  })
+
+  const { data: addons = [] } = useQuery<IntegrationAddonStatus[]>({
+    queryKey: ['integration-addons'],
+    queryFn: () => api.get('/integration-addons').then(r => r.data),
+    enabled: isManager,
+  })
+  const addonByType = new Map(addons.map(a => [a.type, a]))
+
+  const checkoutMutation = useMutation({
+    mutationFn: (t: IntegrationType) => api.post(`/integration-addons/${t}/checkout`).then(r => r.data as { checkoutUrl: string }),
+    onSuccess: (data) => {
+      window.open(data.checkoutUrl, '_blank', 'noopener,noreferrer')
+      qc.invalidateQueries({ queryKey: ['integration-addons'] })
+    },
+    onError: (error: unknown) => {
+      const message = (error as { response?: { data?: { message?: string } } })?.response?.data?.message
+      toast.error(message || 'Erro ao gerar checkout do add-on')
+    },
   })
 
   const createMutation = useMutation({
@@ -682,7 +723,7 @@ export default function Integracoes() {
   const configured = integrations.filter(i => i.active).length
 
   return (
-    <div className="max-w-4xl space-y-6 page-stagger">
+    <div className="max-w-4xl mx-auto space-y-6 page-stagger">
       {/* Header */}
       <div className="animate-stagger-1">
         <h1 className="page-title flex items-center gap-2">
@@ -711,6 +752,7 @@ export default function Integracoes() {
       </div>
 
       {/* Add new integration */}
+      {isManager && (
       <div className="card">
         <p className="text-sm font-semibold text-slate-700 mb-3 flex items-center gap-2">
           <Plus className="w-4 h-4 text-blue-500" />
@@ -719,22 +761,64 @@ export default function Integracoes() {
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
           {(Object.entries(INTEGRATION_META) as [IntegrationType, typeof INTEGRATION_META[IntegrationType]][]).map(([t, meta]) => {
             const Icon = meta.icon
+            const addon = addonByType.get(t)
+            const addonStatus = addon?.status ?? 'INACTIVE'
+            const isActive = addonStatus === 'ACTIVE'
+            const statusMeta = ADDON_STATUS_LABEL[addonStatus]
             return (
-              <button
+              <div
                 key={t}
-                onClick={() => openCreate(t)}
-                className={`flex items-start gap-3 p-4 border-2 ${meta.border} ${meta.bg} rounded-xl text-left hover:shadow-md transition-all group`}
+                className={`flex flex-col gap-3 p-4 border-2 ${meta.border} ${meta.bg} rounded-xl text-left transition-all`}
               >
-                <Icon className={`w-5 h-5 ${meta.color} flex-shrink-0 mt-0.5`} />
-                <div className="min-w-0">
-                  <p className={`font-semibold text-sm ${meta.color}`}>{meta.label}</p>
-                  <p className="text-xs text-slate-500 mt-0.5 leading-snug">{meta.description}</p>
+                <div className="flex items-start gap-3">
+                  <Icon className={`w-5 h-5 ${meta.color} flex-shrink-0 mt-0.5`} />
+                  <div className="min-w-0 flex-1">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <p className={`font-semibold text-sm ${meta.color}`}>{meta.label}</p>
+                      <span className={`text-[11px] px-1.5 py-0.5 rounded-full font-medium ${statusMeta.className}`}>
+                        {statusMeta.label}
+                      </span>
+                    </div>
+                    <p className="text-xs text-slate-500 mt-0.5 leading-snug">{meta.description}</p>
+                    {addon && (
+                      <p className="text-xs text-slate-400 mt-1">
+                        R$ {(addon.priceCents / 100).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}/mês
+                      </p>
+                    )}
+                  </div>
                 </div>
-              </button>
+                {isActive ? (
+                  <div className="flex items-center gap-2">
+                    <button
+                      onClick={() => openCreate(t)}
+                      className="flex-1 text-xs font-semibold py-2 rounded-lg bg-white border border-slate-200 hover:border-slate-300 transition-colors"
+                    >
+                      Configurar
+                    </button>
+                    <Link
+                      to="/configuracoes/equipe"
+                      className="text-[11px] text-slate-500 hover:text-blue-600 underline underline-offset-2"
+                      title="Liberar acesso a secretárias"
+                    >
+                      Gerenciar acessos
+                    </Link>
+                  </div>
+                ) : (
+                  <button
+                    onClick={() => checkoutMutation.mutate(t)}
+                    disabled={checkoutMutation.isPending}
+                    className="flex items-center justify-center gap-1.5 text-xs font-semibold py-2 rounded-lg bg-slate-900 text-white hover:bg-slate-800 transition-colors disabled:opacity-50"
+                  >
+                    {addonStatus === 'PENDING_PAYMENT' ? <Lock className="w-3.5 h-3.5" /> : <ShoppingCart className="w-3.5 h-3.5" />}
+                    {addonStatus === 'PENDING_PAYMENT' ? 'Finalizar pagamento' : 'Contratar'}
+                  </button>
+                )}
+              </div>
             )
           })}
         </div>
       </div>
+      )}
 
       {/* Existing integrations */}
       {integrations.length > 0 && (
@@ -770,7 +854,7 @@ export default function Integracoes() {
                     </div>
                   </div>
                   <div className="flex items-center gap-1 flex-shrink-0">
-                    {intg.type === 'WEBHOOK' && (
+                    {isManager && intg.type === 'WEBHOOK' && (
                       <>
                         <button
                           onClick={() => setLogsFor(showLogs ? null : intg.id)}
@@ -789,27 +873,31 @@ export default function Integracoes() {
                         </button>
                       </>
                     )}
-                    <button
-                      onClick={() => openEdit(intg)}
-                      title="Editar"
-                      className="p-1.5 text-slate-400 hover:text-slate-700 hover:bg-slate-100 rounded-lg transition-colors"
-                    >
-                      <Zap className="w-4 h-4" />
-                    </button>
-                    <button
-                      onClick={() => toggleMutation.mutate(intg.id)}
-                      title={intg.active ? 'Desativar' : 'Ativar'}
-                      className={`p-1.5 rounded-lg transition-colors ${intg.active ? 'text-emerald-600 hover:bg-emerald-50' : 'text-slate-400 hover:bg-slate-100'}`}
-                    >
-                      <Power className="w-4 h-4" />
-                    </button>
-                    <button
-                      onClick={() => { if (confirm('Remover integração?')) deleteMutation.mutate(intg.id) }}
-                      title="Remover"
-                      className="p-1.5 text-slate-400 hover:text-red-500 hover:bg-red-50 rounded-lg transition-colors"
-                    >
-                      <Trash2 className="w-4 h-4" />
-                    </button>
+                    {isManager && (
+                      <>
+                        <button
+                          onClick={() => openEdit(intg)}
+                          title="Editar"
+                          className="p-1.5 text-slate-400 hover:text-slate-700 hover:bg-slate-100 rounded-lg transition-colors"
+                        >
+                          <Zap className="w-4 h-4" />
+                        </button>
+                        <button
+                          onClick={() => toggleMutation.mutate(intg.id)}
+                          title={intg.active ? 'Desativar' : 'Ativar'}
+                          className={`p-1.5 rounded-lg transition-colors ${intg.active ? 'text-emerald-600 hover:bg-emerald-50' : 'text-slate-400 hover:bg-slate-100'}`}
+                        >
+                          <Power className="w-4 h-4" />
+                        </button>
+                        <button
+                          onClick={() => { if (confirm('Remover integração?')) deleteMutation.mutate(intg.id) }}
+                          title="Remover"
+                          className="p-1.5 text-slate-400 hover:text-red-500 hover:bg-red-50 rounded-lg transition-colors"
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </button>
+                      </>
+                    )}
                   </div>
                 </div>
 

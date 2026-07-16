@@ -17,6 +17,7 @@ import documentRoutes from './routes/documents'
 import notificationRoutes from './routes/notifications'
 import paymentMethodRoutes from './routes/payment-methods'
 import integrationRoutes from './routes/integrations'
+import integrationAddonRoutes from './routes/integration-addons'
 import chatbotLightRoutes from './routes/chatbot-light'
 import myRoomsRoutes from './routes/my-rooms'
 import { runStartupDatabaseCleanup } from './lib/whatsapp'
@@ -77,6 +78,7 @@ app.use('/api/documents', authenticate, requireActiveSubscription, documentRoute
 app.use('/api/notifications', authenticate, requireActiveSubscription, notificationRoutes)
 app.use('/api/payment-methods', authenticate, requireActiveSubscription, paymentMethodRoutes)
 app.use('/api/integrations', authenticate, requireActiveSubscription, integrationRoutes)
+app.use('/api/integration-addons', authenticate, requireActiveSubscription, integrationAddonRoutes)
 app.use('/api/chatbot-light', authenticate, requireActiveSubscription, chatbotLightRoutes)
 app.use('/api/my/rooms', authenticate, requireActiveSubscription, myRoomsRoutes)
 app.use('/api/admin/sql', adminSqlRoutes)

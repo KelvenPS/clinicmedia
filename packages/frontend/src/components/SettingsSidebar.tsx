@@ -39,7 +39,7 @@ export default function SettingsSidebar({ collapsed = false, onToggleCollapse }:
                 <Settings className="w-4 h-4 text-blue-400" />
               </div>
               <div className="min-w-0">
-                <h1 className="text-white font-bold text-sm leading-tight truncate">Configurações</h1>
+                <h1 className="text-white font-semibold text-sm leading-tight truncate">Configurações</h1>
                 <p className="text-slate-500 text-[11px]">Preferências</p>
               </div>
             </div>
@@ -124,7 +124,7 @@ export default function SettingsSidebar({ collapsed = false, onToggleCollapse }:
               <img src={user.avatarUrl} alt={user.name} className="w-full h-full object-cover" />
             ) : (
               <div className="w-full h-full bg-gradient-to-br from-cyan-500 to-blue-600 flex items-center justify-center">
-                <span className="text-white text-xs font-bold leading-none">{initials}</span>
+                <span className="text-white text-xs font-semibold leading-none">{initials}</span>
               </div>
             )}
           </div>

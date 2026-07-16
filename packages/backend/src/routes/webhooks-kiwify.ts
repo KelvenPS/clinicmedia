@@ -2,8 +2,8 @@ import { Router, Request } from 'express'
 import crypto from 'crypto'
 import { verifyKiwifyWebhookSignature } from '../integrations/kiwify/kiwify.client'
 import { mapKiwifyWebhook } from '../integrations/kiwify/kiwify.mapper'
-import { processKiwifyWebhookEvent } from '../integrations/kiwify/kiwify.service'
-import { KIWIFY_WEBHOOK_ENABLED } from '../lib/billing-config'
+import { processKiwifyWebhookEvent, processIntegrationAddonWebhookEvent } from '../integrations/kiwify/kiwify.service'
+import { KIWIFY_WEBHOOK_ENABLED, resolveIntegrationAddonType } from '../lib/billing-config'
 import { getResolvedKiwifyConfig } from '../lib/kiwify-config'
 
 interface RequestWithRawBody extends Request {
@@ -59,6 +59,20 @@ router.post('/', async (req: RequestWithRawBody, res) => {
 
   try {
     const event = mapKiwifyWebhook(payload)
+
+    // Add-ons de integração usam produtos Kiwify próprios (um por tipo),
+    // separados do produto único da assinatura principal — checa isso antes
+    // da validação de produto abaixo, que é específica da assinatura.
+    const addonType = event.providerProductId ? resolveIntegrationAddonType(event.providerProductId) : null
+    if (addonType) {
+      const addonEventKey = event.providerOrderId
+        ? `kiwify:addon:${addonType}:${event.eventType}:${event.providerOrderId}:${event.eventDate.toISOString()}`
+        : `kiwify:addon:${addonType}:unknown:${crypto.createHash('sha256').update(JSON.stringify(payload)).digest('hex')}`
+
+      const addonResult = await processIntegrationAddonWebhookEvent(event, addonType, addonEventKey)
+      res.status(200).json(addonResult)
+      return
+    }
 
     // Validação de produto: se KIWIFY_PRODUCT_ID estiver configurado, ignora
     // pagamentos de qualquer outro produto da mesma conta Kiwify.

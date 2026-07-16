@@ -6,8 +6,8 @@ import { z } from 'zod'
 import {
   Eye, EyeOff, Lock, Mail, AlertCircle, LogIn,
   KeyRound, X, Send, MessageSquare, CalendarCheck,
-  DollarSign, BarChart3, Headphones, TrendingUp,
-  Shield, Sparkles, ArrowRight, Play,
+  DollarSign, BarChart3, FileText, MapPin,
+  Shield, Sparkles, ArrowRight,
 } from 'lucide-react'
 import toast from 'react-hot-toast'
 import api from '../lib/api'
@@ -31,70 +31,46 @@ function getGreeting(name: string) {
 /* ─── Floating card data ─── */
 const FLOATING_CARDS = [
   {
-    icon: MessageSquare,
-    title: 'Pré-agendamento recebido',
-    subtitle: 'via WhatsApp · agora',
-    accent: 'from-green-400 to-emerald-500',
-    accentBg: 'bg-green-500/15',
-    accentText: 'text-green-400',
-    dot: 'bg-green-400',
-    badge: 'Novo',
-    badgeColor: 'bg-green-500/20 text-green-300',
+    icon: BarChart3,
+    title: 'Dashboard',
+    subtitle: 'Visão geral em tempo real',
+    accentBg: 'bg-violet-500/15',
+    accentText: 'text-violet-400',
   },
   {
     icon: CalendarCheck,
-    title: 'Consulta confirmada',
-    subtitle: 'Dr. Oliveira · 14:30',
-    accent: 'from-blue-400 to-cyan-500',
+    title: 'Agenda',
+    subtitle: 'Consultas organizadas',
     accentBg: 'bg-blue-500/15',
     accentText: 'text-blue-400',
-    dot: 'bg-blue-400',
-    badge: 'Agenda',
-    badgeColor: 'bg-blue-500/20 text-blue-300',
+  },
+  {
+    icon: FileText,
+    title: 'Prontuário',
+    subtitle: 'Histórico completo do paciente',
+    accentBg: 'bg-emerald-500/15',
+    accentText: 'text-emerald-400',
   },
   {
     icon: DollarSign,
-    title: 'Pagamento recebido',
-    subtitle: 'R$ 350,00 · Cartão',
-    accent: 'from-emerald-400 to-teal-500',
-    accentBg: 'bg-emerald-500/15',
-    accentText: 'text-emerald-400',
-    dot: 'bg-emerald-400',
-    badge: 'R$ 350',
-    badgeColor: 'bg-emerald-500/20 text-emerald-300',
+    title: 'Financeiro',
+    subtitle: 'Controle de pagamentos',
+    accentBg: 'bg-teal-500/15',
+    accentText: 'text-teal-400',
   },
   {
-    icon: BarChart3,
-    title: 'Relatório atualizado',
-    subtitle: 'Mensal · Julho 2026',
-    accent: 'from-violet-400 to-purple-500',
-    accentBg: 'bg-violet-500/15',
-    accentText: 'text-violet-400',
-    dot: 'bg-violet-400',
-    badge: 'Pronto',
-    badgeColor: 'bg-violet-500/20 text-violet-300',
+    icon: MessageSquare,
+    title: 'WhatsApp',
+    subtitle: 'Atendimento integrado',
+    accentBg: 'bg-green-500/15',
+    accentText: 'text-green-400',
   },
   {
-    icon: Headphones,
-    title: 'Secretária online',
-    subtitle: '3 chats ativos',
-    accent: 'from-cyan-400 to-sky-500',
-    accentBg: 'bg-cyan-500/15',
-    accentText: 'text-cyan-400',
-    dot: 'bg-cyan-400 animate-pulse',
-    badge: 'Online',
-    badgeColor: 'bg-cyan-500/20 text-cyan-300',
-  },
-  {
-    icon: TrendingUp,
-    title: 'Taxa de ocupação',
-    subtitle: '87% da agenda preenchida',
-    accent: 'from-amber-400 to-orange-500',
+    icon: MapPin,
+    title: 'Gestão de Salas',
+    subtitle: 'Múltiplos consultórios',
     accentBg: 'bg-amber-500/15',
     accentText: 'text-amber-400',
-    dot: 'bg-amber-400',
-    badge: '87%',
-    badgeColor: 'bg-amber-500/20 text-amber-300',
   },
 ]
 
@@ -160,35 +136,6 @@ export default function Login() {
       setLoginPhase('idle')
       const message = (error as { response?: { data?: { message?: string } } })?.response?.data?.message || 'Erro ao fazer login'
       setError('email', { message })
-    } finally {
-      setLoading(false)
-    }
-  }
-
-  const onDemoLogin = async () => {
-    setLoading(true)
-    setLoginPhase('loading')
-    try {
-      await new Promise(r => setTimeout(r, 600))
-      setLoginPhase('preparing')
-
-      const res = await api.post('/auth/login', {
-        email: 'demo@cliniqpro.com',
-        password: 'demo123',
-      })
-      const { token, user } = res.data
-      setAuth(user, token)
-
-      await new Promise(r => setTimeout(r, 1200))
-
-      toast.success('Bem-vindo ao modo demonstração!', {
-        duration: 4000,
-        style: { background: '#0f172a', color: '#f8fafc', fontSize: '15px', fontWeight: '500' },
-      })
-      navigate('/dashboard')
-    } catch {
-      setLoginPhase('idle')
-      toast.error('Modo demonstração indisponível no momento')
     } finally {
       setLoading(false)
     }
@@ -303,13 +250,6 @@ export default function Login() {
                       </div>
                       <p className="text-slate-500 text-[11px]">{card.subtitle}</p>
                     </div>
-                  </div>
-                  {/* Badge */}
-                  <div className="absolute top-2.5 right-2.5">
-                    <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold ${card.badgeColor}`}>
-                      <span className={`w-1.5 h-1.5 rounded-full ${card.dot}`} />
-                      {card.badge}
-                    </span>
                   </div>
                 </div>
               ))}
@@ -511,38 +451,6 @@ export default function Login() {
               )}
             </button>
           </form>
-
-          {/* Secondary Actions */}
-          <div className="mt-6 space-y-3">
-            {/* Demo Mode */}
-            <button
-              type="button"
-              onClick={onDemoLogin}
-              disabled={loading}
-              className="w-full flex items-center justify-center gap-2.5 py-3 px-4
-                bg-slate-50 border border-slate-200 rounded-xl text-sm font-medium text-slate-600
-                hover:bg-slate-100 hover:border-slate-300 hover:text-slate-800
-                transition-all duration-200 disabled:opacity-50 group
-                focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-2"
-              id="demo-mode-button"
-            >
-              <Play className="w-4 h-4 text-emerald-500 group-hover:text-emerald-600 transition-colors" />
-              <span>Entrar em modo demonstração</span>
-            </button>
-
-            {/* Request Demo */}
-            <div className="text-center pt-1">
-              <a
-                href="mailto:contato@clinicpro.com.br?subject=Solicitar demonstração"
-                className="text-xs text-slate-500 hover:text-cyan-600 transition-colors duration-200
-                  focus-visible:ring-2 focus-visible:ring-blue-500 rounded-sm inline-flex items-center gap-1.5"
-                id="request-demo-link"
-              >
-                <Sparkles className="w-3 h-3" />
-                Solicitar demonstração personalizada
-              </a>
-            </div>
-          </div>
         </div>
 
         {/* Right side footer */}

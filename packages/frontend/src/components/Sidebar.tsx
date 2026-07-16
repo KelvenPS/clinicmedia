@@ -8,10 +8,8 @@ import {
   UserCog,
   LogOut,
   ChevronRight,
-  ChevronDown,
   Settings,
   ClipboardList,
-  Bot,
   MessageSquare,
   Database,
   PanelLeftClose,
@@ -92,7 +90,6 @@ export default function Sidebar({ collapsed = false, onToggleCollapse }: Sidebar
   const navigate = useNavigate()
   const location = useLocation()
   const isChatbotRoute = location.pathname.startsWith('/chatbot')
-  const [chatbotOpen, setChatbotOpen] = useState(isChatbotRoute)
 
   const { data: preRegistrations = [] } = useQuery<unknown[]>({
     queryKey: ['pre-registrations-count'],
@@ -186,7 +183,7 @@ export default function Sidebar({ collapsed = false, onToggleCollapse }: Sidebar
             collapsed={collapsed}
             badge={
               to === '/pacientes' && pendingCount > 0 ? (
-                <span className="inline-flex items-center justify-center min-w-[18px] h-[18px] px-1 text-[10px] font-bold bg-amber-500 text-white rounded-full leading-none">
+                <span className="inline-flex items-center justify-center min-w-[18px] h-[18px] px-1 text-[10px] font-semibold bg-amber-500 text-white rounded-full leading-none">
                   {pendingCount > 99 ? '99+' : pendingCount}
                 </span>
               ) : undefined
@@ -197,59 +194,19 @@ export default function Sidebar({ collapsed = false, onToggleCollapse }: Sidebar
         {/* ── Automação ── */}
         {(can('chatbot_light_operar') || can('chatbot_light_configurar')) && (
         <div className={`${collapsed ? 'mt-3 pt-3' : 'mt-5 pt-4'} border-t border-white/8`}>
-          {!collapsed && (
-            <p className="section-label mb-2">WhatsApp</p>
-          )}
-
-          {/* Chatbot — expandable in expanded mode, direct nav in collapsed */}
-          {collapsed ? (
-            <NavLink
-              to="/chatbot/light"
-              className={({ isActive: _ }) =>
-                `sidebar-link group tooltip-trigger ${isChatbotRoute ? 'active' : ''}`
-              }
-            >
-              <Bot className={`w-5 h-5 flex-shrink-0 transition-all duration-200 ${isChatbotRoute ? 'text-white' : 'text-slate-400 group-hover:text-white group-hover:scale-110'}`} />
-              <span className="tooltip">Chatbot</span>
-            </NavLink>
-          ) : (
-            <div>
-              {/* Parent toggle button */}
-              <button
-                onClick={() => setChatbotOpen(o => !o)}
-                className={`sidebar-link group w-full text-left ${isChatbotRoute ? 'active' : ''}`}
-              >
-                <Bot className={`w-5 h-5 flex-shrink-0 transition-all duration-200 ${isChatbotRoute ? 'text-white' : 'text-slate-400 group-hover:text-white group-hover:scale-110'}`} />
-                <span className="flex-1 overflow-hidden whitespace-nowrap">Chatbot</span>
-                <span className="inline-flex items-center gap-1 text-xs bg-cyan-500/20 text-cyan-400 px-1.5 py-0.5 rounded-md font-semibold border border-cyan-500/20 mr-1">
-                  <span className="w-1.5 h-1.5 rounded-full bg-cyan-400 animate-pulse-soft" />
-                  NOVO
-                </span>
-                <ChevronDown className={`w-4 h-4 flex-shrink-0 text-slate-400 transition-transform duration-200 ${chatbotOpen ? 'rotate-180' : ''}`} />
-              </button>
-
-              {/* Sub-items */}
-              {chatbotOpen && (
-                <div className="ml-5 mt-1 space-y-0.5 border-l border-white/10 pl-3 pb-1">
-                  {(can('chatbot_light_operar') || can('chatbot_light_configurar')) && (
-                  <NavLink
-                    to="/chatbot/light"
-                    className={({ isActive }) =>
-                      `flex items-center gap-2 px-2.5 py-2 rounded-xl text-sm font-medium transition-all duration-150 ${
-                        isActive
-                          ? 'bg-cyan-600/20 text-cyan-300 border border-cyan-500/20'
-                          : 'text-slate-400 hover:text-white hover:bg-white/6'
-                      }`
-                    }
-                  >
-                    <MessageSquare className="w-4 h-4 flex-shrink-0" />
-                    <span>Chatbot Light</span>
-                  </NavLink>
-                  )}
-                </div>
-              )}
-            </div>
-          )}
+          <NavLink
+            to="/chatbot/light"
+            className={({ isActive: _ }) =>
+              `sidebar-link group tooltip-trigger ${isChatbotRoute ? 'active' : ''}`
+            }
+          >
+            <MessageSquare className={`w-5 h-5 flex-shrink-0 transition-all duration-200 ${isChatbotRoute ? 'text-white' : 'text-slate-400 group-hover:text-white group-hover:scale-110'}`} />
+            {collapsed ? (
+              <span className="tooltip">WhatsApp</span>
+            ) : (
+              <span className="flex-1 overflow-hidden whitespace-nowrap">WhatsApp</span>
+            )}
+          </NavLink>
         </div>
         )}
 
@@ -293,7 +250,7 @@ export default function Sidebar({ collapsed = false, onToggleCollapse }: Sidebar
               <img src={user.avatarUrl} alt={user.name} className="w-full h-full object-cover" />
             ) : (
               <div className="w-full h-full bg-gradient-to-br from-cyan-500 to-blue-600 flex items-center justify-center">
-                <span className="text-white text-xs font-bold">{initials}</span>
+                <span className="text-white text-xs font-semibold">{initials}</span>
               </div>
             )}
           </div>

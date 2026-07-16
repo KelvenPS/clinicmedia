@@ -263,7 +263,7 @@ export default function PlanoFinanceiro() {
   const handleEdit = (p: HealthPlan) => { setEditPlan(p); setModalOpen(true) }
 
   return (
-    <div className="max-w-3xl space-y-6 page-stagger">
+    <div className="max-w-3xl mx-auto space-y-6 page-stagger">
       <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-3">
         <div className="animate-stagger-1">
           <h1 className="page-title">Convênio</h1>

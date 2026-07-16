@@ -55,7 +55,7 @@ export default function Assinatura() {
   const statusInfo = STATUS_LABEL[subscription.status] ?? STATUS_LABEL.BLOCKED
 
   return (
-    <div className="max-w-2xl space-y-6 animate-page-enter">
+    <div className="max-w-2xl mx-auto space-y-6 animate-page-enter">
       <div className="card p-6">
         <div className="flex items-start justify-between gap-4 mb-4">
           <div>

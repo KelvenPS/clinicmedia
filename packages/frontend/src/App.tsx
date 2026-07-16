@@ -33,6 +33,7 @@ import Assinatura from './pages/configuracoes/Assinatura'
 import AssinaturaPendente from './pages/configuracoes/AssinaturaPendente'
 import ConfigNotificacoes from './pages/configuracoes/ConfigNotificacoes'
 import Integracoes from './pages/configuracoes/Integracoes'
+import { INTEGRATION_PERMISSION_KEYS } from './hooks/useSecretaryPermissions'
 import ChatbotLight from './pages/ChatbotLight'
 import MinhasSalas from './pages/MinhasSalas'
 import AdminGestao from './pages/AdminGestao'
@@ -98,8 +99,8 @@ export default function App() {
           <Route path="configuracoes/salas" element={<ProtectedRoute allowedRoles={['ADMIN', 'DOCTOR', 'SECRETARY']}><SecretaryGate permission="salas"><Salas /></SecretaryGate></ProtectedRoute>} />
           <Route path="configuracoes/documentos" element={<ProtectedRoute allowedRoles={['ADMIN', 'DOCTOR', 'SECRETARY']}><SecretaryGate permission="documentos"><Documentos /></SecretaryGate></ProtectedRoute>} />
           <Route path="configuracoes/formas-pagamento" element={<ProtectedRoute allowedRoles={['ADMIN', 'DOCTOR']}><FormasPagamento /></ProtectedRoute>} />
-          <Route path="configuracoes/notificacoes" element={<ConfigNotificacoes />} />
-          <Route path="configuracoes/integracoes" element={<ProtectedRoute allowedRoles={['ADMIN', 'DOCTOR', 'SECRETARY']}><SecretaryGate permission="integracoes"><Integracoes /></SecretaryGate></ProtectedRoute>} />
+          <Route path="configuracoes/notificacoes" element={<ProtectedRoute allowedRoles={['ADMIN', 'DOCTOR']}><ConfigNotificacoes /></ProtectedRoute>} />
+          <Route path="configuracoes/integracoes" element={<ProtectedRoute allowedRoles={['ADMIN', 'DOCTOR', 'SECRETARY']}><SecretaryGate permission={INTEGRATION_PERMISSION_KEYS}><Integracoes /></SecretaryGate></ProtectedRoute>} />
           <Route path="configuracoes/assinatura" element={<Assinatura />} />
           <Route path="configuracoes/assinatura/pendente" element={<AssinaturaPendente />} />
         </Route>

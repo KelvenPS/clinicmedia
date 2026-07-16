@@ -12,11 +12,25 @@ export const SECRETARY_PERMISSION_KEYS = [
   'chatbot_light_configurar',
   'documentos',
   'salas',
-  'integracoes',
+  'integracao_webhook',
+  'integracao_google_calendar',
+  'integracao_gmail',
+  'integracao_whatsapp',
+  'integracao_ai_agent',
 ] as const
 
 export type SecretaryPermissionKey = typeof SECRETARY_PERMISSION_KEYS[number]
 export type SecretaryPermissions = Partial<Record<SecretaryPermissionKey, boolean>>
+
+// Mapa entre IntegrationType (Prisma) e a chave granular de permissão da
+// secretária correspondente — usado tanto pra checar acesso quanto pra listar.
+export const INTEGRATION_TYPE_PERMISSION_KEYS: Record<string, SecretaryPermissionKey> = {
+  WEBHOOK: 'integracao_webhook',
+  GOOGLE_CALENDAR: 'integracao_google_calendar',
+  GOOGLE_GMAIL: 'integracao_gmail',
+  WHATSAPP: 'integracao_whatsapp',
+  AI_AGENT: 'integracao_ai_agent',
+}
 
 // Permissões granulares dentro de uma sala específica
 export type RoomPermissionKey =

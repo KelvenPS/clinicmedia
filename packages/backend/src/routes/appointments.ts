@@ -509,6 +509,51 @@ router.put('/:id', async (req: AuthRequest, res) => {
         type: updated.type,
         value: transactionAmount,
       }).catch(() => {})
+
+      const apptDateStr = updated.date.toLocaleDateString('pt-BR')
+      const apptTimeStr = updated.date.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })
+      prisma.medicalRecord.create({
+        data: {
+          patientId: updated.patientId,
+          doctorId: updated.doctorId,
+          type: 'SISTEMA',
+          title: 'Atendimento concluído',
+          content: `Consulta${updated.type ? ` (${updated.type})` : ''} concluída em ${apptDateStr} às ${apptTimeStr}${updated.room ? ` — ${updated.room.name}` : ''}.`,
+          date: updated.date,
+        },
+      }).catch(err => console.error('[medicalRecord auto COMPLETED error]', err))
+    }
+
+    if (data.status === 'NO_SHOW' && current?.status !== 'NO_SHOW') {
+      const apptDateStr = updated.date.toLocaleDateString('pt-BR')
+      const apptTimeStr = updated.date.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })
+      prisma.medicalRecord.create({
+        data: {
+          patientId: updated.patientId,
+          doctorId: updated.doctorId,
+          type: 'SISTEMA',
+          title: 'Paciente faltou à consulta',
+          content: `O paciente não compareceu à consulta agendada para ${apptDateStr} às ${apptTimeStr}.`,
+          date: new Date(),
+        },
+      }).catch(err => console.error('[medicalRecord auto NO_SHOW error]', err))
+    }
+
+    if (current?.status === 'NO_SHOW' && data.date && new Date(data.date as Date).getTime() !== current.date.getTime()) {
+      const oldDateStr = current.date.toLocaleDateString('pt-BR')
+      const oldTimeStr = current.date.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })
+      const newDateStr = updated.date.toLocaleDateString('pt-BR')
+      const newTimeStr = updated.date.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })
+      prisma.medicalRecord.create({
+        data: {
+          patientId: updated.patientId,
+          doctorId: updated.doctorId,
+          type: 'SISTEMA',
+          title: 'Consulta remarcada',
+          content: `Consulta remarcada de ${oldDateStr} às ${oldTimeStr} para ${newDateStr} às ${newTimeStr}.`,
+          date: new Date(),
+        },
+      }).catch(err => console.error('[medicalRecord auto RESCHEDULE error]', err))
     }
 
     if (data.status === 'CANCELLED' && current?.status !== 'CANCELLED') {

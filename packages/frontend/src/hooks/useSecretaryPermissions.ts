@@ -8,7 +8,11 @@ export const SECRETARY_PERMISSION_KEYS = [
   'chatbot_light_configurar',
   'documentos',
   'salas',
-  'integracoes',
+  'integracao_webhook',
+  'integracao_google_calendar',
+  'integracao_gmail',
+  'integracao_whatsapp',
+  'integracao_ai_agent',
 ] as const
 
 export type SecretaryPermissionKey = typeof SECRETARY_PERMISSION_KEYS[number]
@@ -20,7 +24,32 @@ export const SECRETARY_PERMISSION_LABELS: Record<SecretaryPermissionKey, string>
   chatbot_light_configurar: 'Chatbot Light — Configurações e Campanhas',
   documentos: 'Documentos',
   salas: 'Clínica (Salas)',
-  integracoes: 'Integrações',
+  integracao_webhook: 'Integração — Webhooks',
+  integracao_google_calendar: 'Integração — Google Calendar',
+  integracao_gmail: 'Integração — Gmail',
+  integracao_whatsapp: 'Integração — WhatsApp',
+  integracao_ai_agent: 'Integração — Agente de IA',
+}
+
+// Chaves de integração, na mesma ordem de IntegrationType (Prisma) — usado
+// pra checar "tem acesso a pelo menos uma integração" sem hardcodear a lista
+// em cada tela.
+export const INTEGRATION_PERMISSION_KEYS: SecretaryPermissionKey[] = [
+  'integracao_webhook',
+  'integracao_google_calendar',
+  'integracao_gmail',
+  'integracao_whatsapp',
+  'integracao_ai_agent',
+]
+
+// Chave de permissão → IntegrationType (Prisma) correspondente — usado pra
+// saber, dado um add-on ACTIVE, qual checkbox de "Gestão de Acessos" liberar.
+export const PERMISSION_KEY_TO_INTEGRATION_TYPE: Partial<Record<SecretaryPermissionKey, string>> = {
+  integracao_webhook: 'WEBHOOK',
+  integracao_google_calendar: 'GOOGLE_CALENDAR',
+  integracao_gmail: 'GOOGLE_GMAIL',
+  integracao_whatsapp: 'WHATSAPP',
+  integracao_ai_agent: 'AI_AGENT',
 }
 
 /**

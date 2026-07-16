@@ -193,7 +193,7 @@
      PAGE TITLES
   ───────────────────────────────────────── */
   .page-title {
-    @apply text-2xl font-bold text-slate-900 tracking-tight;
+    @apply text-2xl font-semibold text-slate-900 tracking-tight;
   }
 
   .page-subtitle {

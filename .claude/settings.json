@@ -1,0 +1,12 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(npx tsc *)",
+      "Bash(sed -i '' 's/<div className=\"max-w-2xl space-y-6 page-stagger\">/<div className=\"max-w-2xl mx-auto space-y-6 page-stagger\">/' Equipe.tsx FormasPagamento.tsx ConfigNotificacoes.tsx Ajuda.tsx)",
+      "Bash(sed -i '' 's/<div className=\"max-w-4xl space-y-6 page-stagger\">/<div className=\"max-w-4xl mx-auto space-y-6 page-stagger\">/' Integracoes.tsx)",
+      "Bash(sed -i '' 's/<div className=\"max-w-2xl space-y-6 animate-page-enter\">/<div className=\"max-w-2xl mx-auto space-y-6 animate-page-enter\">/' Assinatura.tsx)",
+      "Bash(sed -i '' 's/<div className=\"max-w-3xl space-y-6 page-stagger\">/<div className=\"max-w-3xl mx-auto space-y-6 page-stagger\">/' Documentos.tsx TiposAtendimento.tsx Salas.tsx Documentacao.tsx PlanoFinanceiro.tsx)",
+      "Bash(npx prisma *)"
+    ]
+  }
+}

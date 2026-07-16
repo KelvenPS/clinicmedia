@@ -15,6 +15,7 @@ import {
   Shield,
   Sparkles,
 } from 'lucide-react'
+import { INTEGRATION_PERMISSION_KEYS } from '../hooks/useSecretaryPermissions'
 
 export interface SettingsNavItem {
   to: string
@@ -22,8 +23,12 @@ export interface SettingsNavItem {
   label: string
   shortLabel?: string
   roles: string[]
-  /** Para SECRETARY, exige além do role que o médico tenha liberado esta permissão em "Gestão de Acessos". */
-  secretaryPermission?: string
+  /**
+   * Para SECRETARY, exige além do role que o médico tenha liberado esta
+   * permissão em "Gestão de Acessos". Um array significa "pelo menos uma
+   * das chaves" (ex.: Integrações, liberada por tipo individual).
+   */
+  secretaryPermission?: string | string[]
 }
 
 export const SETTINGS_NAV_ITEMS: SettingsNavItem[] = [
@@ -33,8 +38,8 @@ export const SETTINGS_NAV_ITEMS: SettingsNavItem[] = [
   { to: '/configuracoes/salas', icon: MapPin, label: 'Clínica', roles: ['ADMIN', 'DOCTOR', 'SECRETARY'], secretaryPermission: 'salas' },
   { to: '/configuracoes/documentos', icon: FileText, label: 'Documentos', roles: ['ADMIN', 'DOCTOR', 'SECRETARY'], secretaryPermission: 'documentos' },
   { to: '/configuracoes/formas-pagamento', icon: Wallet, label: 'Formas de Pagamento', shortLabel: 'Pagamento', roles: ['ADMIN', 'DOCTOR'] },
-  { to: '/configuracoes/notificacoes', icon: Bell, label: 'Notificações', shortLabel: 'Alertas', roles: ['ADMIN', 'DOCTOR', 'SECRETARY'] },
-  { to: '/configuracoes/integracoes', icon: Webhook, label: 'Integrações', roles: ['ADMIN', 'DOCTOR', 'SECRETARY'], secretaryPermission: 'integracoes' },
+  { to: '/configuracoes/notificacoes', icon: Bell, label: 'Notificações', shortLabel: 'Alertas', roles: ['ADMIN', 'DOCTOR'] },
+  { to: '/configuracoes/integracoes', icon: Webhook, label: 'Integrações', roles: ['ADMIN', 'DOCTOR', 'SECRETARY'], secretaryPermission: INTEGRATION_PERMISSION_KEYS },
   { to: '/configuracoes/assinatura', icon: Sparkles, label: 'Assinatura', roles: ['ADMIN', 'DOCTOR', 'SECRETARY'] },
   { to: '/configuracoes/equipe', icon: Users, label: 'Minha Equipe', shortLabel: 'Equipe', roles: ['DOCTOR'] },
   { to: '/configuracoes/ajuda', icon: HelpCircle, label: 'Ajuda & Suporte', shortLabel: 'Ajuda', roles: ['ADMIN', 'DOCTOR', 'SECRETARY'] },
@@ -49,7 +54,8 @@ export function getVisibleSettingsNav(role?: string, secretaryPermissions?: Reco
   return SETTINGS_NAV_ITEMS.filter(item => {
     if (!item.roles.includes(role)) return false
     if (role === 'SECRETARY' && item.secretaryPermission) {
-      return !!secretaryPermissions?.[item.secretaryPermission]
+      const keys = Array.isArray(item.secretaryPermission) ? item.secretaryPermission : [item.secretaryPermission]
+      return keys.some(key => !!secretaryPermissions?.[key])
     }
     return true
   })

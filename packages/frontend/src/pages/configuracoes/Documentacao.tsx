@@ -93,7 +93,7 @@ const modules = [
 
 export default function Documentacao() {
   return (
-    <div className="max-w-3xl space-y-6 page-stagger">
+    <div className="max-w-3xl mx-auto space-y-6 page-stagger">
       <div className="animate-stagger-1">
         <h1 className="page-title">Documentação</h1>
         <p className="page-subtitle">Guia completo de uso do sistema</p>

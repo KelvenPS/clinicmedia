@@ -31,7 +31,7 @@ export default function ConfigNotificacoes() {
   const [enabled, setEnabled] = useState([true, true, false])
 
   return (
-    <div className="max-w-2xl space-y-6 page-stagger">
+    <div className="max-w-2xl mx-auto space-y-6 page-stagger">
       <div className="animate-stagger-1">
         <h1 className="page-title">Notificações</h1>
         <p className="page-subtitle">Gerencie seus alertas e notificações do sistema</p>

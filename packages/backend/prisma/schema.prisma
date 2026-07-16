@@ -66,6 +66,7 @@ enum RecordType {
   EXAME
   ATESTADO
   OUTROS
+  SISTEMA
 }
 
 enum AssessmentType {
@@ -123,6 +124,7 @@ model User {
   subscriptionPayments SubscriptionPayment[]       @relation("DoctorPayments")
   checkoutAttempts     SubscriptionCheckoutAttempt[] @relation("DoctorCheckoutAttempts")
   integrations         Integration[]               @relation("DoctorIntegrations")
+  integrationAddons    IntegrationAddon[]          @relation("DoctorIntegrationAddons")
   whatsappInstances    WhatsAppInstance[]          @relation("DoctorWhatsApp")
   healthPlans          HealthPlan[]                @relation("DoctorHealthPlans")
   appointmentTypes     AppointmentType[]           @relation("DoctorAppointmentTypes")
@@ -606,6 +608,31 @@ model Integration {
 
   @@index([doctorId])
   @@map("TBLINTEGRACAO")
+}
+
+// Add-on de assinatura recorrente: libera um IntegrationType para a clínica
+// inteira. Depois de ACTIVE, o médico decide por secretária quem usa (ver
+// DoctorSecretary.permissions, chaves integracao_*) — sem cobrança extra por
+// usuário. Sem produtos Kiwify configurados ainda; ver INTEGRATION_ADDON_PRICING.
+model IntegrationAddon {
+  id                   String          @id @default(uuid())
+  doctorId             String
+  type                 IntegrationType
+  status               String          @default("INACTIVE") // INACTIVE | PENDING_PAYMENT | ACTIVE | PAST_DUE | CANCELED | BLOCKED
+  priceCents           Int
+  kiwifyProductId      String?
+  kiwifySubscriptionId String?
+  lastKiwifyOrderId    String?
+  lastPaymentAt        DateTime?
+  currentPeriodEndsAt  DateTime?
+  canceledAt           DateTime?
+  createdAt            DateTime        @default(now())
+  updatedAt            DateTime        @updatedAt
+
+  doctor User @relation("DoctorIntegrationAddons", fields: [doctorId], references: [id], onDelete: Cascade)
+
+  @@unique([doctorId, type])
+  @@map("TBLINTEGRACAOADDON")
 }
 
 model WebhookLog {

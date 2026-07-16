@@ -3,12 +3,12 @@ import { z } from 'zod'
 import { prisma } from '../lib/prisma'
 import { authenticate, requireRole, AuthRequest } from '../middleware/auth'
 import { fireWebhooks } from '../lib/webhook'
-import { getEffectiveDoctorId, requireSecretaryPermission } from '../lib/secretaryAccess'
+import { getEffectiveDoctorId, normalizeSecretaryPermissions, INTEGRATION_TYPE_PERMISSION_KEYS } from '../lib/secretaryAccess'
+import { getActiveIntegrationAddonTypes } from '../lib/integrationAddons'
 
 const router = Router()
 router.use(authenticate)
 router.use(requireRole('DOCTOR', 'ADMIN', 'SECRETARY'))
-router.use(requireSecretaryPermission('integracoes'))
 
 const ALLOWED_EVENTS = [
   'appointment.created',
@@ -37,13 +37,33 @@ router.get('/', async (req: AuthRequest, res) => {
       },
       orderBy: { createdAt: 'asc' },
     })
+
+    // SECRETARY só vê integrações de tipos que o médico liberou especificamente
+    // E cujo add-on da clínica está ACTIVE (nunca faz sentido liberar algo que
+    // a clínica não contratou). DOCTOR/ADMIN veem tudo.
+    if (req.user!.role === 'SECRETARY') {
+      const link = await prisma.doctorSecretary.findFirst({
+        where: { secretaryId: req.user!.userId, active: true },
+        select: { permissions: true },
+      })
+      const permissions = normalizeSecretaryPermissions(link?.permissions)
+      const activeAddonTypes = doctorId ? await getActiveIntegrationAddonTypes(doctorId) : new Set<string>()
+
+      const visible = integrations.filter(i => {
+        const key = INTEGRATION_TYPE_PERMISSION_KEYS[i.type]
+        return !!key && !!permissions[key] && activeAddonTypes.has(i.type)
+      })
+      res.json(visible)
+      return
+    }
+
     res.json(integrations)
   } catch {
     res.status(500).json({ message: 'Erro interno do servidor' })
   }
 })
 
-router.post('/', async (req: AuthRequest, res) => {
+router.post('/', requireRole('DOCTOR', 'ADMIN'), async (req: AuthRequest, res) => {
   try {
     const doctorId = await getEffectiveDoctorId(req)
     if (!doctorId) {
@@ -51,6 +71,12 @@ router.post('/', async (req: AuthRequest, res) => {
       return
     }
     const data = integrationSchema.parse(req.body)
+
+    const activeAddonTypes = await getActiveIntegrationAddonTypes(doctorId)
+    if (!activeAddonTypes.has(data.type)) {
+      res.status(402).json({ message: 'Contrate o add-on desta integração em Integrações antes de configurá-la.', code: 'ADDON_NOT_ACTIVE' })
+      return
+    }
 
     const integration = await prisma.integration.create({
       data: {
@@ -72,7 +98,7 @@ router.post('/', async (req: AuthRequest, res) => {
   }
 })
 
-router.put('/:id', async (req: AuthRequest, res) => {
+router.put('/:id', requireRole('DOCTOR', 'ADMIN'), async (req: AuthRequest, res) => {
   try {
     const { id } = req.params
     const doctorId = await getEffectiveDoctorId(req)
@@ -103,7 +129,7 @@ router.put('/:id', async (req: AuthRequest, res) => {
   }
 })
 
-router.patch('/:id/toggle', async (req: AuthRequest, res) => {
+router.patch('/:id/toggle', requireRole('DOCTOR', 'ADMIN'), async (req: AuthRequest, res) => {
   try {
     const { id } = req.params
     const doctorId = await getEffectiveDoctorId(req)
@@ -124,7 +150,7 @@ router.patch('/:id/toggle', async (req: AuthRequest, res) => {
   }
 })
 
-router.delete('/:id', async (req: AuthRequest, res) => {
+router.delete('/:id', requireRole('DOCTOR', 'ADMIN'), async (req: AuthRequest, res) => {
   try {
     const { id } = req.params
     const doctorId = await getEffectiveDoctorId(req)
@@ -143,7 +169,7 @@ router.delete('/:id', async (req: AuthRequest, res) => {
 })
 
 // Test: send sample payload to webhook
-router.post('/:id/test', async (req: AuthRequest, res) => {
+router.post('/:id/test', requireRole('DOCTOR', 'ADMIN'), async (req: AuthRequest, res) => {
   try {
     const { id } = req.params
     const doctorId = await getEffectiveDoctorId(req)
@@ -181,7 +207,7 @@ router.post('/:id/test', async (req: AuthRequest, res) => {
 })
 
 // Webhook delivery logs
-router.get('/:id/logs', async (req: AuthRequest, res) => {
+router.get('/:id/logs', requireRole('DOCTOR', 'ADMIN'), async (req: AuthRequest, res) => {
   try {
     const { id } = req.params
     const doctorId = await getEffectiveDoctorId(req)
